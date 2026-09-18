@@ -271,6 +271,29 @@ struct StoreKitErrorMappingTests {
     }
 }
 
+@Suite("Ownership types")
+struct OwnershipTypeTests {
+    /// By raw value, so that the adapter compiles against the 26 SDK, which has the
+    /// value and not the name. A raw value is a string, and a string that stops
+    /// matching fails silently — an organisation's purchase would become `unrecognised`,
+    /// and stop counting for an unlock that ignores Family Sharing.
+    @Test("each of StoreKit's ownership types crosses as itself, and one it adds later as unrecognised")
+    func mapping() {
+        #expect(LiveStoreKitGateway.ownership(.purchased) == .purchased)
+        #expect(LiveStoreKitGateway.ownership(.familyShared) == .familyShared)
+        #expect(LiveStoreKitGateway.ownership(.init(rawValue: "ASSIGNED")) == .assigned)
+        #expect(LiveStoreKitGateway.ownership(.init(rawValue: "SOMETHING_NEW")) == .unrecognised)
+    }
+
+    // Where the name can be spelt, check that it is still the value matched above.
+    #if canImport(StoreKit, _version: 816)
+    @Test("the 27 SDK's `.assigned` is the raw value the adapter matches")
+    func assignedByName() {
+        #expect(LiveStoreKitGateway.ownership(.assigned) == .assigned)
+    }
+    #endif
+}
+
 @Suite("Transaction triage")
 struct TransactionTriageTests {
     private let gateway = FakeStoreKitGateway()

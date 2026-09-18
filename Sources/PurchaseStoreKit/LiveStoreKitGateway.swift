@@ -137,11 +137,15 @@ final class LiveStoreKitGateway: StoreKitGateway {
             finish: { await transaction.finish() })
     }
 
-    private static func ownership(_ type: StoreKit.Transaction.OwnershipType) -> Ownership {
+    /// `.assigned` is matched by its raw value. The *name* arrived with the 27 SDK — back
+    /// deployed, so the value is as old as the type — and spelt out, this file did not
+    /// compile with Xcode 26, which the first run on a hosted runner was the first to
+    /// find out: nothing on the machine it was written on had the older SDK.
+    static func ownership(_ type: StoreKit.Transaction.OwnershipType) -> Ownership {
         switch type {
         case .purchased: .purchased
         case .familyShared: .familyShared
-        case .assigned: .assigned
+        case StoreKit.Transaction.OwnershipType(rawValue: "ASSIGNED"): .assigned
         default: .unrecognised
         }
     }

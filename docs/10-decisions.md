@@ -95,7 +95,7 @@ Splitting the domain into its own target would make the compiler enforce the dep
 
 ## D17. No SDK-27-only symbols
 
-`StoreKitError.invalidPresentationContext` arrived with the 27 SDK and is matched by name, and the two error switches use a plain `default` rather than `@unknown default`, which would warn on 27 about a case that cannot be spelt on 26. The package builds with either.
+`StoreKitError.invalidPresentationContext` arrived with the 27 SDK and is matched by name, `Transaction.OwnershipType.assigned` likewise by its raw value (the name is new; the value is back-deployed), and the two error switches use a plain `default` rather than `@unknown default`, which would warn on 27 about a case that cannot be spelt on 26. The package builds with either.
 
 ## D18. The `.storekit` format is read leniently
 
