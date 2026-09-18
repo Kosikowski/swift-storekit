@@ -18,8 +18,8 @@ jobs:
   check:
     name: make check
     runs-on: macos-26
-    # Not yet measured on a hosted runner since the Demo's builds joined `make check`.
-    timeout-minutes: 40
+    # About five minutes on a hosted runner, the Demo's builds included.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
