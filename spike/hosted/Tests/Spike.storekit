@@ -1,0 +1,36 @@
+{
+  "identifier" : "5B1C0A11",
+  "nonRenewingSubscriptions" : [ ],
+  "products" : [
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : true,
+      "internalID" : "6700000001",
+      "localizations" : [
+        { "description" : "Everything.", "displayName" : "Pro", "locale" : "en_US" }
+      ],
+      "productID" : "spike.pro",
+      "referenceName" : "Pro",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "0.00",
+      "familyShareable" : false,
+      "internalID" : "6700000002",
+      "localizations" : [
+        { "description" : "Fourteen days.", "displayName" : "Trial", "locale" : "en_US" }
+      ],
+      "productID" : "spike.trial",
+      "referenceName" : "Trial",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [ ]
+  },
+  "subscriptionGroups" : [ ],
+  "version" : { "major" : 4, "minor" : 0 }
+}

@@ -1,0 +1,44 @@
+# Spike, not product: the same questions as ../sktestsession, asked from a test
+# bundle HOSTED by an app, which is the only place SKTestSession answered.
+name: HostedSpike
+options:
+  bundleIdPrefix: spike.storekit
+  deploymentTarget:
+    macOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    GENERATE_INFOPLIST_FILE: YES
+targets:
+  Host:
+    type: application
+    platform: macOS
+    sources: [Host]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: spike.storekit.host
+        CODE_SIGN_ENTITLEMENTS: Host/Host.entitlements
+  HostTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+        excludes: ["*.storekit"]
+      - path: Tests/Spike.storekit
+        buildPhase: resources
+    dependencies:
+      - target: Host
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: spike.storekit.host.tests
+schemes:
+  Host:
+    build:
+      targets:
+        Host: all
+        HostTests: [test]
+    test:
+      targets: [HostTests]

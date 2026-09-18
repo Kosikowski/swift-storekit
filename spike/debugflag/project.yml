@@ -1,0 +1,29 @@
+name: DebugFlagSpike
+options:
+  deploymentTarget:
+    macOS: "26.0"
+configs:
+  Debug: debug
+  Release: release
+  Screenshots: debug
+  Debug-Screenshots: debug
+packages:
+  Flag:
+    path: Flag
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+  configs:
+    Screenshots:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG SCREENSHOTS
+    Debug-Screenshots:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG SCREENSHOTS
+targets:
+  Tool:
+    type: tool
+    platform: macOS
+    sources: [Tool]
+    dependencies:
+      - package: Flag

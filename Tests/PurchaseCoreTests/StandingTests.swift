@@ -1,0 +1,143 @@
+import Foundation
+import PurchaseCore
+import Testing
+
+@Suite("Standing")
+struct StandingTests {
+    private let resolver = StandingResolver()
+    private let now = Shop.epoch
+
+    private func standing(_ owned: [OwnedProduct], catalogue: Catalogue = Shop.catalogue) -> Standing {
+        resolver.standing(owned: owned, catalogue: catalogue, asOf: now)
+    }
+
+    @Test("before the store answers, access is UNKNOWN and never none")
+    func unknown() {
+        let standing = Standing.unknown(catalogue: Shop.catalogue)
+        #expect(!standing.isKnown)
+        #expect(standing.access(to: Shop.pro, at: now) == .unknown)
+        #expect(standing.trial(Shop.trial, at: now) == .unknown)
+        #expect(standing.nextExpiry == nil)
+    }
+
+    @Test("owning nothing is known, and is none")
+    func nothing() {
+        let standing = standing([])
+        #expect(standing.isKnown)
+        #expect(standing.access(to: Shop.pro) == .none)
+        #expect(standing.trial(Shop.trial) == .available)
+    }
+
+    @Test("an unlock that is owned is owned, and its trial is no longer on offer")
+    func owned() {
+        let pro = OwnedProduct(id: Shop.pro, originalPurchaseDate: now)
+        let standing = standing([pro])
+        #expect(standing.access(to: Shop.pro) == .owned(pro))
+        #expect(standing.trial(Shop.trial) == .notOffered)
+    }
+
+    @Test("the whole listing is read: a product listed FIRST does not hide the one after it")
+    func wholeListing() {
+        let catalogue: Catalogue = [.unlock("a"), .unlock("b")]
+        let standing = standing(
+            [
+                OwnedProduct(id: "somebody.elses", originalPurchaseDate: now),
+                OwnedProduct(id: "b", originalPurchaseDate: now),
+                OwnedProduct(id: "a", originalPurchaseDate: now),
+            ], catalogue: catalogue)
+        #expect(standing.ownedProducts.map(\.id) == ["a", "b"])
+    }
+
+    @Test("a product the catalogue does not list is somebody else's and is not counted")
+    func foreign() {
+        let standing = standing([OwnedProduct(id: "somebody.elses", originalPurchaseDate: now)])
+        #expect(standing.ownedProducts.isEmpty)
+    }
+
+    @Test("a running trial lends the unlock, and says through which product and until when")
+    func runningTrial() {
+        let started = now.addingTimeInterval(-86_400)
+        let standing = standing([OwnedProduct(id: Shop.trial, originalPurchaseDate: started)])
+        let period = TrialPeriod(startedAt: started, endsAt: started.addingTimeInterval(14 * 86_400))
+        #expect(standing.access(to: Shop.pro) == .onTrial(period, via: Shop.trial))
+        #expect(standing.trial(Shop.trial) == .running(period))
+        #expect(standing.nextExpiry == period.endsAt)
+    }
+
+    @Test("the same standing answers differently for a later date, without reading any clock")
+    func dateIsAParameter() {
+        let standing = standing([OwnedProduct(id: Shop.trial, originalPurchaseDate: now)])
+        let end = now.addingTimeInterval(14 * 86_400)
+        #expect(standing.access(to: Shop.pro, at: end.addingTimeInterval(-1)) != .none)
+        #expect(standing.access(to: Shop.pro, at: end) == .none)
+    }
+
+    @Test("a trial is over AT its end, not a moment after")
+    func exclusiveEnd() {
+        let period = TrialTerms(duration: .seconds(10), targets: [Shop.pro]).period(startingAt: now)
+        #expect(period.isRunning(at: now.addingTimeInterval(9.999)))
+        #expect(!period.isRunning(at: now.addingTimeInterval(10)))
+    }
+
+    @Test("a trial that has ended is used, remembers when, and lends nothing")
+    func usedTrial() {
+        let started = now.addingTimeInterval(-20 * 86_400)
+        let standing = standing([OwnedProduct(id: Shop.trial, originalPurchaseDate: started)])
+        let period = TrialPeriod(startedAt: started, endsAt: started.addingTimeInterval(14 * 86_400))
+        #expect(standing.trial(Shop.trial) == .used(period))
+        #expect(standing.access(to: Shop.pro) == .none)
+        #expect(standing.nextExpiry == nil)
+    }
+
+    @Test("owning the unlock beats a trial, running or over")
+    func unlockBeatsTrial() {
+        let pro = OwnedProduct(id: Shop.pro, originalPurchaseDate: now)
+        let standing = standing([OwnedProduct(id: Shop.trial, originalPurchaseDate: now), pro])
+        #expect(standing.access(to: Shop.pro) == .owned(pro))
+    }
+
+    @Test("a sub-second trial keeps its fraction")
+    func subSecond() {
+        let period = TrialTerms(duration: .milliseconds(300), targets: [Shop.pro]).period(startingAt: now)
+        #expect(abs(period.endsAt.timeIntervalSince(now) - 0.3) < 0.000_001)
+    }
+}
+
+@Suite("What counts")
+struct OwnershipRuleTests {
+    private let resolver = StandingResolver()
+    private let now = Shop.epoch
+
+    @Test("a trial counts only when this account bought it", arguments: [
+        (Ownership.purchased, true), (.familyShared, false), (.assigned, false), (.unrecognised, false),
+    ])
+    func trial(ownership: Ownership, counts: Bool) {
+        let owned = OwnedProduct(id: Shop.trial, originalPurchaseDate: now, ownership: ownership)
+        #expect(resolver.counts(owned, in: Shop.catalogue) == counts)
+    }
+
+    @Test("an unlock that honours Family Sharing counts however it arrived", arguments: [
+        Ownership.purchased, .familyShared, .assigned, .unrecognised,
+    ])
+    func sharedUnlock(ownership: Ownership) {
+        let owned = OwnedProduct(id: Shop.pro, originalPurchaseDate: now, ownership: ownership)
+        #expect(resolver.counts(owned, in: Shop.catalogue))
+    }
+
+    @Test("an unlock that ignores Family Sharing does not count when shared", arguments: [
+        (Ownership.purchased, true), (.assigned, true), (.familyShared, false), (.unrecognised, false),
+    ])
+    func unsharedUnlock(ownership: Ownership, counts: Bool) {
+        let catalogue: Catalogue = [.unlock(Shop.pro, familySharing: .ignored)]
+        let owned = OwnedProduct(id: Shop.pro, originalPurchaseDate: now, ownership: ownership)
+        #expect(resolver.counts(owned, in: catalogue) == counts)
+    }
+
+    @Test("listed twice, this account's own purchase wins, then the earlier")
+    func duplicates() {
+        let shared = OwnedProduct(id: Shop.pro, originalPurchaseDate: now.addingTimeInterval(-100), ownership: .familyShared)
+        let own = OwnedProduct(id: Shop.pro, originalPurchaseDate: now)
+        let standing = resolver.standing(owned: [shared, own], catalogue: Shop.catalogue, asOf: now)
+        #expect(standing.ownership(of: Shop.pro) == own)
+    }
+}

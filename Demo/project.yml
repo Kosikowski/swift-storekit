@@ -1,0 +1,114 @@
+# The demo app, and the host for the only tests that touch real StoreKit.
+#
+# It is an Xcode project because it has to be: StoreKit's test environment attaches to
+# an app, and SKTestSession does nothing useful from a package test target
+# (../spike/README.md). The project itself is generated — `xcodegen generate` — and
+# not committed; this file is the source.
+name: Demo
+options:
+  bundleIdPrefix: com.example.purchasedemo
+  deploymentTarget:
+    macOS: "26.0"
+    iOS: "26.0"
+packages:
+  swift-storekit:
+    path: ..
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    GENERATE_INFOPLIST_FILE: YES
+targets:
+  # One target for the Mac and for iOS, so that everything measured against real
+  # StoreKit on one is measured on the other (`make integration-ios`).
+  Demo:
+    type: application
+    supportedDestinations: [macOS, iOS]
+    sources:
+      - path: App
+    dependencies:
+      - package: swift-storekit
+        product: PurchaseCore
+      - package: swift-storekit
+        product: PurchaseStoreKit
+      - package: swift-storekit
+        product: PurchaseUI
+      - package: swift-storekit
+        product: PurchaseTestKit
+      - package: swift-storekit
+        product: PurchaseDebugUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.purchasedemo
+        # Said again here: for a target with more than one destination XcodeGen's own
+        # preset puts "iPhone Developer" at this level, over the project's ad-hoc "-".
+        CODE_SIGN_IDENTITY: "-"
+        # The App Sandbox is the Mac's.
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": App/Demo.entitlements
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+  DemoTests:
+    type: bundle.unit-test
+    supportedDestinations: [macOS, iOS]
+    sources:
+      - path: Tests
+      # XcodeGen's default build phase for a .storekit file is "none", which is right
+      # for an app — it must never ship in one — and wrong here: the sandboxed host
+      # cannot read the repository, so the test bundle has to carry its own copy.
+      - path: Demo.storekit
+        buildPhase: resources
+    dependencies:
+      - target: Demo
+      - package: swift-storekit
+        product: PurchaseCore
+      - package: swift-storekit
+        product: PurchaseStoreKit
+      - package: swift-storekit
+        product: PurchaseTestKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.purchasedemo.tests
+        CODE_SIGN_IDENTITY: "-"
+        # Spelt out because the app's executable is in Contents/MacOS on the Mac and
+        # beside Info.plist on iOS, and XcodeGen's default knows only the second.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Demo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Demo"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+  # Launches the app with a scenario, as a screenshot run would. A scheme of its own, so
+  # that `make integration` does not need the Mac's Automation Mode.
+  DemoUITests:
+    type: bundle.ui-testing
+    supportedDestinations: [macOS, iOS]
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Demo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.purchasedemo.uitests
+        CODE_SIGN_IDENTITY: "-"
+        # Signed ad hoc, the Mac's runner will not load a hardened test bundle.
+        ENABLE_HARDENED_RUNTIME: NO
+        TEST_TARGET_NAME: Demo
+schemes:
+  DemoUI:
+    build:
+      targets:
+        Demo: all
+        DemoUITests: [test]
+    test:
+      targets: [DemoUITests]
+  Demo:
+    build:
+      targets:
+        Demo: all
+        DemoTests: [test]
+    run:
+      # Only for builds launched from Xcode. A build started any other way asks the
+      # App Store, which has never heard of it and sells it nothing.
+      storeKitConfiguration: Demo.storekit
+    test:
+      targets: [DemoTests]

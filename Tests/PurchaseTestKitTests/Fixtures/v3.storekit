@@ -1,0 +1,51 @@
+{
+  "identifier" : "0F1E2D3C-4B5A-4978-8695-A4B3C2D1E0F9",
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    {
+      "displayPrice" : "2.99",
+      "familyShareable" : false,
+      "internalID" : "1A2B3C4D-5E6F-4A7B-8C9D-0E1F2A3B4C5D",
+      "localizations" : [
+        {
+          "description" : "Exports without the watermark.",
+          "displayName" : "Example Pro",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.example.pro",
+      "referenceName" : "Example Pro",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "0",
+    "_developerTeamID" : "0",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "en_US",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      }
+    ],
+    "_storefront" : "USA"
+  },
+  "subscriptionGroups" : [],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

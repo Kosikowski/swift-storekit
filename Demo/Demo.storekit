@@ -1,0 +1,36 @@
+{
+  "identifier" : "D3A0C0DE",
+  "nonRenewingSubscriptions" : [ ],
+  "products" : [
+    {
+      "displayPrice" : "19.99",
+      "familyShareable" : true,
+      "internalID" : "6800000001",
+      "localizations" : [
+        { "description" : "Everything, for good.", "displayName" : "Demo Pro", "locale" : "en_US" }
+      ],
+      "productID" : "com.example.purchasedemo.pro",
+      "referenceName" : "Pro",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "0.00",
+      "familyShareable" : false,
+      "internalID" : "6800000002",
+      "localizations" : [
+        { "description" : "Everything, for a fortnight.", "displayName" : "14-day Trial", "locale" : "en_US" }
+      ],
+      "productID" : "com.example.purchasedemo.trial",
+      "referenceName" : "Trial",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [ ]
+  },
+  "subscriptionGroups" : [ ],
+  "version" : { "major" : 4, "minor" : 0 }
+}

@@ -1,0 +1,63 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "9C3B5E70",
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    {
+      "displayPrice" : "19.99",
+      "familyShareable" : true,
+      "internalID" : "6700000001",
+      "localizations" : [
+        {
+          "description" : "Everything, once, for good.",
+          "displayName" : "Example Pro",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.example.pro",
+      "referenceName" : "Pro",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "0.00",
+      "familyShareable" : false,
+      "internalID" : "6700000002",
+      "localizations" : [
+        {
+          "description" : "Every Pro feature for fourteen days, once.",
+          "displayName" : "14-day Trial",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.example.trial",
+      "referenceName" : "14-day Trial",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingGracePeriodEnabled" : false,
+    "_disableDialogs" : false,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storeKitErrors" : [],
+    "_storefront" : "GBR",
+    "_timeRate" : 0
+  },
+  "subscriptionBundleGroups" : [],
+  "subscriptionGroups" : [],
+  "subscriptionSuiteGroups" : [],
+  "version" : {
+    "major" : 6,
+    "minor" : 3
+  }
+}

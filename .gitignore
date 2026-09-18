@@ -1,0 +1,11 @@
+# SwiftPM's build directory, and the one xcodebuild is pointed at by the Makefile.
+.build/
+build/
+
+# Generated from project.yml by XcodeGen; the YAML is the source.
+*.xcodeproj
+
+# Editor and Finder droppings.
+.swiftpm/
+.DS_Store
+xcuserdata/

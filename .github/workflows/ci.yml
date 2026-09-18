@@ -1,0 +1,59 @@
+# The offline suite is green with the network cable unplugged: the store is simulated
+# and the clock is manual, so there is no rig to stand up and nothing to reach.
+#
+# What is NOT run here is the hosted suite against real StoreKit (`make integration`).
+# StoreKit's test environment is reported to be unreliable under command-line xcodebuild
+# on hosted runners — not checked here — and a lane that fails for reasons of its own
+# teaches people to ignore it.
+# It is run by hand, from a Mac, before a release.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: make check
+    runs-on: macos-26
+    # Not yet measured on a hosted runner since the Demo's builds joined `make check`.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+
+      # A property of the runner image, so it is recorded rather than assumed.
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      # The Demo's project is generated, not committed, and `make check` builds it.
+      - name: XcodeGen
+        run: brew install xcodegen
+
+      # Layers, the macOS suite in debug and in release, the iOS build, proof that the
+      # simulated store is absent from a release build, and the Demo — with its hosted
+      # tests for the Mac and iOS, its UI tests, and once more in Release, linked. All
+      # of that built, not run (see above).
+      - name: Check
+        run: make check
+
+      # A filter that matches nothing passes, and so does a release run in which a
+      # `#if DEBUG` has been drawn too wide: everything compiles, and nothing is left to
+      # run. This makes sure something ran, in both. Built already, so it costs seconds.
+      - name: The suite is not empty
+        run: |
+          count() { grep -o -E 'Test run with [0-9]+ tests' | grep -o -E '[0-9]+' | paste -sd+ - | bc; }
+          debug=$(swift test 2>&1 | count)
+          release=$(swift test -c release -Xswiftc -enable-testing 2>&1 | count)
+          echo "tests run: $debug in debug, $release in release"
+          test "$debug" -ge 100
+          test "$release" -ge 60
