@@ -185,3 +185,15 @@ Out of CI altogether, it ran "by hand, before a release" — and it is where eve
 
 D14 says every regression test is proven to bite, and those were: put back, the old behaviour fails them. But a review mutated the code rather than reverting fixes, and four documented guarantees turned out never to have had a test at all — the re-run that gives a late caller a fresh read, the re-read after a *failed* restore (D9), the adapter's handling of a cancelled products request, and `purchase()` starting the listener. Each has one now, watched to fail against its mutant. **[ran]** The lesson is about where to look: "does the regression test bite" finds weak tests, and only "does the suite notice this line changing" finds missing ones.
 
+## D32. What the first real integration asked of the package
+
+The app this package came out of was moved onto it, and then reviewed. Nothing was lost in the move; what the review found was what a real app has to write, or work round, that the package could have done.
+
+- **A read that finds nothing new is not published.** An app reads again whenever it becomes active and whenever a settings pane opens, and `standing` was assigned every time — a new value, because `asOf` had moved — which redrew every lock on a rail and every gate, for nothing. It is now published only when it *says* something different: what is held, or what that amounts to. A trial running out is the one case where nothing held has changed and everything has, and is published. **[ran]** `asOf` is therefore "when it last read differently", not "when it was last asked".
+- **`ProductAccess.isGranted`, a `Bool?`.** Every app derives "owned or on trial", and D8's point is that the derivation must not lose `unknown`. An optional keeps it: it cannot be tested with `if` until somebody has decided what nil means.
+- **The store's clock is public.** The app kept a clock of its own beside the store's, to ask `access(to:at:)` what is true *now*; under a manual clock in a test those are two clocks.
+- **`loadProductsIfNeeded()`.** `loadProducts()` goes to the network every time, which is right for Retry and wrong for a paywall opening and for a second scene.
+- **`PurchaseStore.diagnose()`.** Made in one line, the store was the only thing the app kept, and the front — the only thing that could say what the build receives — was gone.
+- **`SimulatedStoreFront(catalogue:owned:…)` and `Behaviour(purchase:…)`.** The app's tests wrote both as conveniences of their own, as every app's would.
+- **Said, rather than built:** what `alreadyInProgress` should be worded as (nothing; and Restore should be disabled while busy, as Buy is); that a paywall bound to app-wide state comes up in every window, so a shared notice shows N times ([migrating](12-migrating-an-existing-app.md)); and that before 1.0 the pin should be up to the next *minor*.
+

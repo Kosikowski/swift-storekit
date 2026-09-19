@@ -23,7 +23,11 @@ public struct Standing: Hashable, Sendable {
     }
 
     public let phase: Phase
-    /// When this was resolved. The date the convenience queries answer for.
+    /// The date the convenience queries answer for: when the store last resolved to
+    /// something that *reads* differently. A later read that found nothing new is not
+    /// published (it would redraw everything that watches this, for nothing), so this
+    /// is not "when the store was last asked". Questions that depend on the time take
+    /// the date as a parameter; pass the time it is.
     public let asOf: Date
     public let catalogue: Catalogue
     private let holdings: [ProductID: OwnedProduct]
@@ -97,6 +101,19 @@ public struct Standing: Hashable, Sendable {
             .filter { $0.isRunning(at: asOf) }
             .map(\.endsAt)
             .min()
+    }
+
+    /// Whether `other` answers every question this does, each asked of its own moment.
+    ///
+    /// Not equality, which includes `asOf`: two readings an hour apart of an account that
+    /// owns the same things are different values and the same news. What is held has to
+    /// match, *and* what it amounts to — a trial that ran out in that hour holds exactly
+    /// what it held, and is the one case where nothing new is something new.
+    func saysTheSame(as other: Standing) -> Bool {
+        guard phase == other.phase, catalogue == other.catalogue, holdings == other.holdings else { return false }
+        return catalogue.entries.allSatisfy { entry in
+            access(to: entry.id) == other.access(to: entry.id) && trial(entry.id) == other.trial(entry.id)
+        }
     }
 
     private func period(of entry: CatalogueEntry) -> TrialPeriod? {

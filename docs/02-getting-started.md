@@ -20,7 +20,9 @@ In Xcode, use File › Add Package Dependencies…. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Kosikowski/swift-storekit.git", from: "0.1.0"),
+    // Up to the next *minor*, until 1.0: `from:` accepts everything below 1.0, and
+    // before 1.0 a minor release is where the API moves.
+    .package(url: "https://github.com/Kosikowski/swift-storekit.git", .upToNextMinor(from: "0.1.0")),
 ],
 targets: [
     .target(
@@ -123,13 +125,13 @@ struct ExampleApp: App {
 
 1. sets `\.purchaseState` (what a view may read; it has no commands) and `\.purchaseCommands` (what a button may ask for);
 2. calls `start()`, which begins listening for transactions and reads what is owned;
-3. then calls `loadProducts()`, unless you pass `loadsProducts: false`.
+3. then calls `loadProductsIfNeeded()`, unless you pass `loadsProducts: false`.
 
 Ownership is read first and prices second, because nothing about what a person may use should wait for a network request that can take a long time to fail.
 
 SwiftUI cancels the modifier's task if the view goes away, and that is safe. The store reads ownership in a task of its own, because real StoreKit answers a cancelled task with nothing at all, which reads as owning nothing `[ran]`.
 
-Apply the modifier once, at the root. An app with a second scene applies it to that scene's root view as well, with `loadsProducts: false`: `start()` does nothing the second time, whereas `loadProducts()` would ask the network again.
+Apply the modifier once, at the root. An app with a second scene applies it to that scene's root view as well: `start()` does nothing the second time, and prices that are loaded are not asked for again. `loadProducts()` itself goes to the network every time, which is what a Retry button wants; everything else wants `loadProductsIfNeeded()`.
 
 ## `standing`, or `knownStanding()`?
 
@@ -174,14 +176,12 @@ extension Standing {
     /// App policy, not a store fact: what "Pro" means here.
     /// Nil while the store has not answered — the caller decides what that means.
     func unlocksPro(at date: Date) -> Bool? {
-        switch access(to: Shop.pro, at: date) {
-        case .unknown: nil
-        case .owned, .onTrial: true
-        case .none: false
-        }
+        access(to: Shop.pro, at: date).isGranted
     }
 }
 ```
+
+`ProductAccess.isGranted` is true when owned or lent by a running trial, false when neither, and **nil until the store has answered**. It is a `Bool?` and not a `Bool` on purpose: an optional cannot be tested with `if` until somebody has decided what nil means for the thing being asked, and "no" is nearly always the wrong decision. If Pro means something else in your app — several unlocks, a trial that lends only part of it — write the `switch` yourself.
 
 A gate then waits for the answer, so the unknown case cannot arise by accident:
 
@@ -193,7 +193,7 @@ func mayExport(_ purchases: any PurchaseStateProviding, now: Date = .now) async 
 }
 ```
 
-The date is a parameter because a standing is a fact about a moment. Nothing in the package reads a clock to answer a question, which is what makes a trial's expiry testable ([catalogue and standing](03-catalogue-and-standing.md)).
+The date is a parameter because a standing is a fact about a moment. Nothing in the package reads a clock to answer a question, which is what makes a trial's expiry testable ([catalogue and standing](03-catalogue-and-standing.md)). Where the app does need the time — a model that answers `isPro` for a view — ask the store's own clock, `store.clock.now`, rather than keeping a second one beside it: under a `ManualClock` in a test, the two would disagree.
 
 ## Buttons, and where the result lives
 
@@ -441,7 +441,7 @@ Attach a `.storekit` configuration file to the scheme's Run action (Product › 
 The package reports the trap three ways:
 
 - the store logs `PurchaseEvent.catalogueLoadedEmpty(requested:)` when a load returns nothing at all, while `productLoad` is `.loaded` and `products` is empty;
-- `AppStoreFront` conforms to `StoreDiagnosing`, and `await front.diagnose()` returns a `StoreDiagnosis` whose `hints` include `.storeSellsNothingToThisBuild`;
+- `AppStoreFront` conforms to `StoreDiagnosing`, and `await front.diagnose()` — or `await store.diagnose()`, if the store was made in one line and the front was not kept — returns a `StoreDiagnosis` whose `hints` include `.storeSellsNothingToThisBuild`;
 - `PurchaseDebugPanel` shows the same diagnosis under "What this build receives".
 
 ## Next

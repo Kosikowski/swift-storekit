@@ -116,7 +116,7 @@ let known = await store.knownStanding()       // waits for the answer
 | Member | Answers |
 |---|---|
 | `phase`, `isKnown` | `.unknown` or `.known`: whether the store has answered |
-| `asOf` | When this standing was resolved |
+| `asOf` | When the store last resolved to something that *reads* differently. A later read that found nothing new is not published — it would redraw every view that watches the standing, for nothing — so this is not "when the store was last asked". A trial running out is news, though nothing held has changed, and is published |
 | `catalogue` | The catalogue it was resolved against |
 | `access(to:at:)` | `ProductAccess` for one unlock at a date |
 | `trial(_:at:)` | `TrialStatus` for one trial at a date ([trials](04-trials.md)) |
