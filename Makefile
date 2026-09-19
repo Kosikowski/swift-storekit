@@ -85,8 +85,9 @@ ui-tests:
 ## all (docs/10-decisions.md, D25). **And looked inside**: what ships is this build,
 ## not SwiftPM's, and whether the package got `DEBUG` in it is decided by a heuristic
 ## on the configuration's name; so the release app is searched for the simulated
-## store, with the debug app as the control. Then the iOS side of it and the UI tests, which
-## are `#if os` branches and a target that nothing on the Mac compiles.
+## store, with the debug app as the control. Then an app that links the test kit, which
+## must fail to build, and over the test kit (D34). Then the iOS side of it and the UI
+## tests, which are `#if os` branches and a target that nothing on the Mac compiles.
 demo:
 	cd Demo && xcodegen generate --quiet
 	$(XCODEBUILD) build-for-testing -project Demo/Demo.xcodeproj -scheme Demo -destination 'platform=macOS' \
@@ -95,6 +96,12 @@ demo:
 		-destination 'platform=macOS' -derivedDataPath build/demo-release -quiet
 	$(SWIFT) package release-check --app build/demo-release/Build/Products/Release/Demo.app \
 		--debug-app build/demo/Build/Products/Debug/Demo.app
+	@if $(XCODEBUILD) build -project Demo/Demo.xcodeproj -scheme LinksTheTestKit -destination 'platform=macOS' \
+		-derivedDataPath build/demo > build/links-the-test-kit.log 2>&1; then \
+		echo "An app that links PurchaseTestKit BUILT. It must not (docs/10-decisions.md, D34)."; exit 1; fi
+	@grep -q "in PurchaseTestKit.o" build/links-the-test-kit.log || { echo "The app that links \
+		PurchaseTestKit did not build, but not over the test kit: build/links-the-test-kit.log"; exit 1; }
+	@echo "an app that links PurchaseTestKit does not build, and the linker says it is the test kit"
 	$(XCODEBUILD) build-for-testing -project Demo/Demo.xcodeproj -scheme Demo \
 		-destination 'generic/platform=iOS Simulator' -derivedDataPath build/demo-ios -quiet
 	$(XCODEBUILD) build-for-testing -project Demo/Demo.xcodeproj -scheme DemoUI \

@@ -14,7 +14,7 @@
 //  and one line in the app's tests turns a renamed product into a failing test:
 //
 //      let file = try StoreKitConfiguration(contentsOf: url)
-//      #expect(file.problems(against: catalogue) == [])
+//      file.expectNoProblems(against: catalogue)
 //
 //  **Read leniently.** The format is undocumented; Xcode has written schema versions
 //  3.0, 4.0 and 6.x so far, adding root keys as it went. Unknown keys are ignored

@@ -75,7 +75,7 @@ struct RealStoreKitTests {
     @Test("the configuration file sells exactly what the catalogue declares, as the catalogue declares it")
     func fileMatchesCatalogue() throws {
         let configuration = try StoreKitConfiguration(contentsOf: Self.configurationURL())
-        #expect(configuration.problems(against: Self.catalogue()) == [])
+        configuration.expectNoProblems(against: Self.catalogue())
     }
 
     @Test("real StoreKit returns those products, with the store's own words and prices")

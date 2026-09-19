@@ -122,11 +122,11 @@ import Testing
 @Test("the StoreKit configuration file sells exactly what the catalogue declares")
 func storeKitFileMatchesCatalogue() throws {
     let file = try StoreKitConfiguration(contentsOf: url)   // finding `url` is covered below
-    #expect(file.problems(against: Shop.catalogue) == [])
+    file.expectNoProblems(against: Shop.catalogue)
 }
 ```
 
-Compare with `[]` and do not ask `isEmpty`: a failure then prints everything that is wrong, as sentences. A rename in one place prints:
+Each thing that is wrong is a failure of its own, as a sentence. A rename in one place is two:
 
 ```
 com.example.app.professional is in the catalogue and not in the StoreKit configuration file, so it will never load. Was it renamed in one place only?

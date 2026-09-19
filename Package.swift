@@ -41,7 +41,8 @@
 //  a cancelled task, because the real store does and a politer fake hides both bugs.
 //
 //  `PurchaseTestKit` is to this package what StoreKitTest is to StoreKit: what a test
-//  imports, and an app never. The simulated store, re-exported, and beside it a clock
+//  imports, and an app cannot — it reports through Swift Testing, which only a test
+//  target can link, so an app that links it does not build. The simulated store, re-exported, and beside it a clock
 //  that moves when told, a wait on a condition, a logger that remembers and a reader
 //  for the `.storekit` file — none of which grants anything, so none of which is
 //  guarded, and all of which work in a release test run. It ships rather than hiding in
