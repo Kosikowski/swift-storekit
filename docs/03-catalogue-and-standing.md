@@ -157,7 +157,7 @@ enum Plan: Equatable {
     init?(_ standing: Standing, at date: Date) {
         switch standing.access(to: Shop.pro, at: date) {
         case .unknown: return nil
-        case .owned: self = .pro
+        case .owned, .subscribed: self = .pro
         case let .onTrial(period, _): self = .trial(endsAt: period.endsAt)
         case .none: self = .free
         }

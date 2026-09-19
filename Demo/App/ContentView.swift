@@ -91,6 +91,8 @@ struct ContentView: View {
             Label("Pro", systemImage: "checkmark.seal.fill").font(.title2)
         case let .onTrial(period, _)?:
             Label("Trial until \(Self.moment(period.endsAt))", systemImage: "hourglass").font(.title2)
+        case .subscribed?:
+            Label("Pro", systemImage: "checkmark.seal.fill").font(.title2)
         case .none?:
             Label("Free", systemImage: "lock").font(.title2)
         }
@@ -120,7 +122,10 @@ struct ContentView: View {
 
     private static func words(for result: Result<PurchaseCompletion, PurchaseError>) -> String? {
         switch result {
-        case .success(.owned), .success(.trialRunning), .success(.cancelled): nil
+        case .success(.owned), .success(.trialRunning), .success(.subscribed), .success(.cancelled): nil
+        case let .success(.planChangeScheduled(_, at)):
+            "Your plan changes at your next renewal\(at.map { ", on \(moment($0))" } ?? "")."
+
         case .success(.pending): "Waiting for approval. Pro unlocks as soon as it is given."
         case let .success(.trialUsed(period)): "Your trial ended on \(moment(period.endsAt))."
         case .success(.notCounted): "That purchase was completed, but it does not unlock anything for this account."

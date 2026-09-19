@@ -12,6 +12,8 @@
 //  that was pressed is the only thing that should speak.
 //
 
+public import Foundation
+
 /// What a purchase amounted to for this account.
 public enum PurchaseCompletion: Hashable, Sendable {
     /// An unlock, now held.
@@ -27,6 +29,14 @@ public enum PurchaseCompletion: Hashable, Sendable {
     /// The store completed it and it gives this account nothing — a trial that
     /// arrived through Family Sharing, say. Rare, and worth a sentence.
     case notCounted(OwnedProduct)
+    /// A subscription, now held: bought, upgraded to, or already held and handed back.
+    case subscribed(HeldSubscription)
+    /// A change of plan that takes effect at the renewal: a downgrade, or a crossgrade to
+    /// another duration. **Nothing has changed yet**, and the person keeps what they have
+    /// until `at`. Measured: StoreKit reports such a purchase as a plain success with the
+    /// subscription already held (spike/README.md), so taken at its word it says the
+    /// cheaper plan was bought.
+    case planChangeScheduled(to: ProductID, at: Date?)
     /// Ask to Buy. The product is in `pendingApprovals` until it is settled.
     case pending
     case cancelled

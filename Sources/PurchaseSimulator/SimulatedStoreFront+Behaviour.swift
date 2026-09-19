@@ -58,6 +58,10 @@ extension SimulatedStoreFront {
         /// my purchase back" looks like to an app.
         public var restoreListsEarlierPurchases = true
 
+        /// How long a subscription bought here runs before it is due to renew. A month, as
+        /// near as a fixed length gets; a test that watches renewals sets it to seconds.
+        public var subscriptionPeriod: Duration = .seconds(30 * 86_400)
+
         /// The three scripts, for a store that misbehaves from its first line. The rest
         /// are properties, and the defaults are the real store on a good day.
         public init(

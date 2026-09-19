@@ -35,7 +35,7 @@ public import PurchaseCore
 import Synchronization
 
 /// An in-memory store for tests, previews and debug builds.
-public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
+public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusReading {
     /// What the store holds at this instant.
     public struct Snapshot: Hashable, Sendable {
         /// Listed: what `ownedProducts()` answers with.
@@ -48,6 +48,15 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
         /// Listed by the store with a signature that does not check out: counted by
         /// nobody, and reported only by `diagnose()`.
         public let unverified: Set<ProductID>
+        /// Every subscription status the store keeps, whether or not it says it yet.
+        public let subscriptions: [HeldSubscription]
+    }
+
+    /// A subscription's status, and whether the store says it yet: a status for a purchase
+    /// is said once the purchase is listed, as it lags with the listing on the Mac.
+    private struct SubscriptionRecord {
+        var status: HeldSubscription
+        var isSaid: Bool
     }
 
     private struct Unlisted {
@@ -63,6 +72,7 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
         var earlier: [OwnedProduct] = []
         var pending: Set<ProductID> = []
         var unverified: Set<ProductID> = []
+        var subscriptions: [SubscriptionRecord] = []
         var nextListener = 0
         var listeners: [Int: AsyncStream<TransactionUpdate>.Continuation] = [:]
     }
@@ -120,7 +130,7 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
         state.withLock {
             Snapshot(
                 listed: $0.listed, unlisted: $0.unlisted.map(\.product), earlier: $0.earlier,
-                pending: $0.pending, unverified: $0.unverified)
+                pending: $0.pending, unverified: $0.unverified, subscriptions: $0.subscriptions.map(\.status))
         }
     }
 
@@ -181,7 +191,21 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
         state.withLock { _ = $0.unverified.insert(id) }
     }
 
+    /// A subscription status, as the account has it at launch: said at once, and listed if
+    /// it is entitled — or not listed, if it is not. Replaces the status of the same product
+    /// and ownership.
+    public func seedSubscription(_ status: HeldSubscription) {
+        state.withLock { Self.record(status, in: &$0) }
+    }
+
     // MARK: - Things that happen by themselves
+
+    /// A subscription's status changes by itself — renewed, cancelled, into a grace period
+    /// or billing retry, lapsed — and the store says so on the updates stream. The listing
+    /// follows at once: an entitled status is listed, anything else is not.
+    public func changeSubscription(_ status: HeldSubscription) {
+        announce(.subscriptionChanged(status)) { Self.record(status, in: &$0) }
+    }
 
     /// A transaction arriving on its own — approved by a parent, made on another
     /// device — announced on the updates stream **and listed late**, like a purchase.
@@ -243,7 +267,7 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
         let now = clock.now
         let (product, listeners) = state.withLock { state -> (OwnedProduct?, [AsyncStream<TransactionUpdate>.Continuation]) in
             guard state.pending.remove(id) != nil else { return (nil, []) }
-            return (Self.buy(id, at: now, in: &state), Array(state.listeners.values))
+            return (Self.buy(id, at: now, in: &state, catalogue: catalogue), Array(state.listeners.values))
         }
         guard let product else { return false }
         // Outside the lock, as in `announce(_:_:)`.
@@ -268,8 +292,10 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
     /// and not yet listed is listed now, and nothing is announced.
     public func listUnlisted() {
         state.withLock { state in
-            state.listed.append(contentsOf: state.unlisted.map(\.product))
+            let ready = state.unlisted.map(\.product)
+            state.listed.append(contentsOf: ready)
             state.unlisted = []
+            Self.say(ready, in: &state)
         }
     }
 
@@ -290,6 +316,10 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
             state.listed.removeAll { $0.id == id }
             state.unlisted.removeAll { $0.product.id == id }
             state.earlier.removeAll { $0.id == id && (held == nil || $0.ownership == held?.ownership) }
+            for index in state.subscriptions.indices where state.subscriptions[index].status.product == id {
+                state.subscriptions[index].status = state.subscriptions[index].status.with(state: .revoked)
+                state.subscriptions[index].isSaid = true
+            }
         }
     }
 
@@ -301,6 +331,7 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
             state.earlier = []
             state.pending = []
             state.unverified = []
+            state.subscriptions = []
         }
     }
 
@@ -335,6 +366,25 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
             let ready = state.unlisted.filter { $0.readsUntilListed <= 0 }.map(\.product)
             state.unlisted.removeAll { $0.readsUntilListed <= 0 }
             state.listed.append(contentsOf: ready)
+            Self.say(ready, in: &state)
+            return answer
+        }
+    }
+
+    // MARK: - SubscriptionStatusReading
+
+    /// Every status the store says for each group asked about. Held shut with what is
+    /// owned; and a cancelled task is told nothing, which for a status read is an empty
+    /// array — "never subscribed" — as measured against the real store.
+    public func subscriptionStatuses(in groups: Set<SubscriptionGroupID>) async -> [SubscriptionGroupID: [HeldSubscription]] {
+        await ownershipGate.pass()
+        let cancelled = Task.isCancelled
+        return state.withLock { state in
+            let silent = cancelled && state.behaviour.answersNothingWhenCancelled
+            var answer: [SubscriptionGroupID: [HeldSubscription]] = [:]
+            for group in groups {
+                answer[group] = silent ? [] : state.subscriptions.filter { $0.isSaid && $0.status.group == group }.map(\.status)
+            }
             return answer
         }
     }
@@ -346,6 +396,7 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
         await purchaseGate.pass()
         // Dated when it goes through, not when the sheet went up.
         let now = clock.now
+        let catalogue = catalogue
         let result: Result<PurchaseOutcome, PurchaseError> = state.withLock { state in
             switch state.behaviour.purchases[id] ?? state.behaviour.purchase {
             case let .fails(error):
@@ -356,7 +407,7 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
                 state.pending.insert(id)
                 return .success(.pending)
             case .succeeds:
-                return .success(.purchased(Self.buy(id, at: now, in: &state)))
+                return .success(.purchased(Self.buy(id, at: now, in: &state, catalogue: catalogue)))
             }
         }
         return try result.get()
@@ -446,7 +497,10 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
     /// elsewhere, it is the account's own, which takes the shared one's place. Handed
     /// the shared one, the store would call buying something the account owns
     /// `.notCounted`.
-    private static func buy(_ id: ProductID, at now: Date, in state: inout State) -> OwnedProduct {
+    private static func buy(_ id: ProductID, at now: Date, in state: inout State, catalogue: Catalogue) -> OwnedProduct {
+        if let terms = catalogue.entry(for: id)?.subscriptionTerms {
+            return subscribe(id, terms, at: now, in: &state, catalogue: catalogue)
+        }
         let held = Self.held(id, in: state)
         if let held, held.ownership == .purchased { return held }
         if let index = state.earlier.firstIndex(where: { $0.id == id }),
@@ -459,6 +513,73 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
         let product = OwnedProduct(id: id, originalPurchaseDate: now)
         Self.hold(product, in: &state)
         return product
+    }
+
+    /// A subscription bought, as the real store answers it (measured, spike/README.md): the
+    /// plan already held comes back as it is; a plan at a **higher level** replaces the one
+    /// held at once, keeping its first date; one at the same or a lower level — a downgrade,
+    /// or a change of duration — waits for the renewal, and **the plan held is what comes
+    /// back**, with its renewal now naming the new one. Anything else is a new subscription,
+    /// listed late, its status said once it is listed.
+    private static func subscribe(
+        _ id: ProductID, _ terms: SubscriptionTerms, at now: Date, in state: inout State, catalogue: Catalogue
+    ) -> OwnedProduct {
+        let period = state.behaviour.subscriptionPeriod.timeInterval
+        let level = { (product: ProductID) in catalogue.entry(for: product)?.subscriptionTerms?.level ?? .max }
+        let current = state.subscriptions.first {
+            $0.status.group == terms.group && $0.status.ownership == .purchased && $0.status.isEntitled
+        }?.status
+        if let current, current.product == id {
+            return owned(current)
+        }
+        if let current, level(id) >= level(current.product) {
+            let waiting = current.with(renewal: Renewal(willRenew: true, nextProduct: id))
+            record(waiting, in: &state, listing: false)
+            return owned(current)
+        }
+        let status = HeldSubscription(
+            product: id, group: terms.group, state: .subscribed, firstSubscribed: current?.firstSubscribed ?? now,
+            periodStarted: now, periodEnds: now.addingTimeInterval(period), renewal: Renewal(willRenew: true, nextProduct: id))
+        if let current {
+            // An upgrade: the plan left behind is no longer listed, and its status gives way.
+            state.listed.removeAll { $0.id == current.product }
+            state.unlisted.removeAll { $0.product.id == current.product }
+            state.subscriptions.removeAll { $0.status.product == current.product && $0.status.ownership == .purchased }
+        }
+        state.subscriptions.removeAll { $0.status.product == id && $0.status.ownership == .purchased }
+        state.subscriptions.append(SubscriptionRecord(status: status, isSaid: false))
+        let product = owned(status)
+        Self.hold(product, in: &state)
+        if state.listed.contains(product) { say([product], in: &state) }
+        return product
+    }
+
+    /// The transaction a status stands for.
+    private static func owned(_ status: HeldSubscription) -> OwnedProduct {
+        OwnedProduct(
+            id: status.product, originalPurchaseDate: status.firstSubscribed, purchaseDate: status.periodStarted,
+            ownership: status.ownership, expirationDate: status.periodEnds)
+    }
+
+    /// Keeps `status` in place of the one for the same product and ownership, said at once;
+    /// and, unless told otherwise, lists it if it is entitled and unlists it if not.
+    private static func record(_ status: HeldSubscription, in state: inout State, listing: Bool = true) {
+        let same = { (other: HeldSubscription) in other.product == status.product && other.ownership == status.ownership }
+        state.subscriptions.removeAll { same($0.status) }
+        state.subscriptions.append(SubscriptionRecord(status: status, isSaid: true))
+        guard listing else { return }
+        state.listed.removeAll { $0.id == status.product && $0.ownership == status.ownership }
+        state.unlisted.removeAll { $0.product.id == status.product && $0.product.ownership == status.ownership }
+        if status.isEntitled { state.listed.append(owned(status)) }
+    }
+
+    /// The statuses of what has just been listed are said from now on.
+    private static func say(_ products: [OwnedProduct], in state: inout State) {
+        for product in products {
+            for index in state.subscriptions.indices where state.subscriptions[index].status.product == product.id {
+                state.subscriptions[index].isSaid = true
+            }
+        }
     }
 
     /// The copy of `id` this device holds, listed or not yet.
@@ -500,6 +621,20 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
                 displayPrice: isTrial ? "Free" : "$9.99", price: isTrial ? 0 : Decimal(string: "9.99")!,
                 isFamilyShareable: shareable)
         }
+    }
+}
+
+extension HeldSubscription {
+    func with(state: State) -> HeldSubscription {
+        HeldSubscription(
+            product: product, group: group, ownership: ownership, state: state, firstSubscribed: firstSubscribed,
+            periodStarted: periodStarted, periodEnds: periodEnds, offer: offer, renewal: renewal)
+    }
+
+    func with(renewal: Renewal?) -> HeldSubscription {
+        HeldSubscription(
+            product: product, group: group, ownership: ownership, state: state, firstSubscribed: firstSubscribed,
+            periodStarted: periodStarted, periodEnds: periodEnds, offer: offer, renewal: renewal)
     }
 }
 

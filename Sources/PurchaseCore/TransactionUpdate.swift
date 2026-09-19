@@ -25,11 +25,16 @@ public enum TransactionUpdate: Hashable, Sendable {
     case granted(OwnedProduct)
     /// Taken back: a refund, or the end of Family Sharing.
     case withdrawn(ProductID)
+    /// A subscription's status changed — renewed, cancelled, into a grace period or billing
+    /// retry, lapsed — with the new status attached. An expiry sends no transaction at all
+    /// (measured, spike/README.md), so this is how one is heard while the app runs.
+    case subscriptionChanged(HeldSubscription)
 
     public var productID: ProductID {
         switch self {
         case let .granted(owned): owned.id
         case let .withdrawn(id): id
+        case let .subscriptionChanged(held): held.product
         }
     }
 }

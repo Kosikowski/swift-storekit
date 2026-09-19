@@ -25,13 +25,18 @@ public struct OwnedProduct: Hashable, Sendable, Identifiable {
     public let purchaseDate: Date
     public let ownership: Ownership
 
+    /// For a subscription, when the period this transaction bought ends. Nil for anything
+    /// that is kept.
+    public let expirationDate: Date?
+
     public init(
         id: ProductID, originalPurchaseDate: Date, purchaseDate: Date? = nil,
-        ownership: Ownership = .purchased
+        ownership: Ownership = .purchased, expirationDate: Date? = nil
     ) {
         self.id = id
         self.originalPurchaseDate = originalPurchaseDate
         self.purchaseDate = purchaseDate ?? originalPurchaseDate
         self.ownership = ownership
+        self.expirationDate = expirationDate
     }
 }

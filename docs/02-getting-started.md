@@ -160,7 +160,7 @@ struct ProBadge: View {
         switch purchases?.standing.access(to: Shop.pro) {
         case nil, .unknown?:
             EmptyView()            // not answered yet: draw neither "Pro" nor "Free"
-        case .owned?:
+        case .owned?, .subscribed?:
             Text("Pro")
         case let .onTrial(period, _)?:
             Text("Trial until \(period.endsAt.formatted(date: .abbreviated, time: .shortened))")
@@ -259,6 +259,8 @@ The completion closure receives `Result<PurchaseCompletion, PurchaseError>`. Way
 | `.trialRunning(TrialPeriod)` | A trial, now running | Nothing, or when it ends, with the time |
 | `.trialUsed(TrialPeriod)` | The trial was bought and the store handed back one already over: taken on another device, or before a reinstall | "Your trial ended on … at …". Do not let the button go grey without a word |
 | `.notCounted(OwnedProduct)` | The store completed it and it gives this account nothing, such as a trial that arrived through Family Sharing | A sentence. Rare |
+| `.subscribed(HeldSubscription)` | A subscription, now held: bought, upgraded to, or already held | Nothing, or close the paywall |
+| `.planChangeScheduled(to:at:)` | A downgrade, or a change to another duration, that takes effect at the renewal. **Nothing has changed yet**: StoreKit reports it as a success with the subscription already held | When the change happens: "From … you'll be on …" |
 | `.pending` | Ask to Buy: someone else has to approve it | **"Waiting for approval."** Not a failure, and not silence. The product is in `pendingApprovals` until it is settled |
 | `.cancelled` | The person backed out | Nothing |
 
@@ -282,8 +284,11 @@ The completion closure receives `Result<PurchaseCompletion, PurchaseError>`. Way
 enum Wording {
     static func notice(for result: Result<PurchaseCompletion, PurchaseError>) -> String? {
         switch result {
-        case .success(.owned), .success(.trialRunning), .success(.cancelled):
+        case .success(.owned), .success(.trialRunning), .success(.subscribed), .success(.cancelled):
             nil
+        case let .success(.planChangeScheduled(_, at)):
+            "Your plan changes at your next renewal\(at.map { ", on \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "")."
+
         case .success(.pending):
             "Waiting for approval. Pro unlocks as soon as it is given."
         case let .success(.trialUsed(period)):

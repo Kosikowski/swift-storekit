@@ -34,6 +34,7 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     @ObservationIgnored private let purchaser: any ProductPurchasing
     @ObservationIgnored private let restorer: any PurchaseRestoring
     @ObservationIgnored private let observer: any TransactionObserving
+    @ObservationIgnored private let subscriptionStatuses: (any SubscriptionStatusReading)?
     /// The clock this store decides by. For whoever asks it a question that takes a date
     /// — `standing.access(to:at:)` — and should be asking by the same clock: an app that
     /// kept one of its own beside this had two, and only a test could tell them apart.
@@ -41,11 +42,14 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     @ObservationIgnored private let diagnoser: (any StoreDiagnosing)?
     @ObservationIgnored private let logger: any PurchaseLogging
     @ObservationIgnored private let listingGrace: Duration
+    @ObservationIgnored private let renewalGrace: Duration
     @ObservationIgnored private let resolver = StandingResolver()
 
     @ObservationIgnored private var unlisted = UnlistedPurchases()
     @ObservationIgnored private var listener: Task<Void, Never>?
     @ObservationIgnored private var expiry: Task<Void, Never>?
+    /// When to look again at a lapse that was not believed yet, if one was not.
+    @ObservationIgnored private var recheck: Date?
     @ObservationIgnored private var pass: Task<Void, Never>?
     @ObservationIgnored private var passRequested = false
     @ObservationIgnored private var load: Task<Void, Never>?
@@ -53,9 +57,15 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     /// Takes the store one role at a time. Construction touches nothing: a store
     /// built for a preview or a test has not spoken to anything until `start()`.
     ///
-    /// - Parameter listingGrace: how long a grant is believed before the store's own
-    ///   listing has it. The listing was measured to catch up within a second; the
-    ///   default is generous because lapsing early re-locks something just bought.
+    /// - Parameters:
+    ///   - subscriptionStatuses: what says each subscription group's statuses. Without
+    ///     it, the listing stands in for every group, and nothing is known of renewals.
+    ///   - listingGrace: how long a grant is believed before the store's own listing has
+    ///     it. The listing was measured to catch up within a second; the default is
+    ///     generous because lapsing early re-locks something just bought.
+    ///   - renewalGrace: how long after a renewing subscription's period ends a lapse is
+    ///     doubted. Measured, StoreKit says a subscription has expired for up to 0.7 s at
+    ///     every renewal; the default is generous for the same reason as `listingGrace`.
     public init(
         catalogue: Catalogue,
         catalogueLoader: any ProductCatalogueLoading,
@@ -63,9 +73,11 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         purchaser: any ProductPurchasing,
         restorer: any PurchaseRestoring,
         observer: any TransactionObserving,
+        subscriptionStatuses: (any SubscriptionStatusReading)? = nil,
         clock: any TimeProviding = SystemClock(),
         logger: any PurchaseLogging = SilentPurchaseLogger(),
-        listingGrace: Duration = .seconds(30)
+        listingGrace: Duration = .seconds(30),
+        renewalGrace: Duration = .seconds(30)
     ) {
         self.catalogue = catalogue
         self.standing = .unknown(catalogue: catalogue)
@@ -74,26 +86,31 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         self.purchaser = purchaser
         self.restorer = restorer
         self.observer = observer
+        self.subscriptionStatuses = subscriptionStatuses
         self.clock = clock
         self.logger = logger
         self.listingGrace = listingGrace
+        self.renewalGrace = renewalGrace
         // Whichever of the roles can say what this build receives. Usually they are all
         // one object; asked in the order somebody debugging would think of them.
         self.diagnoser = [catalogueLoader, ownership, purchaser, restorer, observer]
             .lazy.compactMap { $0 as? any StoreDiagnosing }.first
     }
 
-    /// The usual case: one object plays every role.
+    /// The usual case: one object plays every role — subscription statuses too, if it
+    /// can say them.
     public convenience init(
         catalogue: Catalogue,
         front: some StoreFront,
         clock: any TimeProviding = SystemClock(),
         logger: any PurchaseLogging = SilentPurchaseLogger(),
-        listingGrace: Duration = .seconds(30)
+        listingGrace: Duration = .seconds(30),
+        renewalGrace: Duration = .seconds(30)
     ) {
         self.init(
             catalogue: catalogue, catalogueLoader: front, ownership: front, purchaser: front,
-            restorer: front, observer: front, clock: clock, logger: logger, listingGrace: listingGrace)
+            restorer: front, observer: front, subscriptionStatuses: front as? any SubscriptionStatusReading,
+            clock: clock, logger: logger, listingGrace: listingGrace, renewalGrace: renewalGrace)
     }
 
     /// Isolated, so that the tasks can be reached at all: a plain `deinit` is
@@ -233,7 +250,7 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             hold(owned)
             await resolve()
             logger.log(.purchased(id))
-            return completion(for: owned)
+            return completion(for: owned, asked: id)
         }
     }
 
@@ -293,19 +310,57 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
 
     private func resolveOnce() async {
         let listed = await ownership.ownedProducts()
+        let groups = catalogue.subscriptionGroups
+        // Beside the listing, in the same task nobody cancels: a status read from a
+        // cancelled task answers "never subscribed" (measured, spike/README.md).
+        var statuses: [SubscriptionGroupID: [HeldSubscription]] = [:]
+        if !groups.isEmpty, let subscriptionStatuses {
+            statuses = await subscriptionStatuses.subscriptionStatuses(in: Set(groups))
+        }
         // The only place the clock is read for a decision.
         let now = clock.now
         // Settled against what the listing has *and counts*. A listing that has the
         // product and does not count it — a family member's copy of something this
         // account has just bought for itself — has not taken over from the hold, and
         // letting go on the identifier alone left the purchase vouched for by nobody.
-        unlisted.settle(listedIn: listed.filter { resolver.counts($0, in: catalogue) }, at: now)
+        // A subscription's hold is settled, too, once a status has caught up with it.
+        unlisted.settle(listedIn: listed.filter { resolver.counts($0, in: catalogue) } + caughtUp(with: statuses), at: now)
+        let held = unlisted.held
+        var subscriptions: [SubscriptionGroupID: SubscriptionStanding] = [:]
+        recheck = nil
+        for group in groups {
+            // A purchase or a renewal the status has not caught up with is believed beside
+            // it, as a grant is believed before the listing has it.
+            let holds = held.compactMap { subscription(from: $0, in: group) }
+            let reading = resolver.subscription(
+                in: group, statuses: statuses[group].map { $0 + holds },
+                listed: listed.compactMap { subscription(from: $0, in: group) } + holds, catalogue: catalogue)
+            let before = standing.subscription(in: group)
+            let believed = reading.believed(over: before, at: now, renewalGrace: renewalGrace.timeInterval)
+            if believed != reading, let ends = before.current?.periodEnds {
+                // Doubted: look again in a moment, and no later than the doubt allows.
+                let soon = min(now.addingTimeInterval(2), ends.addingTimeInterval(renewalGrace.timeInterval))
+                recheck = min(recheck ?? soon, soon)
+            }
+            if case let .active(current, _) = believed, current.accessEnds <= now {
+                // Still said to be subscribed after its end: the renewal not synced yet, or
+                // the listing standing in for a status. Look again in a minute; activation
+                // reads again too.
+                let later = now.addingTimeInterval(60)
+                recheck = min(recheck ?? later, later)
+            }
+            subscriptions[group] = believed
+        }
         // Published only when it says something new. An app reads again whenever it
         // becomes active, and nearly every one of those reads finds what the last found;
         // assigned regardless, each redrew every view that watches this, for nothing.
-        let resolved = resolver.standing(owned: listed + unlisted.held, catalogue: catalogue, asOf: now)
+        let resolved = resolver.standing(owned: listed + held, catalogue: catalogue, asOf: now, subscriptions: subscriptions)
         if !resolved.saysTheSame(as: standing) { standing = resolved }
-        let settled = pendingApprovals.intersection(standing.ownedProducts.map(\.id))
+        let subscribed = groups.compactMap { group -> ProductID? in
+            guard case let .active(current, _) = standing.subscription(in: group) else { return nil }
+            return current.product
+        }
+        let settled = pendingApprovals.intersection(standing.ownedProducts.map(\.id) + subscribed)
         if !settled.isEmpty { pendingApprovals.subtract(settled) }
         logger.log(.standingResolved(owned: Set(standing.ownedProducts.map(\.id))))
         scheduleNextLook()
@@ -321,7 +376,12 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     private func scheduleNextLook() {
         expiry?.cancel()
         expiry = nil
-        guard let deadline = [standing.nextExpiry, unlisted.nextLapse].compactMap(\.self).min() else { return }
+        // Never a moment already gone. A standing that did not change is not republished,
+        // so its `nextExpiry` can be one that has passed — a lapse still being doubted —
+        // and a look scheduled for it would wake at once, and again, for ever.
+        let now = clock.now
+        guard let deadline = [standing.nextExpiry, unlisted.nextLapse, recheck].compactMap(\.self).filter({ $0 > now }).min()
+        else { return }
         expiry = Task { [weak self, clock] in
             do throws(CancellationError) {
                 try await clock.sleep(until: deadline)
@@ -361,17 +421,60 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             // Stop vouching for it at once. A refund that overtakes the listing is
             // otherwise ignored until the next launch.
             unlisted.drop(id)
+        case .subscriptionChanged:
+            // Read again: the status is asked for with the listing, and decides.
+            break
         }
         await resolve()
     }
 
+    /// Believed for `listingGrace` — and a subscription never beyond the end of the period
+    /// it bought, so one whose period has ended lapses at the next read without being
+    /// believed at all: renewals missed while nothing ran arrive at the next launch, newest
+    /// first and the oldest last (measured).
     private func hold(_ owned: OwnedProduct) {
-        unlisted.hold(owned, until: clock.now.addingTimeInterval(listingGrace.timeInterval))
+        let until = clock.now.addingTimeInterval(listingGrace.timeInterval)
+        unlisted.hold(owned, until: min(until, owned.expirationDate ?? .distantFuture))
+    }
+
+    // MARK: - Subscriptions
+
+    /// A subscription transaction — held, or listed — as a status would say it: subscribed
+    /// until its period ends. What the store stands in with when no status is to be had.
+    private func subscription(from owned: OwnedProduct, in group: SubscriptionGroupID) -> HeldSubscription? {
+        guard let terms = catalogue.entry(for: owned.id)?.subscriptionTerms, terms.group == group else { return nil }
+        return HeldSubscription(
+            product: owned.id, group: group, ownership: owned.ownership, state: .subscribed,
+            firstSubscribed: owned.originalPurchaseDate, periodStarted: owned.purchaseDate,
+            periodEnds: owned.expirationDate ?? .distantFuture)
+    }
+
+    /// The held subscriptions a status has caught up with: one for the same product, for a
+    /// period that began no earlier. In the iOS simulator a renewal in billing retry arrives
+    /// as a transaction of its own (measured); held regardless, it would grant what the
+    /// status says is not entitled.
+    private func caughtUp(with statuses: [SubscriptionGroupID: [HeldSubscription]]) -> [OwnedProduct] {
+        unlisted.held.filter { owned in
+            guard let group = catalogue.entry(for: owned.id)?.subscriptionTerms?.group, let said = statuses[group] else { return false }
+            return said.contains { $0.product == owned.id && $0.periodStarted >= owned.purchaseDate }
+        }
     }
 
     // MARK: - Completions
 
-    private func completion(for owned: OwnedProduct) -> PurchaseCompletion {
+    /// - Parameter asked: the product the purchase was for. A subscription purchase that
+    ///   comes back with another product of the same group is a change of plan waiting for
+    ///   the renewal: StoreKit returns the subscription already held (measured).
+    private func completion(for owned: OwnedProduct, asked: ProductID) -> PurchaseCompletion {
+        if let terms = catalogue.entry(for: owned.id)?.subscriptionTerms {
+            if owned.id != asked, catalogue.entry(for: asked)?.subscriptionTerms?.group == terms.group {
+                return .planChangeScheduled(to: asked, at: owned.expirationDate)
+            }
+            if case let .active(current, _) = standing.subscription(in: terms.group), current.product == owned.id {
+                return .subscribed(current)
+            }
+            return subscription(from: owned, in: terms.group).map(PurchaseCompletion.subscribed) ?? .owned(owned)
+        }
         guard let terms = catalogue.entry(for: owned.id)?.trialTerms else { return .owned(owned) }
         let period = terms.period(startingAt: owned.originalPurchaseDate)
         return period.isRunning(at: clock.now) ? .trialRunning(period) : .trialUsed(period)
