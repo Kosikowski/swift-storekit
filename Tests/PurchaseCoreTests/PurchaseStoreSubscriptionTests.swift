@@ -5,6 +5,7 @@
 import Foundation
 import PurchaseCore
 import PurchaseTestKit
+import Synchronization
 import Testing
 
 /// A group with two plans at one level and one above them.
@@ -20,6 +21,20 @@ private enum Plans {
         .subscription(yearly, in: group, level: 2),
         .subscription(premium, in: group, level: 1),
     ]
+}
+
+/// Statuses as a test says them, and nothing more: no clock, no renewals.
+private final class SaidStatuses: SubscriptionStatusReading {
+    private let said: Mutex<[HeldSubscription]>
+
+    init(_ statuses: HeldSubscription...) { said = Mutex(statuses) }
+
+    func say(_ statuses: HeldSubscription...) { said.withLock { $0 = statuses } }
+
+    func subscriptionStatuses(in groups: Set<SubscriptionGroupID>) async -> [SubscriptionGroupID: [HeldSubscription]] {
+        let statuses = said.withLock { $0 }
+        return Dictionary(uniqueKeysWithValues: groups.map { group in (group, statuses.filter { $0.group == group }) })
+    }
 }
 
 /// The store against the simulated store and a clock that moves only when told to.
@@ -269,18 +284,25 @@ struct PurchaseStoreSubscriptionTests {
 
     /// Nothing is announced when a subscription the store still called subscribed at its
     /// end lapses later: only a look of the store's own can find it.
+    ///
+    /// The status is said by the test, not the simulated store, which renews what it holds
+    /// by its clock: "subscribed" after the end is a renewal the store has not synced.
     @Test("still said to be subscribed after its end, a subscription is looked at again a minute later")
     func staleSubscribedLookedAtAgain() async {
-        front.seedSubscription(status(ends: 60))
+        let said = SaidStatuses(status(ends: 60))
+        let store = PurchaseStore(
+            catalogue: Plans.catalogue, catalogueLoader: front, ownership: front, purchaser: front,
+            restorer: front, observer: front, subscriptionStatuses: said, clock: clock)
+        let group = { store.standing.subscription(in: Plans.group) }
         await store.start()
         await waitUntil { clock.sleeperCount == 1 }
         clock.advance(by: .seconds(61))
-        await waitUntil { clock.sleeperCount == 1 }
-        #expect(group.isActive == true)
-        front.seedSubscription(status(.expired(.autoRenewDisabled), ends: 60, willRenew: false))
+        await waitUntil { clock.sleeperCount == 1 && group().current?.accessEnds ?? .distantFuture <= clock.now }
+        #expect(group().isActive == true)
+        said.say(status(.expired(.autoRenewDisabled), ends: -1, willRenew: false))
         clock.advance(by: .seconds(60))
-        await waitUntil { group.isActive == false }
-        #expect(group.isActive == false)
+        await waitUntil { group().isActive == false }
+        #expect(group().isActive == false)
     }
 }
 
