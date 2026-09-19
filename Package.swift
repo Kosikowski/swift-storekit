@@ -127,5 +127,15 @@ let package = Package(
         .testTarget(
             name: "PurchaseStoreKitTests", dependencies: ["PurchaseCore", "PurchaseStoreKit"],
             swiftSettings: strict),
+        // Every module an app can import, beside StoreKit and SwiftUI, and nothing
+        // `@testable`: a public name StoreKit also has, or a public type an app cannot
+        // make, fails this target's build and not an app's.
+        .testTarget(
+            name: "PurchaseAPITests",
+            dependencies: [
+                "PurchaseCore", "PurchaseStoreKit", "PurchaseUI", "PurchaseLaunch", "PurchaseDebugUI",
+                "PurchaseTestKit", "PurchaseDirectDistribution",
+            ],
+            swiftSettings: strict),
     ]
 )

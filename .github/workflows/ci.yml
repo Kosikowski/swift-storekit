@@ -71,3 +71,4 @@ jobs:
           floor PurchaseTestKitTests 95 27
           floor PurchaseStoreKitTests 27 27
           floor PurchaseLaunchTests 4 3
+          floor PurchaseAPITests 4 3
