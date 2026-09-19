@@ -1,6 +1,6 @@
 //
 //  Scenario+Parsing.swift
-//  PurchaseTestKit
+//  PurchaseSimulator
 //
 //  The text of a scenario, and the one place it is read.
 //
@@ -43,15 +43,15 @@ extension Scenario {
     /// Reads a scenario. `catalogue` is what short product names are resolved
     /// against, and nothing outside it can be held.
     ///
-    /// Throws `PurchaseTestKitError.invalidScenario` with the offending clause as it
+    /// Throws `ScenarioError.invalidScenario` with the offending clause as it
     /// was written. The empty text is a valid scenario: the defaults.
-    public init(parsing text: String, catalogue: Catalogue) throws(PurchaseTestKitError) {
+    public init(parsing text: String, catalogue: Catalogue) throws(ScenarioError) {
         self.init()
         var keys: Set<String> = []
         for piece in text.split(separator: ";") {
             let clause = Self.trimmed(piece)
             if clause.isEmpty { continue }
-            func invalid(_ reason: PurchaseTestKitError.ScenarioFault) -> PurchaseTestKitError {
+            func invalid(_ reason: ScenarioError.ScenarioFault) -> ScenarioError {
                 .invalidScenario(clause: clause, reason: reason)
             }
 
@@ -121,7 +121,7 @@ extension Scenario {
 
     // MARK: - Private
 
-    private typealias ScenarioFault = PurchaseTestKitError.ScenarioFault
+    private typealias ScenarioFault = ScenarioError.ScenarioFault
 
     private static let keys: Set<String> = [
         "owns", "earlier", "unverified", "purchase", "restore", "catalogue", "ownership", "lag",

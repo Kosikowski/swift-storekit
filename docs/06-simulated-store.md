@@ -2,7 +2,7 @@
 
 A store with no StoreKit in it, and with StoreKit's awkwardness left in. For unit tests, SwiftUI previews, UI tests, screenshots, and a debug build being poked at by hand.
 
-> ⚠️ `SimulatedStoreFront`, `Scenario` and `PurchaseDebugUI` exist **only in DEBUG builds**. See [release safety](07-release-safety.md). **Everything that names them — a test, a preview, a composition root — goes inside `#if DEBUG` too**, or the first Release build (an archive, a test plan in Release, `swift test -c release`) fails with "cannot find 'SimulatedStoreFront' in scope".
+> ⚠️ The simulated store exists **only in DEBUG builds** ([release safety](07-release-safety.md)), and **an app never names it**. A test reaches it with `import PurchaseTestKit`. An app reaches it without naming it: `StoreLaunch.make` for a launch, `StoreLaunch.preview` for a preview, `PurchaseDebugPanel` for the panel — all three of which exist in every build, and in a release one do the dull thing.
 
 The samples use the `Shop` that [getting started](02-getting-started.md#declare-the-catalogue-once) declares: `Shop.pro`, `Shop.trial`, `Shop.catalogue`.
 
@@ -86,11 +86,9 @@ A customer who paid, and whose purchase does not verify — the support case an 
 front.seedUnverified(Shop.pro)
 ```
 
-To serve your app's real names and prices, build it from your `.storekit` file. The reader is in `PurchaseTestSupport`, so this is for a test target, or for an app that accepts carrying the file reader — which grants nothing — in its release build:
+To serve your app's real names and prices in a test, build it from your `.storekit` file:
 
 ```swift
-import PurchaseTestSupport
-
 let file = try StoreKitConfiguration(contentsOf: url)
 let front = SimulatedStoreFront(catalogue: Shop.catalogue, configuration: file)
 ```
@@ -152,56 +150,48 @@ Errors: `productUnavailable`, `purchaseNotAllowed`, `notAvailableInStorefront`, 
 
 ## The debug panel
 
-On macOS, in a window of its own, beside the app's `WindowGroup`:
+`PurchaseDebugPanel(launch)` takes the `StoreLaunch` the app was started with. **Its name is in every build, and in a release build it draws nothing**, so nothing about it needs an `#if` — except a `Window` scene, because a scene cannot be conditional and an empty window would still have its place in the Window menu:
 
 ```swift
-#if DEBUG
 import PurchaseDebugUI
-#endif
 
-// …in the App's `body`, `purchases` being the AppPurchases made at launch:
+// On the Mac, a window of its own, beside the app's `WindowGroup`. The one `#if` the
+// panel costs, and it is the app's own, round a scene:
 #if DEBUG
-Window("Purchases", id: "purchase-debug") {
-    PurchaseDebugPanel(store: purchases.store, simulated: purchases.simulated,
-                       diagnostics: purchases.diagnostics)
-}
+Window("Purchases", id: "purchase-debug") { PurchaseDebugPanel(launch) }
 #endif
 ```
 
-`Window` scenes do not exist on iOS; present the panel in a sheet there, from a view that was handed `purchases` and has a `@State private var showsDebugPanel = false`:
+`Window` scenes do not exist on iOS; present the panel in a sheet there — or anywhere — with no `#if` at all. `PurchaseDebugPanel.isAvailable` is true in a debug build and false in a release one, for the button that opens it:
 
 ```swift
-#if DEBUG
-Button("Purchase debug panel…") { showsDebugPanel = true }
-    .sheet(isPresented: $showsDebugPanel) {
-        PurchaseDebugPanel(store: purchases.store, simulated: purchases.simulated,
-                           diagnostics: purchases.diagnostics)
-    }
-#endif
+if PurchaseDebugPanel.isAvailable {
+    Button("Purchase debug panel…") { showsDebugPanel = true }
+        .sheet(isPresented: $showsDebugPanel) { PurchaseDebugPanel(launch) }
+}
 ```
 
-`purchases` is the `AppPurchases` of the [composition root](07-release-safety.md#decide-by-the-build-not-by-an-argument); `Demo/App` does both, one on each platform.
+`Demo/App` does both, one on each platform. (An app that [wrote its own root](07-release-safety.md#writing-the-root-yourself) hands the panel its store and its simulated front instead, under its own `#if`.)
 
 The top of the panel shows facts from **whatever store the app is running on**, the real one included, ticking every second so a trial can be watched running out. The controls appear only when a simulated store is handed in: start a trial with any number of seconds left, deliver a purchase from "another device" or through Family Sharing, refund, approve Ask to Buy, script the next purchase, hold any of the gates — a purchase with its payment sheet still up included — and empty or fail the catalogue. "What this build receives" asks the store directly, which is most useful against the real one on the afternoon Buy does nothing.
 
 ## Previews
 
-Apple's previews load products and prices from the `.storekit` file, and cannot arrange what the account *owns*. A simulated store can, so each state of a paywall gets a preview of its own:
+Apple's previews load products and prices from the `.storekit` file, and cannot arrange what the account *owns*. A simulated store can, so each state of a paywall gets a preview of its own — arranged by a [scenario](#scenarios)'s text:
 
 ```swift
-#if DEBUG
-import PurchaseTestKit
+import PurchaseLaunch
 
 #Preview("Trial nearly over") {
-    let front = SimulatedStoreFront(catalogue: Shop.catalogue)
-    front.seedTrial(Shop.trial, remaining: .seconds(90))
-    return PaywallView().purchaseStore(PurchaseStore(catalogue: Shop.catalogue, front: front))
+    PaywallView().purchaseStore(StoreLaunch.preview(catalogue: Shop.catalogue, scenario: "owns=trial@13d23h58m"))
 }
-#endif
+
+#Preview("An owner, offline") {
+    PaywallView().purchaseStore(StoreLaunch.preview(catalogue: Shop.catalogue, scenario: "owns=pro; catalogue=fails:network"))
+}
 ```
 
-- **The `#if DEBUG` is not optional.** A preview usually lives in the file of the view it previews, which is in the app; without the guard the app's first Release build — the archive — fails with "cannot find 'SimulatedStoreFront' in scope".
-- **Keep the `return`.** It is what lets the seeding statement sit beside the view. Without it the statement is inside a view builder, and the compiler does not report that: it crashes (Swift 6.4). **[ran]**
+**Text, and not a simulated store to arrange, because previews are compiled in release builds too.** A preview that names `SimulatedStoreFront` fails the app's first Release build — the archive — with "cannot find 'SimulatedStoreFront' in scope", unless somebody remembered an `#if DEBUG` round it. `StoreLaunch.preview` exists in every build; in a release one it is a store that owns nothing and sells nothing, which no preview ever runs. A scenario that does not parse crashes the preview, and says why.
 
 ## UI tests and screenshots
 
@@ -231,22 +221,20 @@ final class PaywallUITests: XCTestCase {
 }
 ```
 
-The two identifiers are the app's to provide. The marker is three lines, where `purchases` is the `AppPurchases` of the composition root:
+The two identifiers are the app's to provide. The marker is three lines, where `launch` is the `StoreLaunch` the app was started with — and needs no `#if`, since `isSimulated` is never true in a release build:
 
 ```swift
-#if DEBUG
-if purchases.simulated != nil {
+if launch.isSimulated {
     Text("Simulated store").accessibilityIdentifier("simulated-store")
 }
-#endif
 ```
 
-`Scenario.launchArgument` and `Scenario.environmentVariable` are the two spellings, for code on the app's side; `launchEnvironment["PURCHASE_SCENARIO"]` works where an argument is awkward. The app honours the scenario at its [composition root](07-release-safety.md#decide-by-the-build-not-by-an-argument), and three things about the build decide whether it can:
+`Scenario.launchArgument` and `Scenario.environmentVariable` are the two spellings, for code on the app's side; `launchEnvironment["PURCHASE_SCENARIO"]` works where an argument is awkward. `StoreLaunch.make` honours the scenario ([getting started](02-getting-started.md#the-composition-root)), and three things about the build decide whether it can:
 
 | | |
 |---|---|
 | **The Test action's build configuration must give the package `DEBUG`**, which Xcode decides by the configuration's *name*: `Debug`, or one beginning with `Debug` ([release safety](07-release-safety.md#screenshot-and-ui-test-configurations)). | In a Release-configured test plan the simulated store does not exist. The app ignores the argument and runs on **the real store**, and nothing fails: the screenshots are of the wrong thing. A scenario that does not *parse* crashes; a scenario the build cannot *honour* is silent. |
 | **So assert a marker first.** Show something only when the app is on a simulated store — the Demo shows a "Simulated store" badge with the identifier `simulated-store` — and make it the first assertion of every UI test. | It turns the silent case into a failure that says what is wrong. |
-| **For a screenshot pipeline, give the run a configuration of its own**: `Debug-Screenshots`, with its own compilation condition (`DEBUG SCREENSHOTS`) and **its own bundle identifier**, and honour scenarios under `#if SCREENSHOTS` rather than `#if DEBUG`. | The bundle identifier gives the run its own container, so screenshot window frames and preferences do not leak into the development build; the condition keeps the development build from being talked into showing invented purchases at all. The name has to begin with `Debug`, or the package is built without the simulated store. |
+| **For a screenshot pipeline, give the run a configuration of its own**: `Debug-Screenshots`, with its own compilation condition (`DEBUG SCREENSHOTS`) and **its own bundle identifier**, and honour scenarios under `#if SCREENSHOTS`, in [a root of your own](07-release-safety.md#writing-the-root-yourself), rather than in any debug build. | The bundle identifier gives the run its own container, so screenshot window frames and preferences do not leak into the development build; the condition keeps the development build from being talked into showing invented purchases at all. The name has to begin with `Debug`, or the package is built without the simulated store. |
 
 `Demo/UITests` is this, run by `make ui-tests` on an iOS simulator. On the Mac a UI test runner also needs Automation Mode permitted (`automationmodetool`), and, signed ad hoc, the hardened runtime switched off for the UI-test target alone.

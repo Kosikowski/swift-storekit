@@ -27,27 +27,30 @@
 //  static StoreKit call is made. `PurchaseUI` is a few SwiftUI conveniences and no
 //  paywall. Neither depends on the other; they meet in Core.
 //
-//  `PurchaseTestKit` ships rather than hiding in a test target, for the reason a
-//  test server ships with a network client: an app testing its own paywall needs a
-//  store to point it at, and the alternative is every app inventing a worse one.
-//  Its simulated store lists a purchase one read late and answers nothing to a
-//  cancelled task, because the real one does and a politer fake hides both bugs.
-//  **Everything in it exists only in DEBUG builds** — the whole module, not only what
-//  can grant a purchase — so an app that links it, as it must to have a debug panel
-//  or a scenario, ships with nothing of it at all, and `swift package release-check`
-//  proves that about the package and about a built app. `PurchaseDebugUI` is the
-//  panel that drives it, kept apart so that the module unit tests link carries no
-//  SwiftUI.
+//  **An app imports modules that do something in every build, and nothing else.**
+//  `PurchaseLaunch` gives an app its store: in a DEBUG build a `-PurchaseScenario`
+//  argument chooses a simulated one; otherwise, and always in release, the App Store. The
+//  app's own code has no `#if` in it. `PurchaseDebugUI` is a panel that drives the
+//  simulated store in a running debug build, and draws nothing in a release one.
 //
-//  `PurchaseTestSupport` is what a *test* needs and an app does not: a clock that
-//  moves when told, a wait on a condition, a logger that remembers, and a reader for
-//  the `.storekit` file. None of it grants anything, so none of it is guarded and
-//  all of it works in a release test run. It is apart so that an app does not carry
-//  it: Xcode links a package product into every configuration of a target or none.
+//  The simulated store itself is `PurchaseSimulator`, which **no app imports** and
+//  which exists only in DEBUG builds — the whole module, not only what can grant a
+//  purchase — so an app that links it, as every app using PurchaseLaunch does, ships
+//  with nothing of it at all, and `swift package release-check` proves that of the
+//  package and of a built app. It lists a purchase one read late and answers nothing to
+//  a cancelled task, because the real store does and a politer fake hides both bugs.
+//
+//  `PurchaseTestKit` is to this package what StoreKitTest is to StoreKit: what a test
+//  imports, and an app never. The simulated store, re-exported, and beside it a clock
+//  that moves when told, a wait on a condition, a logger that remembers and a reader
+//  for the `.storekit` file — none of which grants anything, so none of which is
+//  guarded, and all of which work in a release test run. It ships rather than hiding in
+//  a test target for the reason a test server ships with a network client: an app
+//  testing its own paywall needs a store to point it at.
 //
 //  `PurchaseDirectDistribution` is one type, `EverythingOwnedStoreFront`, for a build
-//  sold some other way. Apart for the same reason: it is a store in which everything
-//  is owned, and an App Store build should not contain one.
+//  sold some other way. Apart because it is a store in which everything is owned, and
+//  an App Store build should not contain one.
 
 import PackageDescription
 
@@ -72,25 +75,32 @@ let package = Package(
         .library(name: "PurchaseCore", targets: ["PurchaseCore"]),
         .library(name: "PurchaseStoreKit", targets: ["PurchaseStoreKit"]),
         .library(name: "PurchaseUI", targets: ["PurchaseUI"]),
-        // Shipped, not test-only. See the note above.
-        .library(name: "PurchaseTestKit", targets: ["PurchaseTestKit"]),
-        .library(name: "PurchaseTestSupport", targets: ["PurchaseTestSupport"]),
+        .library(name: "PurchaseLaunch", targets: ["PurchaseLaunch"]),
         .library(name: "PurchaseDebugUI", targets: ["PurchaseDebugUI"]),
+        // For test targets, and only for them. Shipped, not hidden in one: see above.
+        .library(name: "PurchaseTestKit", targets: ["PurchaseTestKit"]),
+        // The simulated store by itself, for an app that writes its own composition root
+        // (a screenshots configuration with a condition of its own). Most apps never name it.
+        .library(name: "PurchaseSimulator", targets: ["PurchaseSimulator"]),
         .library(name: "PurchaseDirectDistribution", targets: ["PurchaseDirectDistribution"]),
     ],
     targets: [
         .target(name: "PurchaseCore", swiftSettings: strict),
         .target(name: "PurchaseStoreKit", dependencies: ["PurchaseCore"], swiftSettings: strict),
         .target(name: "PurchaseUI", dependencies: ["PurchaseCore"], swiftSettings: strict),
-        .target(name: "PurchaseTestKit", dependencies: ["PurchaseCore"], swiftSettings: strict),
-        // Depends on the test kit and not the other way about, so that the test kit —
-        // the one an app links — depends on nothing that is not behind the guard.
+        // DEBUG only, whole. Inside every app that uses PurchaseLaunch, and named by none.
+        .target(name: "PurchaseSimulator", dependencies: ["PurchaseCore"], swiftSettings: strict),
         .target(
-            name: "PurchaseTestSupport", dependencies: ["PurchaseCore", "PurchaseTestKit"],
+            name: "PurchaseLaunch", dependencies: ["PurchaseCore", "PurchaseStoreKit", "PurchaseSimulator"],
+            swiftSettings: strict),
+        // Depends on the simulator and not the other way about, so that what an app links
+        // depends on nothing that is not behind the guard.
+        .target(
+            name: "PurchaseTestKit", dependencies: ["PurchaseCore", "PurchaseSimulator"],
             swiftSettings: strict),
         .target(name: "PurchaseDirectDistribution", dependencies: ["PurchaseCore"], swiftSettings: strict),
         .target(
-            name: "PurchaseDebugUI", dependencies: ["PurchaseCore", "PurchaseTestKit"],
+            name: "PurchaseDebugUI", dependencies: ["PurchaseCore", "PurchaseLaunch", "PurchaseSimulator"],
             swiftSettings: strict),
         // `swift package release-check`. A plugin and not a script, because the build
         // can tell a plugin what it built, and a script has to go looking: two scripts
@@ -104,11 +114,14 @@ let package = Package(
                     description: "Proves the simulated store is in a debug build and absent from a release one."))),
         .testTarget(
             name: "PurchaseCoreTests",
-            dependencies: ["PurchaseCore", "PurchaseTestKit", "PurchaseTestSupport", "PurchaseDirectDistribution"],
+            dependencies: ["PurchaseCore", "PurchaseTestKit", "PurchaseDirectDistribution"],
             swiftSettings: strict),
         .testTarget(
-            name: "PurchaseTestKitTests", dependencies: ["PurchaseCore", "PurchaseTestKit", "PurchaseTestSupport"],
+            name: "PurchaseTestKitTests", dependencies: ["PurchaseCore", "PurchaseTestKit"],
             resources: [.copy("Fixtures")],
+            swiftSettings: strict),
+        .testTarget(
+            name: "PurchaseLaunchTests", dependencies: ["PurchaseCore", "PurchaseLaunch", "PurchaseTestKit"],
             swiftSettings: strict),
         .testTarget(
             name: "PurchaseStoreKitTests", dependencies: ["PurchaseCore", "PurchaseStoreKit"],

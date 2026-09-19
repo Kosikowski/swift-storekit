@@ -21,13 +21,14 @@ There is deliberately no `isPro`. An app derives its own from `Standing.access(t
 
 ```
 PurchaseCore       Foundation, Observation. No StoreKit, SwiftUI, AppKit or UIKit.
-  ▲ ▲ ▲ ▲ ▲
-  │ │ │ │ └── PurchaseDirectDistribution               (one store, for builds sold elsewhere)
-  │ │ │ └──── PurchaseTestKit ◄── PurchaseDebugUI      (SwiftUI; both DEBUG only, whole)
-  │ │ │              ▲
-  │ │ └──────────────┴── PurchaseTestSupport           (test targets only)
+  ▲ ▲ ▲ ▲
+  │ │ │ └──── PurchaseDirectDistribution               (one store, for builds sold elsewhere)
+  │ │ └────── PurchaseSimulator                        (DEBUG only, whole; imported by no app)
+  │ │              ▲           ▲            ▲
+  │ │       PurchaseLaunch  PurchaseDebugUI  PurchaseTestKit
+  │ │       (app: its store) (app: a panel)  (tests only)
   │ └──────── PurchaseUI                               (SwiftUI)
-  └────────── PurchaseStoreKit                         (StoreKit)
+  └────────── PurchaseStoreKit ◄── PurchaseLaunch      (StoreKit)
 ```
 
 Dependencies point inwards only. `PurchaseStoreKit` and `PurchaseUI` do not know about each other; they meet in Core, and in Apple's own types.
@@ -37,10 +38,11 @@ Dependencies point inwards only. `PurchaseStoreKit` and `PurchaseUI` do not know
 | `PurchaseCore` | All the logic: values, rules, ports, and the one stateful class | Foundation, Observation |
 | `PurchaseStoreKit` | The App Store behind Core's ports | StoreKit; AppKit or UIKit for purchase anchors |
 | `PurchaseUI` | Environment entries, a start-at-launch modifier, two buttons. No paywall | SwiftUI; StoreKit in one file, for `@Environment(\.purchase)` |
-| `PurchaseTestKit` | A simulated store, its gates, scenarios. **The whole module is behind `#if DEBUG`**, so an app that links it ships with nothing of it | Foundation, Synchronization |
-| `PurchaseTestSupport` | What a test needs and an app does not: a manual clock, `waitUntil`, a recording logger, the `.storekit` validator. Guarded by nothing, because it grants nothing, and apart so that an app does not carry it: Xcode links a package product into every configuration of a target or none | Foundation, Synchronization |
+| `PurchaseLaunch` | The composition root, for an app that does not want to write one: `StoreLaunch.make(catalogue:)`. In a DEBUG build `-PurchaseScenario` chooses a simulated store; otherwise, and always in release, the App Store. Never empty, and the only thing an app imports for this | Foundation |
+| `PurchaseDebugUI` | A panel that drives the simulated store in a running debug build. Its *name* is in every build, and draws nothing in release, so an app needs no `#if` to mention it | SwiftUI |
+| `PurchaseSimulator` | The simulated store, its gates and scenarios. **The whole module is behind `#if DEBUG`**, so an app that links it — every app using the two above — ships with nothing of it. No app imports it | Foundation, Synchronization |
+| `PurchaseTestKit` | What a test imports, and an app never: the simulator re-exported, and a manual clock, `waitUntil`, a recording logger and the `.storekit` validator, guarded by nothing because they grant nothing. To this package what StoreKitTest is to StoreKit | Foundation, Synchronization |
 | `PurchaseDirectDistribution` | `EverythingOwnedStoreFront`, for a build sold some other way. Apart so that an App Store build does not contain a store in which everything is owned | Foundation |
-| `PurchaseDebugUI` | A panel that drives the simulated store in a running debug build | SwiftUI |
 | `ReleaseCheck` *(plugin, not a product)* | `swift package release-check`: proves the simulated store is in a debug build and absent from a release one ([release safety](07-release-safety.md)) | PackagePlugin |
 
 Core imports no Apple framework beyond Foundation and Observation. That is not tidiness: `SKTestSession` does not work in a package test target at all ([decisions](10-decisions.md#d1-real-storekit-is-tested-from-a-host-app)), so anything that imports StoreKit cannot be tested by `swift test`. Everything that decides something therefore lives where StoreKit is not.
@@ -72,7 +74,7 @@ A store is five small roles, because their consumers differ. `PurchaseStore`'s d
 | `PurchaseLogging` | Receives events that are safe to write down as they are. |
 | `StoreDiagnosing` | Reports what this build actually receives from the store. |
 
-Three conformers ship: `AppStoreFront` (the App Store, in `PurchaseStoreKit`), `SimulatedStoreFront` (`PurchaseTestKit`, DEBUG only), and `EverythingOwnedStoreFront` (`PurchaseDirectDistribution`, for builds sold some other way, which ships in release by design).
+Three conformers ship: `AppStoreFront` (the App Store, in `PurchaseStoreKit`), `SimulatedStoreFront` (`PurchaseSimulator`, DEBUG only), and `EverythingOwnedStoreFront` (`PurchaseDirectDistribution`, for builds sold some other way, which ships in release by design).
 
 ## The store
 

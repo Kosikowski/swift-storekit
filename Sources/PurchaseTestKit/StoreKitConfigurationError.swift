@@ -1,6 +1,6 @@
 //
 //  StoreKitConfigurationError.swift
-//  PurchaseTestSupport
+//  PurchaseTestKit
 //
 //  What can go wrong reading a `.storekit` file.
 //

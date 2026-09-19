@@ -1,6 +1,6 @@
 //
 //  StoreKitConfiguration+Product.swift
-//  PurchaseTestSupport
+//  PurchaseTestKit
 //
 //  One product as a `.storekit` file describes it.
 //

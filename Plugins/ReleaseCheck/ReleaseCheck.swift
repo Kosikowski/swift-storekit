@@ -34,12 +34,18 @@
 //    build, so a name that is misspelt, or that a rename has left behind, fails here
 //    instead of quietly guarding nothing.
 //
-//  **What it looks for is a module, not a list of names.** PurchaseTestKit and
-//  PurchaseDebugUI are guarded whole, so in a release build they must contribute
-//  *nothing*: no symbol anywhere may mention either. A list of the types that can grant
-//  a purchase is a list somebody has to remember to extend; a new one, under a new
-//  name, would have passed. The two names that matter most are kept as well, in case
-//  one is ever moved to a module this does not watch.
+//  **What it looks for is a module, not a list of names.** PurchaseSimulator is guarded
+//  whole, so in a release build it must contribute *nothing*: no symbol anywhere may
+//  mention it. A list of the types that can grant a purchase is a list somebody has to
+//  remember to extend; a new one, under a new name, would have passed. The store's own
+//  name is kept as well, in case it is ever moved to a module this does not watch, and
+//  so is the debug panel's content: the panel's *name* is in every build, on purpose,
+//  and what it draws must not be.
+//
+//  **And PurchaseTestKit must not be in an app at all**, debug or release: it is what
+//  tests import, none of it is guarded, and Xcode links a package product into every
+//  configuration of a target or none. Its control is the hosted test bundle inside the
+//  debug app, which is where it belongs.
 //
 //  **And it looks at the app, not only at the package** (`--app`, `--debug-app`). What
 //  ships is Xcode's Release build, and Xcode gives a package `DEBUG` by the *name* of
@@ -59,14 +65,21 @@ import PackagePlugin
 
 @main
 struct ReleaseCheck: CommandPlugin {
-    /// What must not ship, as it appears in a mangled symbol: the two modules that are
-    /// guarded whole (length-prefixed, as the mangling has them), and the two types that
-    /// matter most, by name.
-    private static let forbidden = ["15PurchaseTestKit", "15PurchaseDebugUI", "SimulatedStoreFront", "PurchaseDebugPanel"]
+    /// What must not ship, as it appears in a mangled symbol: the module that is guarded
+    /// whole (length-prefixed, as the mangling has it), the store by name, and what the
+    /// debug panel draws.
+    private static let forbidden = ["17PurchaseSimulator", "SimulatedStoreFront", "12PanelContent"]
 
     /// Ships in every configuration, and is built by the same build: if the release
-    /// search cannot see this, it cannot see anything.
-    private static let control = "19PurchaseTestSupport11ManualClock"
+    /// search cannot see this, it cannot see anything. The module alone, and not
+    /// `…11StoreLaunch` after it: the mangling abbreviates a word it has already spelt, so
+    /// the type's name is not in its own symbol. (This plugin's control on its own names
+    /// is what said so.)
+    private static let control = "14PurchaseLaunch"
+
+    /// What tests import. Not guarded, because it grants nothing — and so not an app's
+    /// to link, because linked it ships.
+    private static let testsOnly = "15PurchaseTestKit"
 
     /// In a built app, additionally: what a scenario is called on a command line and in
     /// the environment. Strings, which survive where symbols are stripped.
@@ -74,6 +87,14 @@ struct ReleaseCheck: CommandPlugin {
 
     /// What any app using the package carries, in any configuration.
     private static let appControl = "PurchaseStore"
+
+    /// The debug panel is a product, and an app need not link it: the first app moved
+    /// onto this package does not, and was called vacuous for want of a panel it never
+    /// had. So the panel's name is looked for in a debug app only if the panel's *module*
+    /// is there. In the release app it is forbidden whichever; and its spelling is
+    /// controlled by the package's own check, and by any app that does link it.
+    private static let panel = "12PanelContent"
+    private static let panelModule = "15PurchaseDebugUI"
 
     func performCommand(context: PluginContext, arguments: [String]) async throws {
         let nm = try context.tool(named: "nm").url
@@ -126,7 +147,9 @@ struct ReleaseCheck: CommandPlugin {
         let release = try contents(ofApp: value(after: "--app"), nm: nm, strings: strings)
         let debug = try contents(ofApp: value(after: "--debug-app"), nm: nm, strings: strings)
 
-        let blind = Self.forbiddenInAnApp.filter { name in !debug.contains { $0.contains(name) } }
+        let linksThePanel = debug.contains { $0.contains(Self.panelModule) }
+        let expected = Self.forbiddenInAnApp.filter { $0 != Self.panel || linksThePanel }
+        let blind = expected.filter { name in !debug.contains { $0.contains(name) } }
         guard blind.isEmpty else {
             throw Failure(
                 """
@@ -141,7 +164,28 @@ struct ReleaseCheck: CommandPlugin {
         guard found.isEmpty else {
             throw Failure("the simulated store is present in the RELEASE APP: \(found.joined(separator: ", "))")
         }
-        print("release-check: the app is clean — \(Self.forbiddenInAnApp.count) names found in the debug app, none in the release app, which does carry \(Self.appControl)")
+        // The test kit's control is the hosted test bundle, which a debug app built for
+        // testing carries inside it. Without one the name below is unchecked, and an
+        // unchecked name guards nothing.
+        guard debug.contains(where: { $0.contains(Self.testsOnly) }) else {
+            throw Failure(
+                """
+                VACUOUS — \(Self.testsOnly) is nowhere in the debug app, so its absence from the release \
+                app proves nothing. Build the debug app with build-for-testing, so that its hosted test \
+                bundle is inside it.
+                """)
+        }
+        guard !release.contains(where: { $0.contains(Self.testsOnly) }) else {
+            throw Failure(
+                """
+                PurchaseTestKit is linked into the RELEASE APP. It is for test targets: nothing in it is \
+                guarded, and Xcode links a package product into every configuration of a target or none.
+                """)
+        }
+        let panelNote = linksThePanel ? "" : " (it does not link the debug panel)"
+        print(
+            "release-check: the app is clean — \(expected.count) names found in the debug app\(panelNote), none in the release app, which carries \(Self.appControl) and nothing of the test kit"
+        )
     }
 
     /// Every symbol and every string in every Mach-O file of the bundle. In a debug-type

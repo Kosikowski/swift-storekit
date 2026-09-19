@@ -1,6 +1,6 @@
 //
 //  SimulatedStoreFront.swift
-//  PurchaseTestKit
+//  PurchaseSimulator
 //
 //  A store with no StoreKit in it, and with StoreKit's awkwardness left in.
 //

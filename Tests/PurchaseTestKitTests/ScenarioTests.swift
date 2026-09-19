@@ -3,7 +3,6 @@
 import Foundation
 import PurchaseCore
 import PurchaseTestKit
-import PurchaseTestSupport
 import Testing
 
 private let pro: ProductID = "com.example.pro"
@@ -11,27 +10,27 @@ private let trial: ProductID = "com.example.trial"
 private let fortnight: Duration = .seconds(14 * 86_400)
 private let catalogue: Catalogue = [.unlock(pro), .trial(trial, of: [pro], lasting: fortnight)]
 
-private func parse(_ text: String) throws(PurchaseTestKitError) -> Scenario {
+private func parse(_ text: String) throws(ScenarioError) -> Scenario {
     try Scenario(parsing: text, catalogue: catalogue)
 }
 
 /// As `Scenario.fromLaunchArguments`, with nothing of the real process in it.
 private func launched(
     _ arguments: [String], environment: [String: String] = [:]
-) throws(PurchaseTestKitError) -> Scenario? {
+) throws(ScenarioError) -> Scenario? {
     try Scenario.fromLaunchArguments(arguments, environment: environment, catalogue: catalogue)
 }
 
 private func invalid(
-    _ clause: String, _ fault: PurchaseTestKitError.ScenarioFault
-) -> PurchaseTestKitError {
+    _ clause: String, _ fault: ScenarioError.ScenarioFault
+) -> ScenarioError {
     .invalidScenario(clause: clause, reason: fault)
 }
 
 @Suite("Scenario", .timeLimit(.minutes(1)))
 struct ScenarioTests {
     typealias Behaviour = SimulatedStoreFront.Behaviour
-    typealias Fault = PurchaseTestKitError.ScenarioFault
+    typealias Fault = ScenarioError.ScenarioFault
 
     // MARK: - Clauses
 
@@ -104,13 +103,13 @@ struct ScenarioTests {
         var behaviour = SimulatedStoreFront.Behaviour()
         behaviour.purchases = [pro: .pending, trial: .fails(.network)]
         #expect(try parse("purchase=pro:pending, trial:fails:network") == Scenario(behaviour: behaviour))
-        #expect(throws: PurchaseTestKitError.invalidScenario(clause: "purchase=pro:pending,maybe", reason: .unknownValue("maybe"))) {
+        #expect(throws: ScenarioError.invalidScenario(clause: "purchase=pro:pending,maybe", reason: .unknownValue("maybe"))) {
             try parse("purchase=pro:pending,maybe")
         }
-        #expect(throws: PurchaseTestKitError.invalidScenario(clause: "purchase=trail:pending", reason: .unknownProduct("trail"))) {
+        #expect(throws: ScenarioError.invalidScenario(clause: "purchase=trail:pending", reason: .unknownProduct("trail"))) {
             try parse("purchase=trail:pending")
         }
-        #expect(throws: PurchaseTestKitError.invalidScenario(clause: "purchase=pro:pending,pro:succeeds", reason: .repeatedProduct(pro))) {
+        #expect(throws: ScenarioError.invalidScenario(clause: "purchase=pro:pending,pro:succeeds", reason: .repeatedProduct(pro))) {
             try parse("purchase=pro:pending,pro:succeeds")
         }
     }
@@ -118,7 +117,7 @@ struct ScenarioTests {
     @Test("unverified= lists products whose signatures do not check out")
     func unverified() async throws {
         #expect(try parse("unverified=pro") == Scenario(unverified: [pro]))
-        #expect(throws: PurchaseTestKitError.invalidScenario(clause: "unverified=pro,,trial", reason: .unknownProduct(""))) {
+        #expect(throws: ScenarioError.invalidScenario(clause: "unverified=pro,,trial", reason: .unknownProduct(""))) {
             try parse("unverified=pro,,trial")
         }
         let store = store()

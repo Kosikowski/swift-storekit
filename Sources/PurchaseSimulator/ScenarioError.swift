@@ -1,6 +1,6 @@
 //
-//  PurchaseTestKitError.swift
-//  PurchaseTestKit
+//  ScenarioError.swift
+//  PurchaseSimulator
 //
 //  What can go wrong in this module that is not the simulated store misbehaving on
 //  request: a scenario that does not parse.
@@ -13,8 +13,8 @@
 //  does not.
 //
 //  DEBUG only, like everything else in this module. (What can go wrong reading a
-//  `.storekit` file is `StoreKitConfigurationError`, in PurchaseTestSupport, which
-//  is in every configuration.)
+//  `.storekit` file is `StoreKitConfigurationError`, in PurchaseTestKit, which tests
+//  link and which is in every configuration.)
 //
 
 #if DEBUG
@@ -22,7 +22,7 @@
 public import PurchaseCore
 
 /// A failure to read a scenario.
-public enum PurchaseTestKitError: Error, Hashable, Sendable {
+public enum ScenarioError: Error, Hashable, Sendable {
     /// What is wrong with one clause of a scenario.
     ///
     /// An `Error` only so that the parser's own helpers can throw one. It reaches a
@@ -59,7 +59,7 @@ public enum PurchaseTestKitError: Error, Hashable, Sendable {
     case invalidScenario(clause: String, reason: ScenarioFault)
 }
 
-extension PurchaseTestKitError: CustomStringConvertible {
+extension ScenarioError: CustomStringConvertible {
     /// A sentence for a developer, fit for the message of the `fatalError` a bad
     /// scenario deserves.
     public var description: String {
@@ -70,7 +70,7 @@ extension PurchaseTestKitError: CustomStringConvertible {
     }
 }
 
-extension PurchaseTestKitError.ScenarioFault: CustomStringConvertible {
+extension ScenarioError.ScenarioFault: CustomStringConvertible {
     public var description: String {
         switch self {
         case .unknownClause:

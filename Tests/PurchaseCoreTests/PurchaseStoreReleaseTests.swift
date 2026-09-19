@@ -1,6 +1,6 @@
 import Foundation
 import PurchaseCore
-import PurchaseTestSupport
+import PurchaseTestKit
 import Synchronization
 import Testing
 

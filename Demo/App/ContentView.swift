@@ -12,12 +12,10 @@
 //
 
 import PurchaseCore
+import PurchaseDebugUI
+import PurchaseLaunch
 import PurchaseUI
 import SwiftUI
-
-#if DEBUG
-import PurchaseDebugUI
-#endif
 
 struct ContentView: View {
     @Environment(\.purchaseState) private var purchases
@@ -27,11 +25,9 @@ struct ContentView: View {
     @State private var showsDebugPanel = false
     #endif
 
-    #if DEBUG
-    /// What the debug panel needs, handed down by whoever built the store. Nil in the
-    /// preview, which has no panel.
-    var debug: AppPurchases?
-    #endif
+    /// The launch this view belongs to: whether it is on a simulated store, and what the
+    /// debug panel needs. Nil in a preview, which has neither.
+    var launch: StoreLaunch?
 
     /// The result of *this view's* buttons, kept here. Published somewhere shared, it
     /// would be announced by every view watching.
@@ -39,15 +35,14 @@ struct ContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            #if DEBUG
             // Said out loud, and the first thing a UI test looks for: in a build that
             // cannot honour a scenario the app runs on the real store and nothing fails,
-            // so a test that did not check would photograph the wrong thing.
-            if debug?.simulated != nil {
+            // so a test that did not check would photograph the wrong thing. Never true in
+            // a release build, so this needs no `#if`.
+            if launch?.isSimulated == true {
                 Text("Simulated store").font(.caption).foregroundStyle(.orange)
                     .accessibilityIdentifier("simulated-store")
             }
-            #endif
             // Asked afresh every second, so the view changes when a trial runs out. The
             // standing is not resolved again for this: its questions take the date.
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
@@ -63,9 +58,7 @@ struct ContentView: View {
                     if case let .failure(error) = result { notice = Self.words(for: error) }
                 }
             }
-            #if DEBUG
             debugPanelButton
-            #endif
         }
         .padding(24)
         #if os(macOS)
@@ -73,23 +66,20 @@ struct ContentView: View {
         #endif
     }
 
-    #if DEBUG
-    /// A window of its own on the Mac; a sheet on iOS, which has no `Window` scenes.
+    /// A window of its own on the Mac; a sheet on iOS, which has no `Window` scenes. Not
+    /// there at all in a release build, where there is no panel to open — asked of the
+    /// panel, not of the preprocessor.
     @ViewBuilder
     private var debugPanelButton: some View {
-        #if os(macOS)
-        Button("Purchase debug panel…") { openWindow(id: "purchase-debug") }
-        #else
-        if let debug {
+        if PurchaseDebugPanel.isAvailable, let launch {
+            #if os(macOS)
+            Button("Purchase debug panel…") { openWindow(id: "purchase-debug") }
+            #else
             Button("Purchase debug panel…") { showsDebugPanel = true }
-                .sheet(isPresented: $showsDebugPanel) {
-                    PurchaseDebugPanel(
-                        store: debug.store, simulated: debug.simulated, diagnostics: debug.diagnostics)
-                }
+                .sheet(isPresented: $showsDebugPanel) { PurchaseDebugPanel(launch) }
+            #endif
         }
-        #endif
     }
-    #endif
 
     @ViewBuilder
     private func status(at date: Date) -> some View {

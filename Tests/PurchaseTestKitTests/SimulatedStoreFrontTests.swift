@@ -7,7 +7,6 @@
 import Foundation
 import PurchaseCore
 import PurchaseTestKit
-import PurchaseTestSupport
 import Testing
 
 private let pro: ProductID = "com.example.pro"
