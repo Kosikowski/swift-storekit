@@ -30,7 +30,7 @@ It remembers what was bought, the way the real store does for the account, and i
 
 ## Arranging it
 
-All of it inside `#if DEBUG`, like everything else that names the simulated store.
+In a test, which is where the simulated store is named, after `import PurchaseTestKit`. It exists only in debug builds, which is where test bundles are built ([testing](05-testing.md#a-test-imports-the-test-kit-and-an-app-cannot-link-it)); a running app arranges it with a [scenario](#scenarios) or the [debug panel](#the-debug-panel) instead.
 
 ```swift
 // Owning things and misbehaving from its first line, for a test that needs no more:

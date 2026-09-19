@@ -159,7 +159,6 @@ period.endsAt.formatted(date: .abbreviated, time: .shortened)
 Instant, offline, and under plain `swift test`. (`YourApp` is your app's module, where `Shop` lives.) `ManualClock` moves only when told to, and `SimulatedStoreFront.seedTrial(_:remaining:)` puts the trial's purchase date where it needs to be.
 
 ```swift
-#if DEBUG
 import Foundation
 import PurchaseCore
 import PurchaseTestKit
@@ -185,7 +184,6 @@ func trialEndsInFiveMinutes() async {
     #expect(store.standing.access(to: Shop.pro) == .none)
     if case .used = store.standing.trial(Shop.trial) {} else { Issue.record("the trial should be used") }
 }
-#endif
 ```
 
 Give the store and the simulated front the **same** clock: the front dates the seeded purchase by it, and the store waits on it.
@@ -199,7 +197,7 @@ Related arrangements:
 | `clock.wakeSleepers()` | A timer firing early, without moving time |
 | `clock.sleeperCount` | Whether the store has scheduled its re-read yet |
 
-`ManualClock` exists in every build configuration. `SimulatedStoreFront` exists only in `DEBUG`, which is why the test is wrapped in `#if DEBUG`: in a release test run it would not compile ([testing](05-testing.md#guard-every-test-that-names-the-simulated-store)).
+`ManualClock` exists in every build configuration. `SimulatedStoreFront` exists only in `DEBUG`, which is where test bundles are built; if yours are also built for release, that test needs an `#if DEBUG` round it ([testing](05-testing.md#a-test-imports-the-test-kit-and-an-app-cannot-link-it)).
 
 ### 2. A running debug build, in real time
 

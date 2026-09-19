@@ -50,7 +50,7 @@ Selling a non-consumable looks like sixty lines of StoreKit, and every app that 
 | `PurchaseSimulator` | nobody, usually: it is reached through the two above | **Nothing at all.** Behind `#if DEBUG` from first line to last, and `swift package release-check` proves it, of the package and of a built app |
 | `PurchaseDirectDistribution` | a build sold outside the App Store | `EverythingOwnedStoreFront`, and nothing an App Store build should carry |
 
-An app's code has no `#if DEBUG` about purchases, and imports nothing that is missing from a release build.
+An app's code imports nothing that is missing from a release build, and needs no `#if DEBUG` about purchases — except round a `Window` scene, if it gives the debug panel a window of its own, because a scene cannot be conditional.
 
 ## Using it
 
@@ -113,8 +113,9 @@ if case .none = standing.access(to: "com.example.pro", at: .now) { showPaywall()
 ```
 make test             # everything that decides anything; offline, no test host
 make check            # layers, tests (debug and release), the iOS build, the Demo's builds
-                      # (needs XcodeGen), and proof the simulated store is absent from
-                      # release: `swift package release-check`, also in Xcode's package menu
+                      # (needs XcodeGen), proof the simulated store is absent from release
+                      # (`swift package release-check`, also in Xcode's package menu), and
+                      # proof that an app which links the test kit does not build
 make integration      # real StoreKit through the real adapter, hosted by Demo/ (needs XcodeGen)
 make integration-ios  # the same, in an iOS simulator
 make ui-tests         # the Demo launched with scenarios, as a screenshot run launches it
