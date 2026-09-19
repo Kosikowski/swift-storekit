@@ -7,7 +7,7 @@
 //  What one subscription group amounts to for this account.
 //
 
-public import Foundation
+import Foundation
 
 /// Where this account stands in one subscription group.
 ///
