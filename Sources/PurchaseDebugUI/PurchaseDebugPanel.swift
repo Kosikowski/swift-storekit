@@ -22,11 +22,13 @@
 //  `PurchaseDebugPanel.isAvailable` says which build this is, for the button that opens it.
 //
 
-public import PurchaseCore
 public import PurchaseLaunch
 public import SwiftUI
 
+// Only the debug panel speaks of the store's own types; in release it draws nothing,
+// and a public import it did not use would be warned about.
 #if DEBUG
+public import PurchaseCore
 public import PurchaseSimulator
 #endif
 
