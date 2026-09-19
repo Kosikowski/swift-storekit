@@ -31,6 +31,12 @@ public enum PurchaseCompletion: Hashable, Sendable {
     case notCounted(OwnedProduct)
     /// A subscription, now held: bought, upgraded to, or already held and handed back.
     case subscribed(HeldSubscription)
+    /// A subscription, now held — and **the offer asked for was not applied**: it was bought
+    /// at the regular price. Measured, StoreKit can do this and say nothing: an introductory
+    /// override it could not check went through at the full price (spike/README.md). Never
+    /// report it as the offer. An offer that waits for the next renewal, as a promotional
+    /// offer bought by a current subscriber does `[Apple]`, counts as applied.
+    case offerNotApplied(HeldSubscription)
     /// A change of plan that takes effect at the renewal: a downgrade, or a crossgrade to
     /// another duration. **Nothing has changed yet**, and the person keeps what they have
     /// until `at`. Measured: StoreKit reports such a purchase as a plain success with the

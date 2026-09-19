@@ -25,11 +25,15 @@ private final class CancellationSensitiveGateway: StoreKitGateway {
     func products(for identifiers: Set<ProductID>) async throws -> [StoreProduct] { Task.isCancelled ? [] : sold }
     func currentEntitlements() async -> [TransactionSnapshot] { [] }
     func unfinished() async -> [TransactionSnapshot] { [] }
-    func purchase(_ id: ProductID, confirmation: PurchaseConfirmation) async throws -> GatewayPurchaseResult? { nil }
+    func purchase(
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
+    ) async throws -> GatewayPurchaseResult? { nil }
     func sync() async throws {}
     func updates() -> AsyncStream<TransactionSnapshot> { AsyncStream { $0.finish() } }
     func subscriptionStatuses(for group: SubscriptionGroupID) async throws -> [StatusSnapshot] { [] }
     func statusUpdates() -> AsyncStream<StatusSnapshot> { AsyncStream { $0.finish() } }
+    func isEligibleForIntroductoryOffer(in group: SubscriptionGroupID) async -> Bool { true }
+    func transactions(in group: SubscriptionGroupID) async -> [TransactionSnapshot] { [] }
 }
 
 @Suite("App Store front", .timeLimit(.minutes(1)))
@@ -98,6 +102,14 @@ struct AppStoreFrontTests {
         let outcome = try await front.purchase(pro, confirmation: .automatic)
         #expect(outcome == .purchased(OwnedProduct(id: pro, originalPurchaseDate: date)))
         #expect(gateway.finished == [pro])
+    }
+
+    @Test("an account token reaches StoreKit untouched")
+    func accountToken() async throws {
+        let token = UUID()
+        gateway.state.withLock { $0.purchase = .success(.success(gateway.transaction(pro))) }
+        _ = try await front.purchase(pro, options: PurchaseOptions(appAccountToken: token), confirmation: .automatic)
+        #expect(gateway.state.withLock { $0.purchaseOptions } == PurchaseOptions(appAccountToken: token))
     }
 
     /// Reported as a cancellation, someone who has just paid is shown nothing at all.
@@ -288,11 +300,17 @@ struct StoreKitErrorMappingTests {
         #expect(StoreKitErrorMapping.verdict(for: error) == expected)
     }
 
-    @Test("each purchase error likewise", arguments: [
+    /// An offer refused keeps StoreKit's reason: a bad signature is the app's server, and
+    /// must not read as a person the offer is not for.
+    @Test("each purchase error likewise, and an offer refused keeps its reason", arguments: [
         (Product.PurchaseError.productUnavailable, PurchaseCore.PurchaseError.productUnavailable),
         (.purchaseNotAllowed, .purchaseNotAllowed),
         (.invalidQuantity, .system),
-        (.ineligibleForOffer, .unsupported),
+        (.ineligibleForOffer, .offerRefused(.notEligible)),
+        (.invalidOfferIdentifier, .offerRefused(.unknownOffer)),
+        (.invalidOfferPrice, .offerRefused(.invalidPrice)),
+        (.invalidOfferSignature, .offerRefused(.invalidSignature)),
+        (.missingOfferParameters, .offerRefused(.missingParameters)),
     ])
     func purchaseErrors(error: Product.PurchaseError, expected: PurchaseCore.PurchaseError) {
         #expect(StoreKitErrorMapping.verdict(for: error) == .failure(expected))

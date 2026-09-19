@@ -98,8 +98,18 @@ public struct StoreKitConfiguration: Hashable, Sendable {
     /// level its entry names, and family-shareable exactly when its entry honours Family
     /// Sharing. An identifier in the file twice is checked in both
     /// places, so one hiding under a subscription group as well is still caught.
-    public func problems(against catalogue: Catalogue) -> [StoreKitConfigurationProblem] {
+    ///
+    /// - Parameter offers: the promotional and win-back offers the app names in its own
+    ///   code, by the product they are for. Each must be in the file, on that product.
+    public func problems(
+        against catalogue: Catalogue, offers: [ProductID: Set<OfferID>] = [:]
+    ) -> [StoreKitConfigurationProblem] {
         var problems: [StoreKitConfigurationProblem] = []
+        for (id, named) in offers.sorted(by: { $0.key < $1.key }) {
+            let product = products.first { $0.id == id }
+            let known = Set(((product?.promotionalOffers ?? []) + (product?.winBackOffers ?? [])).compactMap(\.id))
+            problems += named.subtracting(known).sorted().map { .offerMissing($0, product: id) }
+        }
         for entry in catalogue.entries {
             let found = products.filter { $0.id == entry.id }
             if found.isEmpty { problems.append(.missing(entry.id)) }
@@ -164,7 +174,18 @@ public struct StoreKitConfiguration: Hashable, Sendable {
                 // Not a number rather than zero: `StoreProduct.price` exists to be
                 // compared with zero, and an unreadable price must not pass for free.
                 price: product.price ?? .nan,
-                isFamilyShareable: product.isFamilyShareable)
+                isFamilyShareable: product.isFamilyShareable,
+                subscription: subscription(of: product, as: entry))
         }
+    }
+
+    /// A subscription's period and offers, as the file has them, for a catalogue
+    /// subscription the file also calls one.
+    private func subscription(of product: Product, as entry: CatalogueEntry) -> StoreProduct.Subscription? {
+        guard let terms = entry.subscriptionTerms, let period = product.subscriptionPeriod else { return nil }
+        return StoreProduct.Subscription(
+            group: product.subscriptionGroupID ?? terms.group, period: period,
+            introductoryOffer: product.introductoryOffer, promotionalOffers: product.promotionalOffers,
+            winBackOffers: product.winBackOffers)
     }
 }

@@ -50,6 +50,16 @@ extension StoreKitConfiguration {
         /// `groupNumber`): 1 is the highest.
         public let groupLevel: Int?
 
+        /// For a subscription, how long each period is (`recurringSubscriptionPeriod`).
+        public let subscriptionPeriod: BillingPeriod?
+
+        /// For a subscription, its offers as the file has them: Xcode's
+        /// `introductoryOffer`, `adHocOffers` (promotional) and `winbackOffers`. An offer
+        /// whose terms cannot be read is left out.
+        public let introductoryOffer: OfferTerms?
+        public let promotionalOffers: [OfferTerms]
+        public let winBackOffers: [OfferTerms]
+
         /// - Parameters:
         ///   - section: where the entry was found, for the error alone.
         ///   - index: its place there, likewise.
@@ -74,6 +84,41 @@ extension StoreKitConfiguration {
             self.localizedDescription = localization?["description"] as? String
             self.subscriptionGroupID = (json["subscriptionGroupID"] as? String).map(SubscriptionGroupID.init(rawValue:))
             self.groupLevel = json["groupNumber"] as? Int
+            self.subscriptionPeriod = (json["recurringSubscriptionPeriod"] as? String).flatMap(Self.period)
+            self.introductoryOffer = (json["introductoryOffer"] as? [String: Any]).flatMap { Self.offer($0, kind: .introductory) }
+            self.promotionalOffers = (json["adHocOffers"] as? [[String: Any]] ?? []).compactMap { Self.offer($0, kind: .promotional) }
+            self.winBackOffers = (json["winbackOffers"] as? [[String: Any]] ?? []).compactMap { Self.offer($0, kind: .winBack) }
+        }
+
+        /// An offer's terms, if they can be read. Its price is the file's bare number, as
+        /// the product's is.
+        private static func offer(_ json: [String: Any], kind: OfferKind) -> OfferTerms? {
+            guard let period = (json["subscriptionPeriod"] as? String).flatMap(period) else { return nil }
+            let displayPrice = json["displayPrice"] as? String ?? (json["displayPrice"] as? NSNumber)?.stringValue ?? ""
+            let mode: OfferPaymentMode =
+                switch json["paymentMode"] as? String {
+                case "free"?, "freeTrial"?: .freeTrial
+                case "payAsYouGo"?: .payAsYouGo
+                case "payUpFront"?: .payUpFront
+                default: .unrecognised
+                }
+            return OfferTerms(
+                kind: kind, id: (json["offerID"] as? String).map(OfferID.init(rawValue:)), paymentMode: mode,
+                period: period, periodCount: json["numberOfPeriods"] as? Int ?? 1, displayPrice: displayPrice,
+                price: price(from: displayPrice) ?? .nan)
+        }
+
+        /// ISO 8601, as Xcode writes it: `P1W`, `P1M`, `P6M`, `P1Y`, `P3D`. One unit only.
+        package static func period(_ text: String) -> BillingPeriod? {
+            guard text.hasPrefix("P"), let unit = text.last, let value = Int(text.dropFirst().dropLast()), value > 0
+            else { return nil }
+            switch unit {
+            case "D": return .days(value)
+            case "W": return .weeks(value)
+            case "M": return .months(value)
+            case "Y": return .years(value)
+            default: return nil
+            }
         }
 
         /// Digits and at most one point, or nothing. `Decimal(string:)` alone would

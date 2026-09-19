@@ -26,12 +26,14 @@ private let end = start.addingTimeInterval(30 * 86_400)
 
 private func renewal(
     willRenew: Bool = true, reason: Product.SubscriptionInfo.RenewalInfo.ExpirationReason? = nil, retrying: Bool = false,
-    grace: Date? = nil, next: String? = "com.example.pro.monthly", winBack: [String] = []
+    grace: Date? = nil, next: String? = "com.example.pro.monthly", winBack: [String] = [],
+    offer: (StoreKit.Transaction.OfferType, String?, StoreKit.Transaction.Offer.PaymentMode)? = nil
 ) -> RenewalSnapshot {
     RenewalSnapshot(
         willAutoRenew: willRenew, autoRenewPreference: next, expirationReason: reason, isInBillingRetry: retrying,
         gracePeriodExpirationDate: grace, priceIncreaseStatus: .noIncreasePending, renewalPrice: 15.99,
-        currencyCode: "USD", eligibleWinBackOfferIDs: winBack)
+        currencyCode: "USD", eligibleWinBackOfferIDs: winBack, offerType: offer?.0, offerID: offer?.1,
+        offerPaymentMode: offer?.2)
 }
 
 @Suite("App Store front: subscriptions", .timeLimit(.minutes(1)))
@@ -96,6 +98,24 @@ struct SubscriptionAdapterTests {
             willRenew: false, nextProduct: nil, price: 15.99, currencyCode: "USD", priceIncrease: .none,
             winBackOffers: ["winback.three"]))
         #expect(held(status(.subscribed, nil))?.renewal == nil)
+    }
+
+    /// A promotional offer bought by a current subscriber waits for the next renewal
+    /// [Apple]: the renewal info says so, and without it the offer reads as not applied.
+    @Test("the status carries StoreKit's identifier for its transaction")
+    func transactionID() {
+        var snapshot = status(.subscribed)
+        var transaction = snapshot.transaction
+        transaction.id = 7_001
+        snapshot = StatusSnapshot(state: .subscribed, transaction: transaction, renewal: snapshot.renewal)
+        #expect(held(snapshot)?.transactionID == 7_001)
+    }
+
+    @Test("an offer the next renewal is at is read from the renewal info")
+    func renewalOffer() {
+        let waiting = held(status(.subscribed, renewal(offer: (.promotional, "promo.returning", .payAsYouGo))))
+        #expect(waiting?.renewal?.offer == AppliedOffer(kind: .promotional, id: "promo.returning", paymentMode: .payAsYouGo))
+        #expect(held(status(.subscribed))?.renewal?.offer == nil)
     }
 
     @Test("the offer a period was bought with is read from the transaction, and a kind StoreKit adds later is said")
@@ -200,13 +220,58 @@ struct SubscriptionAdapterTests {
         #expect(held.state == .expired(.autoRenewDisabled))
     }
 
-    @Test("a subscription bought is handed back with its period's end")
+    @Test("a subscription bought is handed back with its period's end, and the offer it was bought with")
     func purchase() async throws {
-        gateway.state.withLock { $0.purchase = .success(.success(gateway.subscription(monthly, from: start, to: end))) }
+        let bought = gateway.subscription(monthly, from: start, to: end, offer: (.winBack, "winback.three", .payAsYouGo))
+        gateway.state.withLock { $0.purchase = .success(.success(bought)) }
         guard case let .purchased(owned) = try await front.purchase(monthly, confirmation: .automatic) else {
             Issue.record("expected purchased")
             return
         }
         #expect(owned.expirationDate == end)
+        #expect(owned.offer == AppliedOffer(kind: .winBack, id: "winback.three", paymentMode: .payAsYouGo))
+    }
+
+    @Test("the offer and the store's signature reach StoreKit as they were asked for")
+    func purchaseWithOffer() async throws {
+        gateway.state.withLock { $0.purchase = .success(.success(gateway.subscription(monthly, from: start, to: end))) }
+        var options = PurchaseOptions(offer: .promotional("promo.returning"))
+        options.signature = "compact.jws"
+        _ = try await front.purchase(monthly, options: options, confirmation: .automatic)
+        #expect(gateway.state.withLock { $0.purchaseOptions } == options)
+    }
+
+    // MARK: - Introductory eligibility
+
+    /// Measured: StoreKit's answer keeps its first value for the life of the process, and
+    /// said "eligible" after the purchase that used the offer.
+    @Test("StoreKit's word on the introductory offer stands UNLESS a verified transaction in the group was bought with it")
+    func introductoryEligibility() async {
+        let other: SubscriptionGroupID = "21700002"
+        let third: SubscriptionGroupID = "21700003"
+        gateway.state.withLock {
+            $0.history[group] = [gateway.subscription(monthly, from: start, to: end, offer: (.introductory, nil, .freeTrial))]
+            $0.history[other] = [
+                gateway.subscription(monthly, from: start, to: end, verification: .unverified, offer: (.introductory, nil, .freeTrial)),
+                gateway.subscription(monthly, from: start, to: end, offer: (.promotional, "promo", .payAsYouGo)),
+            ]
+            $0.eligible[third] = false
+        }
+        #expect(await front.introductoryEligibility(in: [group, other, third]) == [group: false, other: true, third: false])
+    }
+
+    /// Read from a cancelled task, the transactions would be none, and "none" would offer
+    /// again an introductory offer already used.
+    @Test("introductory eligibility is read in a task nobody cancels")
+    func introductoryEligibilityCancelled() async {
+        gateway.state.withLock {
+            $0.history[group] = [gateway.subscription(monthly, from: start, to: end, offer: (.introductory, nil, .freeTrial))]
+        }
+        let front = front
+        let answer = await Task { () -> [SubscriptionGroupID: Bool] in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await front.introductoryEligibility(in: [group])
+        }.value
+        #expect(answer == [group: false])
     }
 }

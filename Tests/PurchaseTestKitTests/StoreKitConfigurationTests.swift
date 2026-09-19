@@ -185,6 +185,48 @@ struct StoreKitConfigurationTests {
         #expect(monthly.groupLevel == 2)
     }
 
+    @Test("a subscription's period and offers are read as Xcode wrote them, and served to a simulated store")
+    func subscriptionOffers() throws {
+        let file = try fixture("subscriptions")
+        let monthly = try #require(file.products.first { $0.id == "probe.monthly" })
+        let tenNinetyNine = { (kind: OfferKind, id: OfferID?, count: Int) in
+            OfferTerms(
+                kind: kind, id: id, paymentMode: .payAsYouGo, period: .months(1), periodCount: count,
+                displayPrice: "10.99", price: Decimal(string: "10.99")!)
+        }
+        #expect(monthly.subscriptionPeriod == .months(1))
+        #expect(monthly.introductoryOffer == tenNinetyNine(.introductory, nil, 2))
+        #expect(monthly.promotionalOffers == [tenNinetyNine(.promotional, "promo.returning", 3)])
+        #expect(monthly.winBackOffers == [tenNinetyNine(.winBack, "winback.three", 3)])
+        let yearly = try #require(file.products.first { $0.id == "probe.yearly" })
+        #expect(yearly.subscriptionPeriod == .years(1))
+        #expect(yearly.introductoryOffer == nil)
+
+        let served = try #require(file.storeProducts(for: Self.plans).first { $0.id == "probe.monthly" })
+        #expect(served.subscription == StoreProduct.Subscription(
+            group: "5B1F2A01", period: .months(1), introductoryOffer: monthly.introductoryOffer,
+            promotionalOffers: monthly.promotionalOffers, winBackOffers: monthly.winBackOffers))
+    }
+
+    @Test("a period is ISO 8601 with one unit, as Xcode writes it, or nothing", arguments: [
+        ("P1W", BillingPeriod.weeks(1)), ("P3D", .days(3)), ("P6M", .months(6)), ("P1Y", .years(1)),
+        ("P1M2D", nil), ("1M", nil), ("P0M", nil), ("P", nil),
+    ])
+    func periods(text: String, period: BillingPeriod?) {
+        #expect(StoreKitConfiguration.Product.period(text) == period)
+    }
+
+    @Test("an offer the app names and the file lacks, on that product, is a problem; one it has is not")
+    func namedOffers() throws {
+        let file = try fixture("subscriptions")
+        #expect(file.problems(against: Self.plans, offers: ["probe.monthly": ["promo.returning", "winback.three"]]) == [])
+        #expect(file.problems(against: Self.plans, offers: ["probe.yearly": ["winback.three"], "probe.monthly": ["promo.typo"]]) == [
+            .offerMissing("promo.typo", product: "probe.monthly"),
+            .offerMissing("winback.three", product: "probe.yearly"),
+        ])
+        #expect(StoreKitConfigurationProblem.offerMissing("promo.typo", product: "probe.monthly").description.contains("promo.typo"))
+    }
+
     @Test("a subscription in another group, at another level, or shared when the catalogue says not, is each a problem")
     func subscriptionMismatches() throws {
         let wrong: Catalogue = [

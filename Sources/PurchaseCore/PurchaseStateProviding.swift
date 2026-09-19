@@ -34,6 +34,15 @@ public protocol PurchaseStateProviding: AnyObject, Observable, Sendable {
 
     var activity: PurchaseActivity { get }
 
+    /// Whether this person may have `id`'s introductory offer, and on what terms. `unknown`
+    /// until the prices have loaded and the store has said: show the regular price then.
+    func introductoryOffer(for id: ProductID) -> IntroductoryEligibility
+
+    /// The win-back offers Apple says this person may have now in `group`, best first, for
+    /// the plan they lapsed from. Empty for anyone Apple has not said it of, for a member,
+    /// and until the prices have loaded, since an offer is shown with its terms.
+    func winBackOffers(in group: SubscriptionGroupID) -> [WinBackOffer]
+
     /// The standing, **once the store has answered**. Starts the store if nothing has.
     ///
     /// Every gate, limit, lock and "open this" path should come through here rather

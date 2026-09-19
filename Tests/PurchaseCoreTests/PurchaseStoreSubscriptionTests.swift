@@ -157,6 +157,46 @@ struct PurchaseStoreSubscriptionTests {
         #expect(try await store.purchase(Plans.monthly) == .subscribed(monthly))
     }
 
+    // MARK: - Bought in Apple's views
+
+    /// Measured in the iOS simulator: a purchase made in `SubscriptionStoreView` is never
+    /// announced, and the store hears of it only at its next read. Buying on the front
+    /// directly is what the view does: bought, listed late, and announced to nobody.
+    @Test("a subscription bought in APPLE'S VIEW and handed over is subscribed at once, unlisted")
+    func boughtInAppleView() async throws {
+        front.behaviour.listsPurchasesAfterReads = 5
+        await store.start()
+        let outcome = try await front.purchase(Plans.monthly, confirmation: .automatic)
+        #expect(group.isActive == false)
+        let completion = await store.takePurchase(outcome, of: Plans.monthly)
+        guard case let .subscribed(held) = completion else {
+            Issue.record("expected subscribed, got \(completion)")
+            return
+        }
+        #expect(held.product == Plans.monthly)
+        #expect(front.snapshot.listed.isEmpty)
+        #expect(group.isActive == true)
+    }
+
+    @Test("a downgrade in Apple's view, handed over, is a change of plan waiting for the renewal")
+    func downgradeInAppleView() async throws {
+        let premium = status(product: Plans.premium)
+        front.seedSubscription(premium)
+        await store.start()
+        let outcome = try await front.purchase(Plans.monthly, confirmation: .automatic)
+        #expect(await store.takePurchase(outcome, of: Plans.monthly) == .planChangeScheduled(to: Plans.monthly, at: premium.periodEnds))
+        #expect(group.current?.product == Plans.premium)
+    }
+
+    @Test("an Ask to Buy in Apple's view, handed over, is pending until approved")
+    func askToBuyInAppleView() async throws {
+        await store.start()
+        #expect(await store.takePurchase(.pending, of: Plans.monthly) == .pending)
+        #expect(store.pendingApprovals == [Plans.monthly])
+        #expect(await store.takePurchase(.cancelled, of: Plans.yearly) == .cancelled)
+        #expect(store.pendingApprovals == [Plans.monthly])
+    }
+
     @Test("an Ask to Buy for a subscription stops being pending when the subscription is active")
     func askToBuy() async throws {
         front.behaviour.purchase = .pending

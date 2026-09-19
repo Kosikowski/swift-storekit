@@ -54,7 +54,8 @@ enum TransactionTriage {
         let product = OwnedProduct(
             id: snapshot.productID, originalPurchaseDate: snapshot.originalPurchaseDate,
             purchaseDate: snapshot.purchaseDate, ownership: snapshot.ownership,
-            expirationDate: isSubscription ? snapshot.expirationDate : nil)
+            expirationDate: isSubscription ? snapshot.expirationDate : nil,
+            offer: isSubscription ? SubscriptionTriage.offer(of: snapshot) : nil)
         if isSubscription, snapshot.isUpgraded { return .superseded(product) }
         return .adopt(product)
     }

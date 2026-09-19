@@ -40,15 +40,19 @@ public struct PurchaseButton<Label: View>: View {
     @Environment(\.purchase) private var purchaseAction
 
     private let id: ProductID
+    private let options: PurchaseOptions
     private let onCompletion: @MainActor (Result<PurchaseCompletion, PurchaseError>) -> Void
     private let label: Label
 
+    /// - Parameter options: how it is bought: an account token of the app's own.
     public init(
         _ id: ProductID,
+        options: PurchaseOptions = PurchaseOptions(),
         onCompletion: @escaping @MainActor (Result<PurchaseCompletion, PurchaseError>) -> Void,
         @ViewBuilder label: () -> Label
     ) {
         self.id = id
+        self.options = options
         self.onCompletion = onCompletion
         self.label = label()
     }
@@ -61,7 +65,7 @@ public struct PurchaseButton<Label: View>: View {
             // scrolled out of sight while the payment sheet was up.
             Task {
                 do throws(PurchaseError) {
-                    onCompletion(.success(try await commands.purchase(id, confirmation: confirmation)))
+                    onCompletion(.success(try await commands.purchase(id, options: options, confirmation: confirmation)))
                 } catch {
                     onCompletion(.failure(error))
                 }
@@ -76,9 +80,9 @@ public struct PurchaseButton<Label: View>: View {
 
 extension PurchaseButton where Label == Text {
     public init(
-        _ titleKey: LocalizedStringKey, buying id: ProductID,
+        _ titleKey: LocalizedStringKey, buying id: ProductID, options: PurchaseOptions = PurchaseOptions(),
         onCompletion: @escaping @MainActor (Result<PurchaseCompletion, PurchaseError>) -> Void
     ) {
-        self.init(id, onCompletion: onCompletion) { Text(titleKey) }
+        self.init(id, options: options, onCompletion: onCompletion) { Text(titleKey) }
     }
 }

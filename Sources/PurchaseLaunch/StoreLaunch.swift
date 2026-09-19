@@ -135,7 +135,9 @@ public struct StoreLaunch {
 private struct NothingStoreFront: StoreFront {
     func products() async throws(PurchaseError) -> [StoreProduct] { [] }
     func ownedProducts() async -> [OwnedProduct] { [] }
-    func purchase(_ id: ProductID, confirmation: PurchaseConfirmation) async throws(PurchaseError) -> PurchaseOutcome {
+    func purchase(
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
+    ) async throws(PurchaseError) -> PurchaseOutcome {
         throw .purchaseNotAllowed
     }
     func restorePurchases() async throws(PurchaseError) -> RestoreOutcome { .completed }

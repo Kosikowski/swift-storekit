@@ -39,7 +39,7 @@ public struct EverythingOwnedStoreFront: StoreFront {
     }
 
     public func purchase(
-        _ id: ProductID, confirmation: PurchaseConfirmation
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
     ) async throws(PurchaseError) -> PurchaseOutcome {
         throw .purchaseNotAllowed
     }

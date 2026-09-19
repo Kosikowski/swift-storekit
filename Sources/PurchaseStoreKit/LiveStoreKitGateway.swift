@@ -43,7 +43,8 @@ final class LiveStoreKitGateway: StoreKitGateway {
             StoreProduct(
                 id: ProductID(product.id), displayName: product.displayName,
                 description: product.description, displayPrice: product.displayPrice,
-                price: product.price, isFamilyShareable: product.isFamilyShareable)
+                price: product.price, isFamilyShareable: product.isFamilyShareable,
+                subscription: product.subscription.map(Self.subscription(of:)))
         }
     }
 
@@ -55,16 +56,41 @@ final class LiveStoreKitGateway: StoreKitGateway {
         return snapshots
     }
 
-    func purchase(_ id: ProductID, confirmation: PurchaseConfirmation) async throws -> GatewayPurchaseResult? {
+    func purchase(
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
+    ) async throws -> GatewayPurchaseResult? {
         guard let product = try await product(id) else { return nil }
-        let result = try await purchase(product, anchoredTo: confirmation.anchor)
+        var storeOptions: Set<Product.PurchaseOption> = []
+        if let token = options.appAccountToken { storeOptions.insert(.appAccountToken(token)) }
+        switch options.offer {
+        case nil:
+            break
+        case let .winBack(offer)?:
+            // Bought with the offer itself, which only the product has.
+            guard let found = product.subscription?.winBackOffers.first(where: { $0.id == offer.rawValue }) else {
+                throw Product.PurchaseError.invalidOfferIdentifier
+            }
+            storeOptions.insert(.winBackOffer(found))
+        case let .promotional(offer)?:
+            guard let signature = options.signature else { throw Product.PurchaseError.missingOfferParameters }
+            storeOptions.formUnion(Product.PurchaseOption.promotionalOffer(offer.rawValue, compactJWS: signature))
+        case .introductoryOverride?:
+            guard let signature = options.signature else { throw Product.PurchaseError.missingOfferParameters }
+            storeOptions.insert(.introductoryOfferEligibility(compactJWS: signature))
+        }
+        return Self.result(of: try await purchase(product, options: storeOptions, anchoredTo: confirmation.anchor))
+    }
+
+    /// StoreKit's result as plain values: from `purchase()` here, or handed to an app by
+    /// one of Apple's views.
+    static func result(of result: Product.PurchaseResult) -> GatewayPurchaseResult {
         switch result {
-        case let .success(verification): return .success(Self.snapshot(of: verification))
-        case .pending: return .pending
-        case .userCancelled: return .userCancelled
+        case let .success(verification): .success(snapshot(of: verification))
+        case .pending: .pending
+        case .userCancelled: .userCancelled
         // Never `.userCancelled`. A cancellation is answered with silence, and silence
         // is the wrong answer to someone a future kind of result may have charged.
-        @unknown default: return .unrecognised
+        @unknown default: .unrecognised
         }
     }
 
@@ -98,6 +124,18 @@ final class LiveStoreKitGateway: StoreKitGateway {
         try await Product.SubscriptionInfo.status(for: group.rawValue).map(Self.snapshot(of:))
     }
 
+    func isEligibleForIntroductoryOffer(in group: SubscriptionGroupID) async -> Bool {
+        await Product.SubscriptionInfo.isEligibleForIntroOffer(for: group.rawValue)
+    }
+
+    func transactions(in group: SubscriptionGroupID) async -> [TransactionSnapshot] {
+        var snapshots: [TransactionSnapshot] = []
+        for await result in Transaction.all where result.unsafePayloadValue.subscriptionGroupID == group.rawValue {
+            snapshots.append(Self.snapshot(of: result))
+        }
+        return snapshots
+    }
+
     func statusUpdates() -> AsyncStream<StatusSnapshot> {
         let (stream, continuation) = AsyncStream<StatusSnapshot>.makeStream()
         let task = Task {
@@ -122,26 +160,28 @@ final class LiveStoreKitGateway: StoreKitGateway {
     /// With several windows open StoreKit has to be told which one the payment sheet
     /// belongs over; left to guess, it may pick another. SwiftUI's `PurchaseAction`
     /// is Apple's recommended route on every platform, and knows its own scene.
-    private func purchase(_ product: Product, anchoredTo anchor: (any Sendable)?) async throws -> Product.PurchaseResult {
+    private func purchase(
+        _ product: Product, options: Set<Product.PurchaseOption>, anchoredTo anchor: (any Sendable)?
+    ) async throws -> Product.PurchaseResult {
         if let action = anchor as? PurchaseAction {
-            return try await action(product)
+            return try await action(product, options: options)
         }
         #if os(macOS)
         if let window = anchor as? NSWindow {
-            return try await product.purchase(confirmIn: window)
+            return try await product.purchase(confirmIn: window, options: options)
         }
         #elseif canImport(UIKit)
         if let controller = anchor as? UIViewController {
-            return try await product.purchase(confirmIn: controller)
+            return try await product.purchase(confirmIn: controller, options: options)
         }
         if let scene = anchor as? UIScene {
-            return try await product.purchase(confirmIn: scene)
+            return try await product.purchase(confirmIn: scene, options: options)
         }
         #endif
         if let anchor {
             logger.log(.unrecognisedConfirmationAnchor(typeName: String(reflecting: type(of: anchor))))
         }
-        return try await product.purchase()
+        return try await product.purchase(options: options)
     }
 
     private static func snapshot(of result: VerificationResult<StoreKit.Transaction>) -> TransactionSnapshot {
@@ -159,6 +199,7 @@ final class LiveStoreKitGateway: StoreKitGateway {
             verification: verification,
             environment: transaction.environment.rawValue,
             finish: { await transaction.finish() },
+            id: transaction.id,
             expirationDate: transaction.expirationDate,
             revocationDate: transaction.revocationDate,
             isUpgraded: transaction.isUpgraded,
@@ -175,11 +216,58 @@ final class LiveStoreKitGateway: StoreKitGateway {
                     expirationReason: info.expirationReason, isInBillingRetry: info.isInBillingRetry,
                     gracePeriodExpirationDate: info.gracePeriodExpirationDate,
                     priceIncreaseStatus: info.priceIncreaseStatus, renewalPrice: info.renewalPrice,
-                    currencyCode: info.currency?.identifier, eligibleWinBackOfferIDs: info.eligibleWinBackOfferIDs)
+                    currencyCode: info.currency?.identifier, eligibleWinBackOfferIDs: info.eligibleWinBackOfferIDs,
+                    offerType: info.offer?.type, offerID: info.offer?.id, offerPaymentMode: info.offer?.paymentMode)
             } else {
                 nil
             }
         return StatusSnapshot(state: status.state, transaction: snapshot(of: status.transaction), renewal: renewal)
+    }
+
+    private static func subscription(of info: Product.SubscriptionInfo) -> StoreProduct.Subscription {
+        StoreProduct.Subscription(
+            group: SubscriptionGroupID(info.subscriptionGroupID), period: period(info.subscriptionPeriod),
+            introductoryOffer: info.introductoryOffer.map(terms(of:)),
+            promotionalOffers: info.promotionalOffers.map(terms(of:)),
+            winBackOffers: info.winBackOffers.map(terms(of:)))
+    }
+
+    static func terms(of offer: Product.SubscriptionOffer) -> OfferTerms {
+        OfferTerms(
+            kind: kind(offer.type), id: offer.id.map(OfferID.init(rawValue:)), paymentMode: paymentMode(offer.paymentMode),
+            period: period(offer.period), periodCount: offer.periodCount, displayPrice: offer.displayPrice,
+            price: offer.price)
+    }
+
+    /// Open sets, as every StoreKit one is (D40): what StoreKit adds later is `unrecognised`.
+    static func kind(_ type: Product.SubscriptionOffer.OfferType) -> OfferKind {
+        switch type {
+        case .introductory: .introductory
+        case .promotional: .promotional
+        case .winBack: .winBack
+        default: .unrecognised
+        }
+    }
+
+    static func paymentMode(_ mode: Product.SubscriptionOffer.PaymentMode) -> OfferPaymentMode {
+        switch mode {
+        case .freeTrial: .freeTrial
+        case .payAsYouGo: .payAsYouGo
+        case .payUpFront: .payUpFront
+        default: .unrecognised
+        }
+    }
+
+    static func period(_ period: Product.SubscriptionPeriod) -> BillingPeriod {
+        let unit: BillingPeriod.Unit =
+            switch period.unit {
+            case .day: .day
+            case .week: .week
+            case .month: .month
+            case .year: .year
+            @unknown default: .unrecognised
+            }
+        return BillingPeriod(value: period.value, unit: unit)
     }
 
     /// `.assigned` is matched by its raw value. The *name* arrived with the 27 SDK — back

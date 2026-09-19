@@ -31,4 +31,8 @@ struct RenewalSnapshot: Sendable {
     let renewalPrice: Decimal?
     let currencyCode: String?
     let eligibleWinBackOfferIDs: [String]
+    /// The offer the next renewal is at, if one is waiting.
+    var offerType: StoreKit.Transaction.OfferType? = nil
+    var offerID: String? = nil
+    var offerPaymentMode: StoreKit.Transaction.Offer.PaymentMode? = nil
 }

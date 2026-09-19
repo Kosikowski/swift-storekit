@@ -98,6 +98,14 @@ public struct Scenario: Hashable, Sendable {
         }
     }
 
+    /// Where the account stands with each subscription's introductory offer.
+    public enum IntroductoryOffer: Hashable, Sendable {
+        /// Every subscription has one, and the account may have it.
+        case eligible
+        /// Every subscription has one, and the account has used it in every group.
+        case used
+    }
+
     /// Owned and listed from launch, with no announcement.
     public var owns: [Holding]
 
@@ -113,6 +121,18 @@ public struct Scenario: Hashable, Sendable {
     public var unverified: [ProductID]
 
     public var behaviour: SimulatedStoreFront.Behaviour
+
+    /// An introductory offer on every subscription that has none — a week free — and
+    /// whether the account may have it. Nil: the products as they are.
+    public var introductoryOffer: IntroductoryOffer?
+
+    /// Win-back offers with these identifiers on every subscription that lacks them — three
+    /// months at a discount — made eligible by a lapse, `lapsed=` included, as Xcode's
+    /// environment makes them.
+    public var winBackOffers: [OfferID]
+
+    /// Promotional offers with these identifiers on every subscription that lacks them.
+    public var promotionalOffers: [OfferID]
 
     /// The store has not yet said what is owned — how every launch begins, held
     /// open for as long as a screenshot of it takes.
@@ -136,6 +156,9 @@ public struct Scenario: Hashable, Sendable {
         earlier: [Holding] = [],
         unverified: [ProductID] = [],
         behaviour: SimulatedStoreFront.Behaviour = SimulatedStoreFront.Behaviour(),
+        introductoryOffer: IntroductoryOffer? = nil,
+        winBackOffers: [OfferID] = [],
+        promotionalOffers: [OfferID] = [],
         holdsOwnership: Bool = false,
         holdsCatalogue: Bool = false,
         holdsPurchase: Bool = false,
@@ -146,6 +169,9 @@ public struct Scenario: Hashable, Sendable {
         self.earlier = earlier
         self.unverified = unverified
         self.behaviour = behaviour
+        self.introductoryOffer = introductoryOffer
+        self.winBackOffers = winBackOffers
+        self.promotionalOffers = promotionalOffers
         self.holdsOwnership = holdsOwnership
         self.holdsCatalogue = holdsCatalogue
         self.holdsPurchase = holdsPurchase

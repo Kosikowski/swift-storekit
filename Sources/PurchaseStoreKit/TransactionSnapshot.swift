@@ -36,6 +36,8 @@ struct TransactionSnapshot: Sendable {
     /// store delivers the transaction again at every launch.
     let finish: @Sendable () async -> Void
 
+    /// StoreKit's identifier for it.
+    var id: UInt64? = nil
     /// For a subscription, when the period this transaction bought ends.
     var expirationDate: Date? = nil
     /// When the store took it back, if it has.

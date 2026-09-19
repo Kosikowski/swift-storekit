@@ -35,10 +35,14 @@ public protocol PurchaseCommanding: AnyObject, Sendable {
     /// what was already owned. One at a time: a second purchase, or a restore, while one
     /// is under way throws `alreadyInProgress` rather than queueing behind it.
     ///
-    /// - Parameter confirmation: where the payment sheet goes. With more than one
-    ///   window open, say; `PurchaseButton` does.
+    /// - Parameters:
+    ///   - options: how it is bought: an account token of the app's own.
+    ///   - confirmation: where the payment sheet goes. With more than one window open,
+    ///     say; `PurchaseButton` does.
     @discardableResult
-    func purchase(_ id: ProductID, confirmation: PurchaseConfirmation) async throws(PurchaseError) -> PurchaseCompletion
+    func purchase(
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
+    ) async throws(PurchaseError) -> PurchaseCompletion
 
     /// Throws `alreadyInProgress` if a purchase **or a restore** is under way — read
     /// `activity` to say which, or, better, say nothing: the button that was pressed
@@ -53,6 +57,18 @@ public protocol PurchaseCommanding: AnyObject, Sendable {
 extension PurchaseCommanding {
     @discardableResult
     public func purchase(_ id: ProductID) async throws(PurchaseError) -> PurchaseCompletion {
-        try await purchase(id, confirmation: .automatic)
+        try await purchase(id, options: PurchaseOptions(), confirmation: .automatic)
+    }
+
+    @discardableResult
+    public func purchase(_ id: ProductID, options: PurchaseOptions) async throws(PurchaseError) -> PurchaseCompletion {
+        try await purchase(id, options: options, confirmation: .automatic)
+    }
+
+    @discardableResult
+    public func purchase(
+        _ id: ProductID, confirmation: PurchaseConfirmation
+    ) async throws(PurchaseError) -> PurchaseCompletion {
+        try await purchase(id, options: PurchaseOptions(), confirmation: confirmation)
     }
 }

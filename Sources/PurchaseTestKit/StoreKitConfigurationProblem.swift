@@ -43,6 +43,9 @@ public enum StoreKitConfigurationProblem: Hashable, Sendable {
     /// of them misstates App Store Connect, and the tests are run against the wrong
     /// one.
     case familySharingMismatch(ProductID, catalogueHonours: Bool, fileShares: Bool)
+    /// An offer the app names, and the file does not have on that product: buying with it
+    /// fails as an unknown offer.
+    case offerMissing(OfferID, product: ProductID)
 }
 
 extension StoreKitConfigurationProblem: CustomStringConvertible {
@@ -78,6 +81,9 @@ extension StoreKitConfigurationProblem: CustomStringConvertible {
             "\(id) \(fileShares ? "is" : "is not") family-shareable in the StoreKit "
                 + "configuration file, and the catalogue \(catalogueHonours ? "honours" : "ignores") "
                 + "Family Sharing for it. Make them agree with App Store Connect."
+        case let .offerMissing(offer, id):
+            "The app names the offer \"\(offer)\" for \(id), and the StoreKit configuration file has "
+                + "no promotional or win-back offer by that identifier on it. Buying with it would fail."
         }
     }
 }

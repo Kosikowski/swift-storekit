@@ -37,9 +37,13 @@ public struct Renewal: Hashable, Sendable {
     /// subscribed, and in a grace period or billing retry.
     public let winBackOffers: [OfferID]
 
+    /// The offer the next renewal is at, if one is waiting: a promotional offer bought by a
+    /// current subscriber takes effect at the next billing event `[Apple]`.
+    public let offer: AppliedOffer?
+
     public init(
         willRenew: Bool, nextProduct: ProductID?, price: Decimal? = nil, currencyCode: String? = nil,
-        priceIncrease: PriceIncrease = .none, winBackOffers: [OfferID] = []
+        priceIncrease: PriceIncrease = .none, winBackOffers: [OfferID] = [], offer: AppliedOffer? = nil
     ) {
         self.willRenew = willRenew
         self.nextProduct = nextProduct
@@ -47,5 +51,6 @@ public struct Renewal: Hashable, Sendable {
         self.currencyCode = currencyCode
         self.priceIncrease = priceIncrease
         self.winBackOffers = winBackOffers
+        self.offer = offer
     }
 }

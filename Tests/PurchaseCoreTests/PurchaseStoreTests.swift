@@ -287,6 +287,15 @@ struct PurchaseStoreTests {
         #expect(store.standing.access(to: Shop.pro) == .none)
     }
 
+    @Test("an account token of the app's own reaches the store untouched")
+    func accountToken() async throws {
+        let token = UUID()
+        try await store.purchase(Shop.pro, options: PurchaseOptions(appAccountToken: token))
+        #expect(front.lastPurchaseOptions == PurchaseOptions(appAccountToken: token))
+        try await store.purchase(Shop.trial)
+        #expect(front.lastPurchaseOptions == PurchaseOptions())
+    }
+
     @Test("something the catalogue does not sell cannot be bought")
     func notInCatalogue() async {
         await #expect(throws: PurchaseError.productUnavailable) { try await store.purchase("nowhere") }

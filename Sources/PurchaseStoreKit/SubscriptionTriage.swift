@@ -35,7 +35,8 @@ enum SubscriptionTriage {
                 product: transaction.productID, group: terms.group, ownership: transaction.ownership,
                 state: state(status.state, renewal: status.renewal, periodEnds: periodEnds),
                 firstSubscribed: transaction.originalPurchaseDate, periodStarted: transaction.purchaseDate,
-                periodEnds: periodEnds, offer: offer(of: transaction), renewal: status.renewal.map(renewal)))
+                periodEnds: periodEnds, offer: offer(of: transaction), renewal: status.renewal.map(renewal),
+                transactionID: transaction.id))
     }
 
     /// Apple's own table, on `isInBillingRetry`: retrying with a grace date is a grace
@@ -72,8 +73,14 @@ enum SubscriptionTriage {
     }
 
     static func offer(of transaction: TransactionSnapshot) -> AppliedOffer? {
-        guard let type = transaction.offerType else { return nil }
-        let kind: AppliedOffer.Kind =
+        offer(transaction.offerType, id: transaction.offerID, paymentMode: transaction.offerPaymentMode)
+    }
+
+    static func offer(
+        _ type: StoreKit.Transaction.OfferType?, id: String?, paymentMode mode: StoreKit.Transaction.Offer.PaymentMode?
+    ) -> AppliedOffer? {
+        guard let type else { return nil }
+        let kind: OfferKind =
             switch type {
             case .introductory: .introductory
             case .promotional: .promotional
@@ -81,12 +88,10 @@ enum SubscriptionTriage {
             case .winBack: .winBack
             default: .unrecognised
             }
-        return AppliedOffer(
-            kind: kind, id: transaction.offerID.map(OfferID.init(rawValue:)),
-            paymentMode: transaction.offerPaymentMode.map(paymentMode))
+        return AppliedOffer(kind: kind, id: id.map(OfferID.init(rawValue:)), paymentMode: mode.map(paymentMode))
     }
 
-    static func paymentMode(_ mode: StoreKit.Transaction.Offer.PaymentMode) -> AppliedOffer.PaymentMode {
+    static func paymentMode(_ mode: StoreKit.Transaction.Offer.PaymentMode) -> OfferPaymentMode {
         switch mode {
         case .freeTrial: .freeTrial
         case .payAsYouGo: .payAsYouGo
@@ -106,6 +111,7 @@ enum SubscriptionTriage {
         return Renewal(
             willRenew: info.willAutoRenew, nextProduct: info.autoRenewPreference.map(ProductID.init(rawValue:)),
             price: info.renewalPrice, currencyCode: info.currencyCode, priceIncrease: increase,
-            winBackOffers: info.eligibleWinBackOfferIDs.map(OfferID.init(rawValue:)))
+            winBackOffers: info.eligibleWinBackOfferIDs.map(OfferID.init(rawValue:)),
+            offer: offer(info.offerType, id: info.offerID, paymentMode: info.offerPaymentMode))
     }
 }

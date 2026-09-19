@@ -29,14 +29,18 @@ public struct OwnedProduct: Hashable, Sendable, Identifiable {
     /// that is kept.
     public let expirationDate: Date?
 
+    /// For a subscription, the offer this transaction was bought with, if any.
+    public let offer: AppliedOffer?
+
     public init(
         id: ProductID, originalPurchaseDate: Date, purchaseDate: Date? = nil,
-        ownership: Ownership = .purchased, expirationDate: Date? = nil
+        ownership: Ownership = .purchased, expirationDate: Date? = nil, offer: AppliedOffer? = nil
     ) {
         self.id = id
         self.originalPurchaseDate = originalPurchaseDate
         self.purchaseDate = purchaseDate ?? originalPurchaseDate
         self.ownership = ownership
         self.expirationDate = expirationDate
+        self.offer = offer
     }
 }

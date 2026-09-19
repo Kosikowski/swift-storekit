@@ -15,7 +15,7 @@ public import PurchaseCore
 /// The App Store.
 ///
 ///     let store = PurchaseStore(catalogue: catalogue, front: AppStoreFront(catalogue: catalogue))
-public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusReading {
+public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusReading, IntroductoryEligibilityReading {
     public let catalogue: Catalogue
     private let gateway: any StoreKitGateway
     private let logger: any PurchaseLogging
@@ -81,21 +81,29 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusRead
     // MARK: - ProductPurchasing
 
     public func purchase(
-        _ id: ProductID, confirmation: PurchaseConfirmation
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
     ) async throws(PurchaseError) -> PurchaseOutcome {
         guard catalogue.contains(id) else { throw .productUnavailable }
         let result: GatewayPurchaseResult?
         do {
-            result = try await gateway.purchase(id, confirmation: confirmation)
+            result = try await gateway.purchase(id, options: options, confirmation: confirmation)
         } catch {
             switch StoreKitErrorMapping.verdict(for: error) {
             case .cancelled: return .cancelled
             case let .failure(failure): throw failure
             }
         }
+        guard let result else { throw .productUnavailable }
+        return try await Self.outcome(of: result, catalogue: catalogue, logger: logger)
+    }
+
+    /// What a purchase came to, from what StoreKit handed back: to `purchase()` here, or
+    /// to one of Apple's views (`PurchaseStore.takePurchase(_:of:)`). One judgement for
+    /// both, so a purchase made in Apple's view is finished, and refused, as one made here.
+    static func outcome(
+        of result: GatewayPurchaseResult, catalogue: Catalogue, logger: any PurchaseLogging
+    ) async throws(PurchaseError) -> PurchaseOutcome {
         switch result {
-        case nil:
-            throw .productUnavailable
         case .userCancelled:
             return .cancelled
         case .pending:
@@ -227,6 +235,28 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusRead
                 } catch {
                     logger.log(.subscriptionStatusUnavailable(group))
                 }
+            }
+            return answer
+        }.value
+    }
+
+    // MARK: - IntroductoryEligibilityReading
+
+    /// StoreKit's answer, **unless the group's own transactions say the offer was used.**
+    /// Measured, `isEligibleForIntroOffer(for:)` keeps its first answer for the life of the
+    /// process: true before a purchase with the offer and still true after it
+    /// (spike/README.md). A verified transaction bought with it is the better witness.
+    ///
+    /// In a task nobody cancels: a cancelled read of the transactions would find none, and
+    /// "none" would offer again an introductory offer already used.
+    public func introductoryEligibility(in groups: Set<SubscriptionGroupID>) async -> [SubscriptionGroupID: Bool] {
+        await Task { [gateway] () -> [SubscriptionGroupID: Bool] in
+            var answer: [SubscriptionGroupID: Bool] = [:]
+            for group in groups.sorted() {
+                let used = await gateway.transactions(in: group).contains { snapshot in
+                    snapshot.verification == .verified && SubscriptionTriage.offer(of: snapshot)?.kind == .introductory
+                }
+                answer[group] = used ? false : await gateway.isEligibleForIntroductoryOffer(in: group)
             }
             return answer
         }.value

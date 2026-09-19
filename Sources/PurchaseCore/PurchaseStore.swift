@@ -28,6 +28,14 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     public private(set) var productLoad: ProductLoadState = .notLoaded
     public private(set) var pendingApprovals: Set<ProductID> = []
     public private(set) var activity: PurchaseActivity = .idle
+    /// Apple's word on each group's introductory offer, read with the prices.
+    private var saysEligible: [SubscriptionGroupID: Bool] = [:]
+    /// Groups in which this store has seen an introductory offer used. Apple's answer keeps
+    /// its first value for the life of the process (measured), so what was seen is kept too.
+    private var usedIntroductoryOffer: Set<SubscriptionGroupID> = []
+    /// The groups whose statuses the last read could say. Where one could not, "never
+    /// subscribed" is only the listing's word, and refuses nobody a promotional offer.
+    @ObservationIgnored private var statusesRead: Set<SubscriptionGroupID> = []
 
     @ObservationIgnored private let catalogueLoader: any ProductCatalogueLoading
     @ObservationIgnored private let ownership: any OwnershipReading
@@ -35,12 +43,14 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     @ObservationIgnored private let restorer: any PurchaseRestoring
     @ObservationIgnored private let observer: any TransactionObserving
     @ObservationIgnored private let subscriptionStatuses: (any SubscriptionStatusReading)?
+    @ObservationIgnored private let eligibility: (any IntroductoryEligibilityReading)?
+    @ObservationIgnored private let offerSigner: (any OfferSigning)?
     /// The clock this store decides by. For whoever asks it a question that takes a date
     /// — `standing.access(to:at:)` — and should be asking by the same clock: an app that
     /// kept one of its own beside this had two, and only a test could tell them apart.
     @ObservationIgnored public let clock: any TimeProviding
     @ObservationIgnored private let diagnoser: (any StoreDiagnosing)?
-    @ObservationIgnored private let logger: any PurchaseLogging
+    @ObservationIgnored package let logger: any PurchaseLogging
     @ObservationIgnored private let listingGrace: Duration
     @ObservationIgnored private let renewalGrace: Duration
     @ObservationIgnored private let resolver = StandingResolver()
@@ -60,6 +70,10 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     /// - Parameters:
     ///   - subscriptionStatuses: what says each subscription group's statuses. Without
     ///     it, the listing stands in for every group, and nothing is known of renewals.
+    ///   - introductoryEligibility: what says whether this person may have each group's
+    ///     introductory offer. Without it every introductory offer is `unknown`.
+    ///   - offerSigner: the app's server, signing promotional offers and the introductory
+    ///     override. Without it a purchase with either fails with `offerNotSigned`.
     ///   - listingGrace: how long a grant is believed before the store's own listing has
     ///     it. The listing was measured to catch up within a second; the default is
     ///     generous because lapsing early re-locks something just bought.
@@ -74,6 +88,8 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         restorer: any PurchaseRestoring,
         observer: any TransactionObserving,
         subscriptionStatuses: (any SubscriptionStatusReading)? = nil,
+        introductoryEligibility: (any IntroductoryEligibilityReading)? = nil,
+        offerSigner: (any OfferSigning)? = nil,
         clock: any TimeProviding = SystemClock(),
         logger: any PurchaseLogging = SilentPurchaseLogger(),
         listingGrace: Duration = .seconds(30),
@@ -87,6 +103,8 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         self.restorer = restorer
         self.observer = observer
         self.subscriptionStatuses = subscriptionStatuses
+        self.eligibility = introductoryEligibility
+        self.offerSigner = offerSigner
         self.clock = clock
         self.logger = logger
         self.listingGrace = listingGrace
@@ -97,11 +115,12 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             .lazy.compactMap { $0 as? any StoreDiagnosing }.first
     }
 
-    /// The usual case: one object plays every role — subscription statuses too, if it
-    /// can say them.
+    /// The usual case: one object plays every role — subscription statuses and
+    /// introductory eligibility too, if it can say them. The signer is the app's own.
     public convenience init(
         catalogue: Catalogue,
         front: some StoreFront,
+        offerSigner: (any OfferSigning)? = nil,
         clock: any TimeProviding = SystemClock(),
         logger: any PurchaseLogging = SilentPurchaseLogger(),
         listingGrace: Duration = .seconds(30),
@@ -110,6 +129,7 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         self.init(
             catalogue: catalogue, catalogueLoader: front, ownership: front, purchaser: front,
             restorer: front, observer: front, subscriptionStatuses: front as? any SubscriptionStatusReading,
+            introductoryEligibility: front as? any IntroductoryEligibilityReading, offerSigner: offerSigner,
             clock: clock, logger: logger, listingGrace: listingGrace, renewalGrace: renewalGrace)
     }
 
@@ -207,11 +227,54 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             productLoad = .failed(error)
             logger.log(.catalogueLoadFailed(error))
         }
+        // Beside the prices, and like them never waited for by anything that decides access:
+        // an introductory offer is terms on a paywall.
+        await readIntroductoryEligibility()
+    }
+
+    private func readIntroductoryEligibility() async {
+        let groups = catalogue.subscriptionGroups
+        guard !groups.isEmpty, let eligibility else { return }
+        let said = await eligibility.introductoryEligibility(in: Set(groups))
+        if said.contains(where: { saysEligible[$0.key] != $0.value }) { saysEligible.merge(said) { $1 } }
+    }
+
+    // MARK: - Offers
+
+    public func introductoryOffer(for id: ProductID) -> IntroductoryEligibility {
+        guard let group = catalogue.entry(for: id)?.subscriptionTerms?.group else { return .noOffer }
+        guard let product = products.first(where: { $0.id == id }) else { return .unknown }
+        guard let terms = product.subscription?.introductoryOffer else { return .noOffer }
+        // One per group per account. Used, as far as this store has seen — bought here, or
+        // on a status in the group — it is used, whatever Apple's first answer was.
+        if usedIntroductoryOffer.contains(group)
+            || standing.subscription(in: group).all.contains(where: { $0.offer?.kind == .introductory })
+        {
+            return .ineligible
+        }
+        switch saysEligible[group] {
+        case true?: return .eligible(terms)
+        case false?: return .ineligible
+        case nil: return .unknown
+        }
+    }
+
+    public func winBackOffers(in group: SubscriptionGroupID) -> [WinBackOffer] {
+        let subscription = standing.subscription(in: group)
+        guard subscription.isActive == false else { return [] }
+        // The account's own status: a win-back offer is for the plan this person lapsed
+        // from, and access through Family Sharing does not count towards one [Apple].
+        guard let own = subscription.all.first(where: { $0.ownership == .purchased }), let renewal = own.renewal,
+            let offers = products.first(where: { $0.id == own.product })?.subscription?.winBackOffers
+        else { return [] }
+        return renewal.winBackOffers.compactMap { id in
+            offers.first { $0.id == id }.map { WinBackOffer(product: own.product, id: id, terms: $0) }
+        }
     }
 
     @discardableResult
     public func purchase(
-        _ id: ProductID, confirmation: PurchaseConfirmation
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
     ) async throws(PurchaseError) -> PurchaseCompletion {
         guard catalogue.contains(id) else { throw .productUnavailable }
         guard activity == .idle else { throw .alreadyInProgress }
@@ -222,7 +285,8 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
 
         let outcome: PurchaseOutcome
         do throws(PurchaseError) {
-            outcome = try await purchaser.purchase(id, confirmation: confirmation)
+            let signed = try await signed(options, for: id)
+            outcome = try await purchaser.purchase(id, options: signed, confirmation: confirmation)
         } catch {
             // Thrown on to the button that asked. The standing is not read, not
             // written and not doubted: a purchase failing says nothing about what
@@ -230,7 +294,82 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             logger.log(.purchaseFailed(id, error))
             throw error
         }
+        // Bought again right after a lapse, StoreKit can hand back the old transaction,
+        // already over, and buy nothing: measured in the iOS simulator, and on the Mac too
+        // (spike/README.md, q10; D51). Taken at its word it is "subscribed", with a period
+        // that has ended. It is a purchase that did not happen, and trying again is fair.
+        if case let .purchased(owned) = outcome, catalogue.entry(for: owned.id)?.subscriptionTerms != nil,
+            let ends = owned.expirationDate, ends <= clock.now
+        {
+            logger.log(.purchaseFailed(id, .system))
+            await resolve()
+            throw .system
+        }
+        return await settle(outcome, asked: id, offer: options.offer)
+    }
 
+    /// `options` with the signature its offer needs, from the app's signer. **Nothing is
+    /// bought without one**, and a promotional offer for someone who has never subscribed in
+    /// the group is refused before the signer is asked: Apple gives them only to current
+    /// and former subscribers [Apple].
+    private func signed(_ options: PurchaseOptions, for id: ProductID) async throws(PurchaseError) -> PurchaseOptions {
+        var signed = options
+        signed.signature = nil
+        let kind: OfferSignatureRequest.Kind
+        switch options.offer {
+        case nil, .winBack?:
+            return signed
+        case let .promotional(offer)?:
+            guard let group = catalogue.entry(for: id)?.subscriptionTerms?.group else { throw .offerRefused(.unknownOffer) }
+            if !standing.isKnown { await resolve() }
+            if statusesRead.contains(group), standing.subscription(in: group) == .none { throw .offerRefused(.notEligible) }
+            kind = .promotional(offer)
+        case .introductoryOverride?:
+            guard catalogue.entry(for: id)?.subscriptionTerms != nil else { throw .offerRefused(.unknownOffer) }
+            kind = .introductoryOverride
+        }
+        guard let offerSigner else { throw .offerNotSigned }
+        // The account's own latest transaction in the group, which Apple's signature creators
+        // take — and which the override's requires [Apple].
+        let statuses = catalogue.entry(for: id)?.subscriptionTerms.map { standing.subscription(in: $0.group).all } ?? []
+        let transaction = (statuses.first { $0.ownership == .purchased } ?? statuses.first)?.transactionID
+        do {
+            let request = OfferSignatureRequest(
+                product: id, kind: kind, appAccountToken: options.appAccountToken, transactionID: transaction.map(String.init))
+            signed.signature = try await offerSigner.signature(for: request)
+        } catch {
+            throw .offerNotSigned
+        }
+        return signed
+    }
+
+    /// A purchase this store did not make, **taken as though it had**: held until the
+    /// listing and the status have it, and read again at once.
+    ///
+    /// For purchases made by Apple's own views — `SubscriptionStoreView`, `ProductView`,
+    /// `StoreView` — whose transactions this store is not reliably told of. Measured in the
+    /// iOS simulator: an unlock bought in `ProductView` is announced **nowhere**, and a
+    /// subscription bought in `SubscriptionStoreView` only on the status updates
+    /// (spike/README.md, q12). Someone who has just paid would go on seeing the paywall
+    /// until the store next reads.
+    ///
+    /// `PurchaseStoreKit` has the form an app calls, which takes the view's own result.
+    /// This one is for a store front of an app's own, and for tests. Nothing waits on
+    /// `activity`: the purchase is over.
+    ///
+    /// - Parameter id: the product the person chose. A subscription that comes back as
+    ///   another plan of the same group is a change waiting for the renewal.
+    @discardableResult
+    public func takePurchase(_ outcome: PurchaseOutcome, of id: ProductID) async -> PurchaseCompletion {
+        listen()
+        return await settle(outcome, asked: id)
+    }
+
+    /// - Parameter offer: the offer the purchase asked for, if any. One the transaction does
+    ///   not carry, and the renewal is not waiting to apply, was not applied, and is said so.
+    private func settle(
+        _ outcome: PurchaseOutcome, asked id: ProductID, offer: PurchaseOptions.Offer? = nil
+    ) async -> PurchaseCompletion {
         switch outcome {
         case .cancelled:
             logger.log(.purchaseCancelled(id))
@@ -247,11 +386,36 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
                 await resolve()
                 return .notCounted(owned)
             }
+            noteIntroductoryOffer(on: owned)
             hold(owned)
             await resolve()
             logger.log(.purchased(id))
-            return completion(for: owned, asked: id)
+            let completion = completion(for: owned, asked: id)
+            if let offer, case let .subscribed(held) = completion, !Self.carries(held, offer) {
+                return .offerNotApplied(held)
+            }
+            return completion
         }
+    }
+
+    /// Whether `held` carries `offer`: on its transaction, or waiting for the renewal.
+    private static func carries(_ held: HeldSubscription, _ offer: PurchaseOptions.Offer) -> Bool {
+        [held.offer, held.renewal?.offer].contains { applied in
+            guard let applied else { return false }
+            switch offer {
+            case let .winBack(id): return applied.kind == .winBack && applied.id == id
+            case let .promotional(id): return applied.kind == .promotional && applied.id == id
+            case .introductoryOverride: return applied.kind == .introductory
+            }
+        }
+    }
+
+    /// A transaction bought with the introductory offer uses up the group's: Apple's own
+    /// answer was measured to go on saying "eligible" for the rest of the process.
+    private func noteIntroductoryOffer(on owned: OwnedProduct) {
+        guard owned.offer?.kind == .introductory, let group = catalogue.entry(for: owned.id)?.subscriptionTerms?.group
+        else { return }
+        usedIntroductoryOffer.insert(group)
     }
 
     @discardableResult
@@ -317,6 +481,7 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         if !groups.isEmpty, let subscriptionStatuses {
             statuses = await subscriptionStatuses.subscriptionStatuses(in: Set(groups))
         }
+        statusesRead = Set(statuses.keys)
         // The only place the clock is read for a decision.
         let now = clock.now
         // Settled against what the listing has *and counts*. A listing that has the
@@ -431,6 +596,7 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             // exactly as a purchase made here is — and by the same rule, so a grant
             // that gives this account nothing is never held.
             if resolver.counts(owned, in: catalogue) { hold(owned) }
+            noteIntroductoryOffer(on: owned)
             pendingApprovals.remove(owned.id)
         case let .withdrawn(id):
             // Stop vouching for it at once. A refund that overtakes the listing is
@@ -461,7 +627,7 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         return HeldSubscription(
             product: owned.id, group: group, ownership: owned.ownership, state: .subscribed,
             firstSubscribed: owned.originalPurchaseDate, periodStarted: owned.purchaseDate,
-            periodEnds: owned.expirationDate ?? .distantFuture)
+            periodEnds: owned.expirationDate ?? .distantFuture, offer: owned.offer)
     }
 
     /// The held subscriptions a status has caught up with: one for the same product, for a

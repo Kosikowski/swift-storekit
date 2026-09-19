@@ -56,7 +56,9 @@ private final class StubStoreFront: StoreFront {
         }
     }
 
-    func purchase(_ id: ProductID, confirmation: PurchaseConfirmation) async throws(PurchaseError) -> PurchaseOutcome {
+    func purchase(
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
+    ) async throws(PurchaseError) -> PurchaseOutcome {
         .cancelled
     }
 

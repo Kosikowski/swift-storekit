@@ -19,7 +19,9 @@ protocol StoreKitGateway: Sendable {
     func currentEntitlements() async -> [TransactionSnapshot]
 
     /// Nil when the store has no such product. Throws StoreKit's own error.
-    func purchase(_ id: ProductID, confirmation: PurchaseConfirmation) async throws -> GatewayPurchaseResult?
+    func purchase(
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
+    ) async throws -> GatewayPurchaseResult?
 
     func sync() async throws
 
@@ -34,4 +36,10 @@ protocol StoreKitGateway: Sendable {
 
     /// Statuses as they change, for any group.
     func statusUpdates() -> AsyncStream<StatusSnapshot>
+
+    /// StoreKit's own answer, which keeps its first value for the life of the process.
+    func isEligibleForIntroductoryOffer(in group: SubscriptionGroupID) async -> Bool
+
+    /// Every transaction the account has had in the group, verified or not.
+    func transactions(in group: SubscriptionGroupID) async -> [TransactionSnapshot]
 }

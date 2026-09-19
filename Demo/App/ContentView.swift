@@ -14,7 +14,9 @@
 import PurchaseCore
 import PurchaseDebugUI
 import PurchaseLaunch
+import PurchaseStoreKit
 import PurchaseUI
+import StoreKit
 import SwiftUI
 
 struct ContentView: View {
@@ -32,6 +34,7 @@ struct ContentView: View {
     /// The result of *this view's* buttons, kept here. Published somewhere shared, it
     /// would be announced by every view watching.
     @State private var notice: String?
+    @State private var showsAppleStore = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -60,6 +63,13 @@ struct ContentView: View {
             }
             Divider()
             membership
+            // Apple's own views sell from the App Store whatever the store below is, so they
+            // are offered only when that is the App Store too.
+            if launch?.isSimulated == false {
+                Button("Apple's store…") { showsAppleStore = true }
+                    .accessibilityIdentifier("apple-store")
+                    .sheet(isPresented: $showsAppleStore) { appleStore }
+            }
             debugPanelButton
         }
         .padding(24)
@@ -117,6 +127,67 @@ struct ContentView: View {
                     }
                 }
                 ManageSubscriptionsButton("Manage", group: Shop.membership)
+            }
+            if let introductory = introductoryOffer {
+                Text(introductory).font(.caption).accessibilityIdentifier("introductory-offer")
+            }
+            // Only what Apple says this person may have: someone lapsed long enough.
+            ForEach(purchases?.winBackOffers(in: Shop.membership) ?? [], id: \.id) { offer in
+                PurchaseButton(offer.product, options: PurchaseOptions(offer: .winBack(offer.id))) {
+                    notice = Self.words(for: $0)
+                } label: {
+                    Text("Come back: \(Self.terms(offer.terms))")
+                }
+            }
+        }
+    }
+
+    /// The introductory offer, for someone who may have it, **with its terms from the store**.
+    /// Nothing while it is unknown: the regular price on the button is the right thing to
+    /// show then, and the payment sheet applies the offer if it is due.
+    private var introductoryOffer: String? {
+        guard case let .eligible(terms)? = purchases?.introductoryOffer(for: Shop.monthly) else { return nil }
+        let then = purchases?.products.first { $0.id == Shop.monthly }?.displayPrice
+        return "New members: \(Self.terms(terms))\(then.map { ", then \($0) a month" } ?? "")"
+    }
+
+    /// An offer's terms in the Demo's words. The numbers are the store's; the sentence is ours.
+    private static func terms(_ terms: OfferTerms) -> String {
+        let unit =
+            switch terms.period.unit {
+            case .day: "day"
+            case .week: "week"
+            case .month: "month"
+            case .year: "year"
+            case .unrecognised: "period"
+            }
+        let length = terms.period.value * terms.periodCount
+        let span = "\(length) \(unit)\(length == 1 ? "" : "s")"
+        return switch terms.paymentMode {
+        case .freeTrial: "\(span) free"
+        case .payUpFront: "\(terms.displayPrice) for \(span)"
+        default: "\(terms.displayPrice) a \(unit) for \(span)"
+        }
+    }
+
+    /// Apple's own views, for an app that would rather not draw its own. The store is not
+    /// always told of what is bought in them: in the iOS simulator an unlock bought in
+    /// `ProductView` is announced nowhere at all (spike/README.md, q12). So their completion
+    /// hands each purchase over, and without that line "Free" stays on screen until the
+    /// app next reads.
+    private var appleStore: some View {
+        VStack {
+            ProductView(id: Shop.pro.rawValue)
+            SubscriptionStoreView(groupID: Shop.membership.rawValue)
+        }
+        .onInAppPurchaseCompletion { product, result in
+            guard let store = launch?.store else { return }
+            do throws(PurchaseError) {
+                let completion = try await store.takePurchase(result, of: product)
+                notice = Self.words(for: .success(completion))
+                if completion != .cancelled { showsAppleStore = false }
+            } catch {
+                notice = Self.words(for: error)
             }
         }
     }
@@ -178,6 +249,8 @@ struct ContentView: View {
     private static func words(for result: Result<PurchaseCompletion, PurchaseError>) -> String? {
         switch result {
         case .success(.owned), .success(.trialRunning), .success(.subscribed), .success(.cancelled): nil
+        case .success(.offerNotApplied):
+            "You're a member — but the offer couldn't be applied, so this was at the regular price. Contact support if that's not what you expected."
         case let .success(.planChangeScheduled(_, at)):
             "Your plan changes at your next renewal\(at.map { ", on \(moment($0))" } ?? "")."
 
@@ -199,6 +272,9 @@ struct ContentView: View {
         case .alreadyInProgress: "A purchase is already under way."
         // Not "nothing has been charged": for this one, that is not known.
         case .revoked: "The App Store completed this purchase and then took it back, so nothing has been unlocked. Contact support if you were charged."
+        case .offerRefused(.notEligible): "That offer isn't available to you. Nothing has been charged."
+        case .offerRefused: "That offer couldn't be used just now. Nothing has been charged."
+        case .offerNotSigned: "That offer couldn't be prepared. Nothing has been charged — try again in a moment."
         default: "Something went wrong, and nothing has been unlocked. Try again in a moment."
         }
     }

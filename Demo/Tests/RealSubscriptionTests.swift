@@ -44,12 +44,12 @@ struct RealSubscriptionTests {
         #endif
     }
 
-    private static func configurationURL() throws -> URL {
+    static func configurationURL() throws -> URL {
         let bundle = try #require(Bundle.allBundles.first { $0.bundleURL.pathExtension == "xctest" })
         return try #require(bundle.url(forResource: "Demo", withExtension: "storekit"))
     }
 
-    private func session(rate: SKTestSession.TimeRate = .realTime) throws -> SKTestSession {
+    func session(rate: SKTestSession.TimeRate = .realTime) throws -> SKTestSession {
         let session = try SKTestSession(contentsOf: Self.configurationURL())
         session.resetToDefaultState()
         session.disableDialogs = true
@@ -58,13 +58,15 @@ struct RealSubscriptionTests {
         return session
     }
 
-    private var front: AppStoreFront { AppStoreFront(catalogue: Shop.catalogue) }
+    var front: AppStoreFront { AppStoreFront(catalogue: Shop.catalogue) }
 
-    private func store(logger: RecordingPurchaseLogger = RecordingPurchaseLogger()) -> PurchaseStore {
-        PurchaseStore(catalogue: Shop.catalogue, front: front, logger: logger)
+    func store(
+        logger: RecordingPurchaseLogger = RecordingPurchaseLogger(), offerSigner: (any OfferSigning)? = nil
+    ) -> PurchaseStore {
+        PurchaseStore(catalogue: Shop.catalogue, front: front, offerSigner: offerSigner, logger: logger)
     }
 
-    private func membership(_ store: PurchaseStore) -> SubscriptionStanding {
+    func membership(_ store: PurchaseStore) -> SubscriptionStanding {
         store.standing.subscription(in: Shop.membership)
     }
 
@@ -89,12 +91,13 @@ struct RealSubscriptionTests {
         }
         #expect(held.product == Shop.monthly)
         #expect(membership(store).isActive == true)
-        // The status catches up with the hold, and says what the hold could not.
-        await store.refresh()
+        // The status catches up with the hold, and says what the hold could not: the renewal.
+        #expect(held.offer?.kind == .introductory)
         #expect(await waitUntil(timeout: .seconds(10)) {
             await store.refresh()
-            return membership(store).current?.offer?.kind == .introductory
+            return membership(store).current?.renewal != nil
         })
+        #expect(membership(store).current?.offer?.kind == .introductory)
         #expect(membership(store).current?.renewal?.willRenew == true)
         withExtendedLifetime(session) {}
     }
@@ -160,11 +163,13 @@ struct RealSubscriptionTests {
         let store = store()
         await store.start()
         try await store.purchase(Shop.monthly)
-        #expect(await waitUntil(timeout: .seconds(30)) {
+        let graced = await waitUntil(timeout: .seconds(30)) {
             await store.refresh()
             if case .inGracePeriod? = membership(store).current?.state { return true }
             return false
-        })
+        }
+        // Seen to fail now and then in a full run, and never alone: say what was seen instead.
+        #expect(graced, "never in a grace period; last seen \(membership(store))")
         #expect(membership(store).isActive == true)
         withExtendedLifetime(session) {}
     }

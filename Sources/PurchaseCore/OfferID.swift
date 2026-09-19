@@ -30,3 +30,10 @@ extension OfferID: ExpressibleByStringLiteral {
 extension OfferID: CustomStringConvertible {
     public var description: String { rawValue }
 }
+
+extension OfferID: Comparable {
+    /// By spelling, as `ProductID`: for a stable order in listings and logs.
+    public static func < (lhs: OfferID, rhs: OfferID) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}

@@ -95,6 +95,23 @@ extension SimulatedStoreFront {
         /// `listsPurchasesAfterReads`.
         public var showsTheRenewalMoment = true
 
+        /// **Buying again after a lapse hands back the old transaction, already over, and buys
+        /// nothing** — as the iOS 27 simulator did every time, with an offer or without, and the
+        /// Mac did right after a lapse (spike/README.md, q10). Off by default: the Mac was also
+        /// seen to buy, and a test of buying after a lapse would otherwise test only this.
+        public var handsBackTheLapsedTransaction = false
+
+        /// Whether the store accepts the signatures the app's signer makes. The real store
+        /// checks them against the key App Store Connect has; here a test decides. Off, a
+        /// promotional offer or the introductory override is refused as `invalidSignature`.
+        public var acceptsOfferSignatures = true
+
+        /// **StoreKit's introductory eligibility keeps its first answer for the life of the
+        /// process**, before and after the offer is used (measured, spike/README.md). So
+        /// does this, unless told not to: an app that asks it again after a purchase must
+        /// not take "eligible" for the truth.
+        public var keepsFirstEligibilityAnswer = true
+
         /// The three scripts, for a store that misbehaves from its first line. The rest
         /// are properties, and the defaults are the real store on a good day.
         public init(

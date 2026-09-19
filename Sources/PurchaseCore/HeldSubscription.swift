@@ -65,10 +65,15 @@ public struct HeldSubscription: Hashable, Sendable {
     /// listing alone: nothing is known of the renewal then.
     public let renewal: Renewal?
 
+    /// StoreKit's identifier for the transaction this status stands on: the latest in the
+    /// group. For a server of the app's own, and for the signature of an offer. Nil when
+    /// not known.
+    public let transactionID: UInt64?
+
     public init(
         product: ProductID, group: SubscriptionGroupID, ownership: Ownership = .purchased,
         state: State, firstSubscribed: Date, periodStarted: Date, periodEnds: Date,
-        offer: AppliedOffer? = nil, renewal: Renewal? = nil
+        offer: AppliedOffer? = nil, renewal: Renewal? = nil, transactionID: UInt64? = nil
     ) {
         self.product = product
         self.group = group
@@ -79,6 +84,7 @@ public struct HeldSubscription: Hashable, Sendable {
         self.periodEnds = periodEnds
         self.offer = offer
         self.renewal = renewal
+        self.transactionID = transactionID
     }
 
     /// Whether this status gives access, by Apple's rule: subscribed, or in a grace period.

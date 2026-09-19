@@ -14,11 +14,17 @@ final class FakeStoreKitGateway: StoreKitGateway {
         var entitlements: [TransactionSnapshot] = []
         var unfinished: [TransactionSnapshot] = []
         var purchase: Result<GatewayPurchaseResult?, any Error> = .success(nil)
+        /// What the last purchase asked for, as it reached StoreKit.
+        var purchaseOptions: PurchaseOptions?
         var sync: (any Error)?
         var finished: [ProductID] = []
         var updates: AsyncStream<TransactionSnapshot>.Continuation?
         var statuses: [SubscriptionGroupID: Result<[StatusSnapshot], any Error>] = [:]
         var statusUpdates: AsyncStream<StatusSnapshot>.Continuation?
+        /// StoreKit's own answer about each group's introductory offer. Missing: eligible.
+        var eligible: [SubscriptionGroupID: Bool] = [:]
+        /// Every transaction the account has had in each group.
+        var history: [SubscriptionGroupID: [TransactionSnapshot]] = [:]
     }
 
     let state = Mutex(State())
@@ -72,8 +78,13 @@ final class FakeStoreKitGateway: StoreKitGateway {
         state.withLock { $0.unfinished }
     }
 
-    func purchase(_ id: ProductID, confirmation: PurchaseConfirmation) async throws -> GatewayPurchaseResult? {
-        try state.withLock { $0.purchase }.get()
+    func purchase(
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
+    ) async throws -> GatewayPurchaseResult? {
+        try state.withLock { state in
+            state.purchaseOptions = options
+            return state.purchase
+        }.get()
     }
 
     func sync() async throws {
@@ -90,6 +101,16 @@ final class FakeStoreKitGateway: StoreKitGateway {
     func subscriptionStatuses(for group: SubscriptionGroupID) async throws -> [StatusSnapshot] {
         if Task.isCancelled { return [] }
         return try (state.withLock { $0.statuses[group] } ?? .success([])).get()
+    }
+
+    func isEligibleForIntroductoryOffer(in group: SubscriptionGroupID) async -> Bool {
+        state.withLock { $0.eligible[group] ?? true }
+    }
+
+    func transactions(in group: SubscriptionGroupID) async -> [TransactionSnapshot] {
+        // As the listing and the statuses are: a cancelled task is told nothing.
+        if Task.isCancelled { return [] }
+        return state.withLock { $0.history[group] ?? [] }
     }
 
     func statusUpdates() -> AsyncStream<StatusSnapshot> {

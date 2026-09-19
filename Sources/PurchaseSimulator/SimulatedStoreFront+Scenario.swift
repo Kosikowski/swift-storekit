@@ -34,6 +34,8 @@ extension SimulatedStoreFront {
         if scenario.holdsPurchase { purchaseGate.close() }
         if scenario.holdsRestore { restoreGate.close() }
         behaviour = scenario.behaviour
+        // Before the subscriptions, whose lapses make win-back offers eligible.
+        offer(scenario)
         for holding in scenario.owns {
             seed(holding.id, age: holding.age, ownership: holding.ownership)
         }
@@ -43,6 +45,39 @@ extension SimulatedStoreFront {
         for id in scenario.unverified { seedUnverified(id) }
         for subscription in scenario.subscriptions {
             if let status = status(of: subscription) { seedSubscription(status) }
+        }
+    }
+
+    /// A scenario's offers, with plausible terms, on every subscription that lacks them.
+    private func offer(_ scenario: Scenario) {
+        guard scenario.introductoryOffer != nil || !scenario.winBackOffers.isEmpty || !scenario.promotionalOffers.isEmpty
+        else { return }
+        productsOnSale = productsOnSale.map { product in
+            guard let subscription = product.subscription else { return product }
+            var introductory = subscription.introductoryOffer
+            if scenario.introductoryOffer != nil, introductory == nil {
+                introductory = OfferTerms(
+                    kind: .introductory, paymentMode: .freeTrial, period: .weeks(1), periodCount: 1,
+                    displayPrice: "Free", price: 0)
+            }
+            let discounted = { (kind: OfferKind, id: OfferID) in
+                OfferTerms(
+                    kind: kind, id: id, paymentMode: .payAsYouGo, period: .months(1), periodCount: 3,
+                    displayPrice: "$4.99", price: Decimal(string: "4.99")!)
+            }
+            let winBack = subscription.winBackOffers + scenario.winBackOffers
+                .filter { id in !subscription.winBackOffers.contains { $0.id == id } }.map { discounted(.winBack, $0) }
+            let promotional = subscription.promotionalOffers + scenario.promotionalOffers
+                .filter { id in !subscription.promotionalOffers.contains { $0.id == id } }.map { discounted(.promotional, $0) }
+            return StoreProduct(
+                id: product.id, displayName: product.displayName, description: product.description,
+                displayPrice: product.displayPrice, price: product.price, isFamilyShareable: product.isFamilyShareable,
+                subscription: StoreProduct.Subscription(
+                    group: subscription.group, period: subscription.period, introductoryOffer: introductory,
+                    promotionalOffers: promotional, winBackOffers: winBack))
+        }
+        if scenario.introductoryOffer == .used {
+            for group in catalogue.subscriptionGroups { useIntroductoryOffer(in: group) }
         }
     }
 
@@ -78,6 +113,12 @@ extension SimulatedStoreFront {
             started = now.addingTimeInterval(-age - period)
             state = .expired(.autoRenewDisabled)
             renewal = off
+        }
+        if case .expired = state {
+            let lapsed = HeldSubscription(
+                product: subscription.id, group: terms.group, ownership: subscription.ownership, state: state,
+                firstSubscribed: started, periodStarted: started, periodEnds: started.addingTimeInterval(period))
+            renewal = Renewal(willRenew: false, nextProduct: nil, winBackOffers: Self.winBackOffers(after: lapsed, in: productsOnSale))
         }
         return HeldSubscription(
             product: subscription.id, group: terms.group, ownership: subscription.ownership, state: state,
