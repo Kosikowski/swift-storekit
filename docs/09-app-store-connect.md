@@ -175,7 +175,7 @@ The same file can feed a [simulated store](06-simulated-store.md), through `Simu
 - TestFlight purchases are free and use the sandbox `[Apple]`.
 - `StoreDiagnosis.environment` reports "Xcode", "Sandbox" or "Production". It is read from an entitlement, so it is nil until the account owns something. (A simulated store says "Simulated".)
 - A trial is one per account, and a sandbox account is an account. Once a tester has taken the trial, it stays taken. App Store Connect can clear a sandbox tester's purchase history `[Apple]`; whether that returns the trial to `.available` on a given device is worth confirming before you depend on it `[check]`. A fresh sandbox tester always has the trial available.
-- Ask to Buy and refunds are quickest to exercise with the `.storekit` file and Xcode's transaction manager, or with the simulated store. Backdating a non-consumable, to reach "the trial ends in five minutes", is documented by Apple and works in the iOS 27 simulator, and does not work under `SKTestSession` on macOS 26 `[ran]`; see [trials](04-trials.md#testing-the-trial-ends-in-five-minutes) for what to do instead.
+- Ask to Buy and refunds are quickest to exercise with the `.storekit` file and Xcode's transaction manager, or with the simulated store. Backdating a non-consumable, to reach "the trial ends in five minutes", is documented by Apple and works in the iOS 27 simulator, and on macOS 26 with Xcode 26; it does not work under `SKTestSession` with Xcode 27.0 on macOS 26 `[ran]`; see [trials](04-trials.md#testing-the-trial-ends-in-five-minutes) for what to do instead.
 
 ## When the Buy button does nothing
 

@@ -20,7 +20,7 @@ In Xcode, use File › Add Package Dependencies…. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Kosikowski/swift-storekit.git", branch: "main"),
+    .package(url: "https://github.com/Kosikowski/swift-storekit.git", from: "0.1.0"),
 ],
 targets: [
     .target(

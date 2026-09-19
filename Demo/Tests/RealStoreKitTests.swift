@@ -10,10 +10,10 @@
 //  and outliving the process, so the suite is serial, and each test resets it first and
 //  keeps its session alive to the end.
 //
-//  Backdating depends on the OS, though Apple documents it without saying so: on macOS
-//  26.6 `SKTestSession.buyProduct` fails, and `product.purchase(options:
-//  [.purchaseDate(…)])` succeeds and ignores the date; in the iOS 27 simulator both
-//  work. So a trial nearly over is tested twice — with a trial a second and a half
+//  Backdating depends on the OS *and the tools*, though Apple documents it without saying
+//  so: with Xcode 27.0 on macOS 26.6 `SKTestSession.buyProduct` fails, and
+//  `product.purchase(options: [.purchaseDate(…)])` succeeds and ignores the date; with
+//  Xcode 26.6 on the same macOS, and in the iOS 27 simulator, it works. So a trial nearly over is tested twice — with a trial a second and a half
 //  long, everywhere, and with a real fortnight bought thirteen days ago, as a known
 //  issue where that cannot pass.
 //
@@ -247,14 +247,27 @@ struct RealStoreKitTests {
 
     // MARK: - Where StoreKit's test environment differs from one OS to the next
 
-    /// Two faults in StoreKit's test environment that the 27 releases fixed. Measured:
-    /// both present on macOS 26.6, both gone in the iOS 27.0 simulator, with the same
-    /// Xcode (27.0) — so it is the OS that decides, not the tools. Each is written as
-    /// a *known issue* where it is expected, which is a canary both ways: the test
-    /// fails if the fault turns up where it should not, and if it has gone from where
-    /// it was.
+    /// Faults in StoreKit's test environment that belong to one combination of OS and
+    /// tools, written as *known issues* where they are expected — which is a canary both
+    /// ways: the test fails if the fault turns up where it should not, and if it has gone
+    /// from where it was.
+    ///
+    /// Disarming with nil: broken on macOS 26.6 whichever Xcode built the test, fine in
+    /// the iOS 27.0 simulator. The OS decides.
     nonisolated private static var hasThe27Fixes: Bool {
         if #available(macOS 27, iOS 27, *) { true } else { false }
+    }
+
+    /// `buyProduct`: broken on macOS 26.6 **with Xcode 27.0**, and fine on the same macOS
+    /// with Xcode 26.6 — which the first run of this suite on a hosted runner found, by
+    /// failing to fail. So it is the newer tools on the older OS, not the OS: asked of the
+    /// compiler, since a test cannot ask Xcode its version.
+    nonisolated private static var buyProductIsBroken: Bool {
+        #if os(macOS) && compiler(>=6.4)
+        if #available(macOS 27, *) { false } else { true }
+        #else
+        false
+        #endif
     }
 
     /// And two faults the other way about: right on macOS 26.6, wrong in the iOS 27.0
@@ -272,15 +285,14 @@ struct RealStoreKitTests {
     /// shortens the trial instead: a real fortnight, bought thirteen days, twenty-three
     /// hours and fifty-five minutes ago. Apple documents the route —
     /// `Product.PurchaseOption.purchaseDate(_:)` with `buyProduct(identifier:options:)` —
-    /// and Xcode 27's release notes list `buyProduct` throwing `StoreKitError.unknown` as
-    /// fixed (FB24168768).
+    /// and it works, except where `buyProductIsBroken` says it does not.
     @Test("a FORTNIGHT'S trial with five minutes left, against real StoreKit, where it can be backdated")
     func trialNearlyOver() async throws {
         let session = try await session()
         let store = store()
         await store.start()
         let bought = Date(timeIntervalSinceNow: -(14 * 86_400 - 300))
-        try await withKnownIssue("before the 27 releases, buyProduct throws StoreKitError.unknown") {
+        try await withKnownIssue("with Xcode 27 on macOS 26, buyProduct throws StoreKitError.unknown") {
             _ = try await session.buyProduct(identifier: Self.trial.rawValue, options: [.purchaseDate(bought)])
             await waitUntil(timeout: .seconds(10)) {
                 await store.refresh()
@@ -294,7 +306,7 @@ struct RealStoreKitTests {
             #expect(abs(period.endsAt.timeIntervalSinceNow - 300) < 10)
             #expect(store.standing.access(to: Self.pro) == .onTrial(period, via: Self.trial))
         } when: {
-            !Self.hasThe27Fixes
+            Self.buyProductIsBroken
         } matching: { issue in
             // That fault and no other: anything else going wrong in here is a failure.
             issue.error is StoreKitError
@@ -340,7 +352,10 @@ struct RealStoreKitTests {
         #if os(macOS)
         /// macOS 26.6: empty straight after `purchase()`, listed within about a second.
         static let listsAPurchaseLate = true
-        /// macOS 26.6: an approved Ask to Buy is announced while the listing is still empty.
+        /// macOS 26.6: an approved Ask to Buy is *usually* announced while the listing is
+        /// still empty. It is a race between the announcement and the listing catching up,
+        /// which this Mac loses and a slower hosted runner was seen to win — so it is
+        /// measured and not insisted on. That it can happen at all is the whole point.
         static let announcesAGrantBeforeListingIt = true
         #else
         /// iOS 27.0 simulator.
@@ -386,7 +401,15 @@ struct RealStoreKitTests {
         }
         let listedOnArrival = await isListed(Self.pro)
         print("MEASURED listedOnArrival:", listedOnArrival)
-        #expect(listedOnArrival == !Measured.announcesAGrantBeforeListingIt)
+        if Measured.announcesAGrantBeforeListingIt {
+            // A race, so an *intermittent* known issue: recorded when the listing got there
+            // first, a pass either way. What would be news is the other column changing.
+            withKnownIssue("the listing sometimes catches up before the announcement arrives", isIntermittent: true) {
+                #expect(!listedOnArrival)
+            }
+        } else {
+            #expect(listedOnArrival)
+        }
         #expect(await waitUntil(timeout: .seconds(10)) { await isListed(Self.pro) })
         withExtendedLifetime(session) {}
     }

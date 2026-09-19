@@ -13,7 +13,7 @@ It remembers what was bought, the way the real store does for the account, and i
 | Habit of the real store | macOS 26.6 | iOS 27.0 simulator | Held to it by | In the simulated one |
 |---|---|---|---|---|
 | A purchase is listed *after* `purchase()` returns | about a second after **[ran]** | **at once** **[ran]** | `habitListingLag` | Listed **one read late** (`listsPurchasesAfterReads`, default 1). Set it to 0 for a store as prompt as iOS 27's; leave it, to find the bug the Mac will find for you |
-| A grant that arrives on its own is announced before it is listed | yes **[ran]** | listed by the time it arrives **[ran]** | `habitGrantBeforeListing` | `deliver` announces at once and lists one read late |
+| A grant that arrives on its own is announced before it is listed | usually: a race, lost every time on one Mac and won on a slower hosted runner **[ran]** | listed by the time it arrives **[ran]** | `habitGrantBeforeListing` | `deliver` announces at once and lists one read late |
 | A refund does not lag | gone from the listing when announced **[ran]** | the same **[ran]** | `habitRefundDoesNotLag` | `revoke` is gone from the very next read |
 | A cancelled task is told it owns nothing | 0 of 1 **[ran]** | the same **[ran]** | the `CANARY` of that name | The same (`answersNothingWhenCancelled`) |
 | A cancelled request for *products* is answered with an empty list, not an error | 0 of 2 **[ran]** | the same **[ran]** | `cancelledCatalogueRead` | The same |
@@ -96,7 +96,7 @@ let front = SimulatedStoreFront(catalogue: Shop.catalogue, configuration: file)
 |---|---|---|
 | A unit test | `seedTrial(_:remaining:)` with a `ManualClock`, then `clock.advance(by:)` | None |
 | A running debug build | `deliverTrial(_:remaining:)` from the debug panel, or a scenario, on the real clock | Five minutes, while you watch the app lock itself |
-| Real StoreKit | A catalogue whose trial lasts a second or two, everywhere; or a backdated purchase (`.purchaseDate` with `SKTestSession.buyProduct`), which works in the iOS 27 simulator and not on macOS 26.6. **[ran]** | A second or two |
+| Real StoreKit | A catalogue whose trial lasts a second or two, everywhere; or a backdated purchase (`.purchaseDate` with `SKTestSession.buyProduct`), which works in the iOS 27 simulator and on macOS 26.6 with Xcode 26.6, and not on macOS 26.6 with Xcode 27.0. **[ran]** | A second or two |
 
 ## Scenarios
 

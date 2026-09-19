@@ -227,9 +227,9 @@ let catalogue: Catalogue = [.unlock(pro), .trial(trial, of: [pro], lasting: .mil
 
 Buy the trial through `AppStoreFront` under an `SKTestSession`, and wait for `access(to:)` to turn `.none`. `Demo/Tests/RealStoreKitTests.swift` does exactly this.
 
-A short trial works everywhere. **Backdating the purchase works only where the OS can do it** `[ran]`. Apple documents the route — `Product.PurchaseOption.purchaseDate(_:)` with `SKTestSession.buyProduct(identifier:options:)` `[Apple]` — and in the iOS 27.0 simulator it does what it says, so `Demo/Tests` also runs a real fortnight's trial bought thirteen days, twenty-three hours and fifty-five minutes ago. On macOS 26.6:
+A short trial works everywhere. **Backdating the purchase works only where the OS and the tools can do it** `[ran]`. Apple documents the route — `Product.PurchaseOption.purchaseDate(_:)` with `SKTestSession.buyProduct(identifier:options:)` `[Apple]` — and in the iOS 27.0 simulator, and on macOS 26.6 with Xcode 26.6, it does what it says, so `Demo/Tests` also runs a real fortnight's trial bought thirteen days, twenty-three hours and fifty-five minutes ago. On macOS 26.6 with Xcode 27.0:
 
-- `SKTestSession.buyProduct(identifier:)` fails with `StoreKitError.unknown`, with or without the App Sandbox (listed as fixed in Xcode 27's release notes; the fix is in the OS);
+- `SKTestSession.buyProduct(identifier:)` fails with `StoreKitError.unknown`, with or without the App Sandbox (though Xcode 27's release notes list that very failure as fixed);
 - the `.purchaseDate(_:)` option, through `product.purchase(options:)`, succeeds and **the date is ignored**.
 
 There the test is recorded as a known issue, so it says when that changes.

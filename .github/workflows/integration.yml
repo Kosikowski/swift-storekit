@@ -2,12 +2,12 @@
 #
 # Every claim this package makes about what StoreKit does lives in this suite, so "by
 # hand, before a release" was not often enough — and as a gate on every pull request it
-# would be too often: StoreKit's test environment is reported to be unreliable under
-# command-line xcodebuild on hosted runners, and a lane that fails for reasons of its
-# own teaches people to ignore it. So: nightly and on request, never blocking, one retry,
-# a timeout (xcodebuild has been seen to finish a run green and never exit), the result
-# bundle kept, and a red night opens an issue. What this lane measures is what should
-# replace "reported to be unreliable" in docs/05.
+# would be too often: it depends on StoreKit's test environment, on the runner's Xcode and
+# on a race or two, and a lane that fails for reasons of its own teaches people to ignore
+# it. So: nightly and on request, never blocking, one retry, a timeout (xcodebuild has
+# been seen to finish a run green and never exit), the result bundle kept, and a red
+# night opens an issue. Its first run found two beliefs of this package's to be wrong
+# (docs/05), which is what it is for.
 #
 # The Mac only, to begin with. The hosted image's Xcode decides what is being measured:
 # see the Toolchain step, and do not read a green run as a statement about any other OS.

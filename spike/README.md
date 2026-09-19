@@ -3,7 +3,7 @@
 Throwaway probes, kept because each answers a question the package's design hangs on and
 will need asking again on a new Xcode. None of this is product code; nothing depends on it.
 
-Last run: 18 September 2026, macOS 26.6.2, Xcode 27.0 (27A266a), Swift 6.4. Where a row says iOS, it is the
+Last run: 18–19 September 2026, macOS 26.6.2, Xcode 27.0 (27A266a), Swift 6.4; and, where it says a hosted runner, GitHub's macOS 26.6.2 image with Xcode 26.6. Where a row says iOS, it is the
 iOS 27.0 simulator, through the same questions in `Demo/Tests` (`make integration-ios`).
 
 ## `sktestsession/` — does `SKTestSession` work in a package test target?
@@ -28,8 +28,8 @@ Generated with XcodeGen; the `.storekit` file is a resource of the test bundle.
 | Does the session load, and do products come back? | Yes. |
 | Does `product.purchase()` go through with `disableDialogs`? | Yes. |
 | Is a purchase listed by `currentEntitlements` at once? | **No.** Empty straight after `purchase()` returns; listed within about a second. |
-| Does `session.buyProduct(identifier:)` work? | **macOS 26.6: no** — `StoreKitError.unknown`, with or without the App Sandbox. Xcode 27's release notes list this as fixed (FB24168768); the fix is in the OS, not the tools. **iOS 27.0: yes.** |
-| Does the `.purchaseDate(_:)` option backdate a non-consumable? Apple documents that it does, with `buyProduct(identifier:options:)`. | **macOS 26.6: no.** Through `buyProduct` it fails with the call; through `product.purchase(options:)` the purchase succeeds and **both** `purchaseDate` and `originalPurchaseDate` are today's. **iOS 27.0: yes, both routes, both dates.** |
+| Does `session.buyProduct(identifier:)` work? | **macOS 26.6 with Xcode 27.0: no** — `StoreKitError.unknown`, with or without the App Sandbox. **The same macOS with Xcode 26.6: yes** (a hosted runner; `Demo/Tests`). **iOS 27.0 simulator: yes.** So it is the newer tools on the older OS. Xcode 27's release notes list this very failure as fixed (FB24168768), which is not what was seen. |
+| Does the `.purchaseDate(_:)` option backdate a non-consumable? Apple documents that it does, with `buyProduct(identifier:options:)`. | **macOS 26.6 with Xcode 27.0: no.** Through `buyProduct` it fails with the call; through `product.purchase(options:)` the purchase succeeds and **both** `purchaseDate` and `originalPurchaseDate` are today's. **iOS 27.0: yes, both routes, both dates.** |
 | What does a **cancelled** task read from `currentEntitlements`? | **Nothing: 0 of 1**, on both. A read made in a cancelled task looks exactly like owning nothing. |
 | Does `setSimulatedError` produce StoreKit's own errors (route E)? | **Yes.** macOS 26.6 throws the error that was armed (`networkError`, `purchaseNotAllowed`). iOS 27.0 throws one of its own whatever was armed: a system error for a load, `unknown` for a purchase. |
 | Does a simulated *verification* failure reach the app as an unverified transaction? | **Yes**, on both: `purchase()` returns `.success(.unverified)`, and `currentEntitlements` lists it unverified. |
@@ -37,7 +37,7 @@ Generated with XcodeGen; the `.storekit` file is a resource of the test bundle.
 | Does the test environment's state end with the process? | **No.** An error armed in one run was still armed in the next. Reset at the start of every test. |
 | What does a **cancelled** task get from `Product.products(for:)`? | **An empty list, not an error: 0 of 2**, on both, with 2 before and 2 after. It reads as a store that sells this build nothing. |
 | Is a purchase listed the moment `purchase()` returns? | **macOS 26.6: no**, about a second later. **iOS 27.0: yes, at once.** |
-| Does an approved Ask to Buy arrive before the listing has it? | **macOS 26.6: yes. iOS 27.0: no** — listed by the time it arrives. |
+| Does an approved Ask to Buy arrive before the listing has it? | **macOS 26.6: usually** — on this Mac every time, on a slower hosted runner not: it is a race between the announcement and the listing. **iOS 27.0: no** — listed by the time it arrives. |
 | Is a refund gone from the listing by the time it is announced? | **Yes**, on both. |
 | Does a purchase made on this device also come through `Transaction.updates`? | **No**, on both: nothing in three seconds, the purchase having been finished at once. |
 | Ask to Buy **declined**: what arrives? | **macOS 26.6: nothing**, and the purchase stays pending. **iOS 27.0: the purchase**, as if approved — a fault of that simulator. |
