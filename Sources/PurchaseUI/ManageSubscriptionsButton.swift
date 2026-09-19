@@ -10,26 +10,32 @@
 //
 //  **iOS has a sheet and macOS does not.** `manageSubscriptionsSheet` and
 //  `AppStore.showManageSubscriptions` are unavailable on the Mac, and Apple says not to
-//  show the sheet in an iPad app running there either; on macOS this opens Apple's
-//  subscriptions page in the App Store instead `[Apple]`.
+//  show the sheet in an iPad app running there either `[Apple]`. There, and on macOS, this
+//  opens Apple's subscriptions page in the App Store instead, and "back" is the app becoming
+//  active again. Not the scene phase: a Mac window left visible behind the App Store stays
+//  `.active` throughout, so a change of phase never comes.
 //
 
 public import PurchaseCore
 public import SwiftUI
+import Combine
+import Foundation
 import StoreKit
 // `manageSubscriptionsSheet` lives in the overlay that joins StoreKit to SwiftUI. Xcode loads
 // it unasked when a file imports both; SwiftPM does not, so it is named.
 import _StoreKit_SwiftUI
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// Opens Apple's page for managing subscriptions, and reads the store again afterwards.
 public struct ManageSubscriptionsButton<Label: View>: View {
     @Environment(\.purchaseCommands) private var commands
     @Environment(\.openURL) private var openURL
-    #if os(macOS)
-    @Environment(\.scenePhase) private var scenePhase
     /// Sent to the App Store, and not yet back.
     @State private var isAway = false
-    #endif
     @State private var isPresented = false
 
     private let group: SubscriptionGroupID?
@@ -45,21 +51,50 @@ public struct ManageSubscriptionsButton<Label: View>: View {
     /// Apple's page for managing subscriptions, where the platform has no sheet.
     public static var manageSubscriptionsURL: URL { URL(string: "https://apps.apple.com/account/subscriptions")! }
 
+    /// Whether this runs where Apple's sheet may not be shown — on macOS, or as an iPhone or
+    /// iPad app on a Mac — and so opens `manageSubscriptionsURL` instead.
+    static var opensThePage: Bool {
+        #if os(macOS)
+        true
+        #else
+        ProcessInfo.processInfo.isiOSAppOnMac
+        #endif
+    }
+
     public var body: some View {
         #if os(macOS)
+        page
+        #else
+        if Self.opensThePage { page } else { sheet }
+        #endif
+    }
+
+    private var page: some View {
         Button {
             isAway = true
             openURL(Self.manageSubscriptionsURL)
         } label: {
             label
         }
-        // The App Store took focus; coming back is when anything changed there is found.
-        .onChange(of: scenePhase) { _, phase in
-            guard phase == .active, isAway else { return }
+        // The App Store took the app's place in front; coming back is when anything changed
+        // there is found.
+        .onReceive(NotificationCenter.default.publisher(for: Self.becameActive)) { _ in
+            guard isAway else { return }
             isAway = false
             refresh()
         }
+    }
+
+    private static var becameActive: Notification.Name {
+        #if os(macOS)
+        NSApplication.didBecomeActiveNotification
         #else
+        UIApplication.didBecomeActiveNotification
+        #endif
+    }
+
+    #if !os(macOS)
+    private var sheet: some View {
         Button {
             isPresented = true
         } label: {
@@ -69,8 +104,8 @@ public struct ManageSubscriptionsButton<Label: View>: View {
         .onChange(of: isPresented) { _, presented in
             if !presented { refresh() }
         }
-        #endif
     }
+    #endif
 
     private func refresh() {
         guard let commands else { return }

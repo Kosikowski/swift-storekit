@@ -37,7 +37,7 @@ Dependencies point inwards only. `PurchaseStoreKit` and `PurchaseUI` do not know
 |---|---|---|
 | `PurchaseCore` | All the logic: values, rules, ports, and the one stateful class | Foundation, Observation |
 | `PurchaseStoreKit` | The App Store behind Core's ports | StoreKit; AppKit or UIKit for purchase anchors |
-| `PurchaseUI` | Environment entries, a start-at-launch modifier, three buttons: buy, restore, manage subscriptions. No paywall | SwiftUI; StoreKit in two files, for `@Environment(\.purchase)` and the manage-subscriptions sheet |
+| `PurchaseUI` | Environment entries, a start-at-launch modifier, three buttons: buy, restore, manage subscriptions. No paywall | SwiftUI; StoreKit in two files, for `@Environment(\.purchase)` and the manage-subscriptions sheet; AppKit or UIKit in the second, to hear the app become active again |
 | `PurchaseLaunch` | The composition root, for an app that does not want to write one: `StoreLaunch.make(catalogue:)`. In a DEBUG build `-PurchaseScenario` chooses a simulated store; otherwise, and always in release, the App Store. Never empty, and the only thing an app imports for this | Foundation |
 | `PurchaseDebugUI` | A panel that drives the simulated store in a running debug build. Its *name* is in every build, and draws nothing in release, so an app needs no `#if` to mention it | SwiftUI |
 | `PurchaseSimulator` | The simulated store, its gates and scenarios. **The whole module is behind `#if DEBUG`**, so an app that links it — every app using the two above — ships with nothing of it. No app imports it | Foundation, Synchronization |

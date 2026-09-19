@@ -133,7 +133,7 @@ App Review expects an easy route to Apple's own page for the subscription, and i
 ManageSubscriptionsButton("Manage Membership", group: Shop.membership)
 ```
 
-On iOS it presents Apple's sheet. **macOS has none** — `manageSubscriptionsSheet` and `AppStore.showManageSubscriptions` are unavailable there `[Apple]` — so on the Mac it opens `https://apps.apple.com/account/subscriptions` in the App Store. Either way the store reads again when the person comes back, because a cancellation made there sends the app nothing.
+On iOS it presents Apple's sheet. **macOS has none**, because `manageSubscriptionsSheet` and `AppStore.showManageSubscriptions` are unavailable there `[Apple]`. So on the Mac it opens `https://apps.apple.com/account/subscriptions` in the App Store, and so does an iPhone or iPad app running on a Mac, where Apple says not to show the sheet. Either way the store reads again when the person comes back: when the sheet closes, or when the app becomes active again after the link. A cancellation made there sends the app nothing.
 
 ## Testing
 
