@@ -43,6 +43,13 @@ extension StoreKitConfiguration {
         /// The first localisation's description.
         public let localizedDescription: String?
 
+        /// For a subscription, the group the file puts it in.
+        public let subscriptionGroupID: SubscriptionGroupID?
+
+        /// For a subscription, its level in the group as the file ranks it (Xcode's
+        /// `groupNumber`): 1 is the highest.
+        public let groupLevel: Int?
+
         /// - Parameters:
         ///   - section: where the entry was found, for the error alone.
         ///   - index: its place there, likewise.
@@ -65,6 +72,8 @@ extension StoreKitConfiguration {
             self.referenceName = json["referenceName"] as? String ?? ""
             self.displayName = localization?["displayName"] as? String
             self.localizedDescription = localization?["description"] as? String
+            self.subscriptionGroupID = (json["subscriptionGroupID"] as? String).map(SubscriptionGroupID.init(rawValue:))
+            self.groupLevel = json["groupNumber"] as? Int
         }
 
         /// Digits and at most one point, or nothing. `Decimal(string:)` alone would

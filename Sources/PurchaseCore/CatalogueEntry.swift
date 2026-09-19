@@ -32,6 +32,9 @@ public struct CatalogueEntry: Hashable, Sendable, Identifiable {
         /// the whole family a trial that is probably already over and take away
         /// their own.
         case trial(TrialTerms)
+        /// An auto-renewable subscription, in a group, at a level. What it is worth while
+        /// it runs is the store's to say, not the clock's: see `SubscriptionStanding`.
+        case subscription(SubscriptionTerms)
     }
 
     public let id: ProductID
@@ -51,6 +54,24 @@ public struct CatalogueEntry: Hashable, Sendable, Identifiable {
     /// A trial of one or more unlocks, running for `duration` from its purchase.
     public static func trial(_ id: ProductID, of targets: Set<ProductID>, lasting duration: Duration) -> CatalogueEntry {
         CatalogueEntry(id: id, kind: .trial(TrialTerms(duration: duration, targets: targets)))
+    }
+
+    /// An auto-renewable subscription in `group`, at `level` as App Store Connect ranks it:
+    /// 1 is the highest. Family Sharing is honoured unless you say otherwise.
+    public static func subscription(
+        _ id: ProductID, in group: SubscriptionGroupID, level: Int, familySharing: FamilySharing = .honoured
+    ) -> CatalogueEntry {
+        CatalogueEntry(id: id, kind: .subscription(SubscriptionTerms(group: group, level: level, familySharing: familySharing)))
+    }
+
+    /// The terms, if this is a subscription.
+    public var subscriptionTerms: SubscriptionTerms? {
+        if case let .subscription(terms) = kind { terms } else { nil }
+    }
+
+    /// Whether this is an unlock: a one-time purchase that is kept.
+    public var isUnlock: Bool {
+        if case .unlock = kind { true } else { false }
     }
 
     /// The terms, if this is a trial.

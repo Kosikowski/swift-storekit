@@ -31,13 +31,18 @@ public struct Standing: Hashable, Sendable {
     public let asOf: Date
     public let catalogue: Catalogue
     private let holdings: [ProductID: OwnedProduct]
+    private let subscriptions: [SubscriptionGroupID: SubscriptionStanding]
 
     /// Built by `StandingResolver`; `holdings` must already be the ones that count.
-    init(phase: Phase, asOf: Date, catalogue: Catalogue, holdings: [ProductID: OwnedProduct]) {
+    init(
+        phase: Phase, asOf: Date, catalogue: Catalogue, holdings: [ProductID: OwnedProduct],
+        subscriptions: [SubscriptionGroupID: SubscriptionStanding] = [:]
+    ) {
         self.phase = phase
         self.asOf = asOf
         self.catalogue = catalogue
         self.holdings = holdings
+        self.subscriptions = subscriptions
     }
 
     /// The standing before the store has said anything.
@@ -49,6 +54,7 @@ public struct Standing: Hashable, Sendable {
 
     /// What is held and counts, in identifier order. A trial product is in here from
     /// the day it is taken and stays after it ends; ask `trial(_:at:)` where it stands.
+    /// Subscriptions are not: ask `subscription(in:)`.
     public var ownedProducts: [OwnedProduct] {
         holdings.values.sorted { $0.id < $1.id }
     }
@@ -59,6 +65,13 @@ public struct Standing: Hashable, Sendable {
 
     public func access(to id: ProductID, at date: Date) -> ProductAccess {
         guard isKnown else { return .unknown }
+        // A subscription gives access by what the store last said, not by the clock: its
+        // end is the store's to say (it may have renewed, or be in a grace period), and
+        // the store is asked again when it comes. For the dates, see the `HeldSubscription`.
+        if let terms = catalogue.entry(for: id)?.subscriptionTerms {
+            if case let .active(held, _) = subscription(in: terms.group), held.product == id { return .subscribed(held) }
+            return .none
+        }
         if let owned = holdings[id], catalogue.entry(for: id)?.trialTerms == nil {
             return .owned(owned)
         }
@@ -72,6 +85,17 @@ public struct Standing: Hashable, Sendable {
     }
 
     public func access(to id: ProductID) -> ProductAccess { access(to: id, at: asOf) }
+
+    // MARK: - Subscriptions
+
+    /// Where this account stands in `group`. Before the store has answered, `unknown`.
+    ///
+    /// A product in the group is `access(to:)`'s business only when it is the one held;
+    /// an app that sells monthly and yearly plans of the same thing asks this instead.
+    public func subscription(in group: SubscriptionGroupID) -> SubscriptionStanding {
+        guard isKnown else { return .unknown }
+        return subscriptions[group] ?? .none
+    }
 
     // MARK: - Trials
 
@@ -94,13 +118,21 @@ public struct Standing: Hashable, Sendable {
     /// Nothing observable happens when a trial runs out — no transaction arrives —
     /// so whoever holds a standing has to look again then, or nothing locks until
     /// something unrelated redraws or the app is relaunched.
+    ///
+    /// For a subscription, the moment its access by the store's last word ends: the end of
+    /// its period, or of its grace period. Nothing may change then — it may have renewed —
+    /// but only the store can say, so that is when to ask it.
     public var nextExpiry: Date? {
         guard isKnown else { return nil }
-        return catalogue.entries
+        let trials = catalogue.entries
             .compactMap { period(of: $0) }
             .filter { $0.isRunning(at: asOf) }
             .map(\.endsAt)
-            .min()
+        let subscribed = subscriptions.values.compactMap { standing -> Date? in
+            guard case let .active(held, _) = standing, held.accessEnds > asOf else { return nil }
+            return held.accessEnds
+        }
+        return (trials + subscribed).min()
     }
 
     /// Whether `other` answers every question this does, each asked of its own moment.
@@ -110,7 +142,9 @@ public struct Standing: Hashable, Sendable {
     /// match, *and* what it amounts to — a trial that ran out in that hour holds exactly
     /// what it held, and is the one case where nothing new is something new.
     func saysTheSame(as other: Standing) -> Bool {
-        guard phase == other.phase, catalogue == other.catalogue, holdings == other.holdings else { return false }
+        guard phase == other.phase, catalogue == other.catalogue, holdings == other.holdings,
+              subscriptions == other.subscriptions
+        else { return false }
         return catalogue.entries.allSatisfy { entry in
             access(to: entry.id) == other.access(to: entry.id) && trial(entry.id) == other.trial(entry.id)
         }

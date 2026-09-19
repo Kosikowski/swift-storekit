@@ -173,6 +173,7 @@ private struct PanelContent: View {
         case .unknown: return "unknown"
         case let .owned(owned): return "owned (\(owned.ownership))"
         case let .onTrial(period, via): return "on trial via \(via), \(remaining(period, at: date)) left"
+        case let .subscribed(held): return "subscribed (\(held.state)), until \(held.accessEnds.formatted(date: .abbreviated, time: .standard))"
         case .none: return "none"
         }
     }

@@ -21,17 +21,25 @@ public enum StoreKitConfigurationProblem: Hashable, Sendable {
     /// In the file and not in the catalogue: the other half of a rename, or
     /// something the app never asks the store for.
     case unexpected(ProductID)
-    /// Everything this package sells is a non-consumable. `type` is what the file
-    /// says instead — for an identifier found under a subscription group, a
-    /// subscription's.
+    /// An unlock or a trial is a non-consumable. `type` is what the file says instead —
+    /// for an identifier found under a subscription group, a subscription's.
     case notNonConsumable(ProductID, type: String)
+    /// A catalogue subscription is an auto-renewable one. `type` is what the file says.
+    case notAutoRenewable(ProductID, type: String)
+    /// The file puts a subscription in another group than the catalogue does, or in none.
+    /// Statuses are asked for by the catalogue's group, so the app would never see it.
+    case subscriptionGroupMismatch(ProductID, catalogue: SubscriptionGroupID, file: SubscriptionGroupID?)
+    /// The file ranks a subscription at another level than the catalogue does. The level
+    /// decides which of two statuses counts, and which way a change of plan goes.
+    case subscriptionLevelMismatch(ProductID, catalogue: Int, file: Int?)
     /// A trial is a *free* non-consumable. `displayPrice` is as the file spells it.
     case trialNotFree(ProductID, displayPrice: String)
     /// A shared trial carries the purchaser's start date. The catalogue never
     /// honours one, and the switch cannot be turned off again once it is on in App
     /// Store Connect — so it should not be on in the file that stands in for it.
     case trialFamilyShareable(ProductID)
-    /// The file and the catalogue disagree about Family Sharing for an unlock. One
+    /// The file and the catalogue disagree about Family Sharing for an unlock or a
+    /// subscription. One
     /// of them misstates App Store Connect, and the tests are run against the wrong
     /// one.
     case familySharingMismatch(ProductID, catalogueHonours: Bool, fileShares: Bool)
@@ -48,7 +56,18 @@ extension StoreKitConfigurationProblem: CustomStringConvertible {
                 + "so the app never asks for it. Was it renamed in one place only?"
         case let .notNonConsumable(id, type):
             "\(id) is \(type.isEmpty ? "of no type" : "a \(type)") in the StoreKit "
-                + "configuration file. Everything in a catalogue is a NonConsumable."
+                + "configuration file. An unlock or a trial is a NonConsumable."
+        case let .notAutoRenewable(id, type):
+            "\(id) is \(type.isEmpty ? "of no type" : "a \(type)") in the StoreKit "
+                + "configuration file. The catalogue declares an auto-renewable subscription: "
+                + "a RecurringSubscription."
+        case let .subscriptionGroupMismatch(id, catalogue, file):
+            "\(id) is in subscription group \(file.map { "\"\($0)\"" } ?? "none") in the StoreKit "
+                + "configuration file, and in \"\(catalogue)\" in the catalogue. Statuses are asked "
+                + "for by the catalogue's group. Make them agree with App Store Connect."
+        case let .subscriptionLevelMismatch(id, catalogue, file):
+            "\(id) is at level \(file.map(String.init) ?? "none") in the StoreKit configuration "
+                + "file, and at level \(catalogue) in the catalogue. Make them agree with App Store Connect."
         case let .trialNotFree(id, displayPrice):
             "\(id) is a trial priced at \"\(displayPrice)\" in the StoreKit configuration "
                 + "file. A trial is a free non-consumable: price it at 0."

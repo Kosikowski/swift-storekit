@@ -165,6 +165,63 @@ struct StoreKitConfigurationTests {
         #expect(try fixture(name).problems(against: catalogue) == expected)
     }
 
+    // MARK: - Subscriptions
+
+    /// The spike's file (spike/subscriptions), which real StoreKit loaded: a group of three
+    /// plans, and a second group of one. None of them is family-shareable.
+    private static let plans: Catalogue = [
+        .subscription("probe.monthly", in: "5B1F2A01", level: 2, familySharing: .ignored),
+        .subscription("probe.yearly", in: "5B1F2A01", level: 2, familySharing: .ignored),
+        .subscription("probe.premium", in: "5B1F2A01", level: 1, familySharing: .ignored),
+        .subscription("probe.plain", in: "5B1F2A02", level: 1, familySharing: .ignored),
+    ]
+
+    @Test("a file with subscriptions agrees with a catalogue that names their groups and levels")
+    func soundSubscriptions() throws {
+        let file = try fixture("subscriptions")
+        #expect(file.problems(against: Self.plans) == [])
+        let monthly = try #require(file.products.first { $0.id == "probe.monthly" })
+        #expect(monthly.subscriptionGroupID == "5B1F2A01")
+        #expect(monthly.groupLevel == 2)
+    }
+
+    @Test("a subscription in another group, at another level, or shared when the catalogue says not, is each a problem")
+    func subscriptionMismatches() throws {
+        let wrong: Catalogue = [
+            .subscription("probe.monthly", in: "5B1F2A02", level: 2, familySharing: .ignored),
+            .subscription("probe.yearly", in: "5B1F2A01", level: 1, familySharing: .ignored),
+            .subscription("probe.premium", in: "5B1F2A01", level: 1),
+            .subscription("probe.plain", in: "5B1F2A02", level: 1, familySharing: .ignored),
+        ]
+        #expect(try fixture("subscriptions").problems(against: wrong) == [
+            .subscriptionGroupMismatch("probe.monthly", catalogue: "5B1F2A02", file: "5B1F2A01"),
+            .subscriptionLevelMismatch("probe.yearly", catalogue: 1, file: 2),
+            .familySharingMismatch("probe.premium", catalogueHonours: true, fileShares: false),
+        ])
+    }
+
+    @Test("a catalogue subscription the file sells as a non-consumable is not auto-renewable, and in no group")
+    func subscriptionAsNonConsumable() throws {
+        let file = try configuration(products: """
+            {"productID": "com.example.pro", "type": "NonConsumable", "familyShareable": true}
+            """)
+        #expect(file.problems(against: [.subscription(pro, in: "g", level: 1)]) == [
+            .notAutoRenewable(pro, type: "NonConsumable"),
+            .subscriptionGroupMismatch(pro, catalogue: "g", file: nil),
+            .subscriptionLevelMismatch(pro, catalogue: 1, file: nil),
+        ])
+    }
+
+    @Test("every subscription problem is said in words, naming the product")
+    func subscriptionWords() {
+        let problems: [StoreKitConfigurationProblem] = [
+            .notAutoRenewable(pro, type: "NonConsumable"),
+            .subscriptionGroupMismatch(pro, catalogue: "g", file: nil),
+            .subscriptionLevelMismatch(pro, catalogue: 1, file: 2),
+        ]
+        for problem in problems { #expect(problem.description.contains(pro.rawValue)) }
+    }
+
     @Test("Family Sharing on in the file and IGNORED by the catalogue is a mismatch too")
     func sharedButIgnored() throws {
         let ignoring: Catalogue = [

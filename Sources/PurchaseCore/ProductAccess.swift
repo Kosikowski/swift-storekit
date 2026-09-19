@@ -21,18 +21,21 @@ public enum ProductAccess: Hashable, Sendable {
     case owned(OwnedProduct)
     /// Lent by a trial that is still running.
     case onTrial(TrialPeriod, via: ProductID)
+    /// A subscription the store says is entitled: subscribed, or in a grace period.
+    case subscribed(HeldSubscription)
     case none
 }
 
 extension ProductAccess {
-    /// Owned or lent by a running trial: true. Neither: false. **Not answered yet: nil.**
+    /// Owned, lent by a running trial, or subscribed: true. None of those: false. **Not
+    /// answered yet: nil.**
     ///
     /// Every app derives this, and the ones that derive a `Bool` have to put `unknown`
     /// somewhere — and put it under "no". An optional cannot be tested with `if` until
     /// somebody has decided what nil means for the thing being asked.
     public var isGranted: Bool? {
         switch self {
-        case .owned, .onTrial: true
+        case .owned, .onTrial, .subscribed: true
         case .none: false
         case .unknown: nil
         }
