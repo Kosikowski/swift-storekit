@@ -189,17 +189,20 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
     /// Measured against the real store: when an approved Ask to Buy arrives, the
     /// listing at that instant is still empty, and has the product half a second
     /// later. The first version of this listed at once, and hid the bug that causes.
+    ///
+    /// It takes the place of the copy this device holds — one copy of a product, as
+    /// the real listing has — **unless that is the account's own and this is not**. A
+    /// family member sharing what the account bought for itself is announced, and the
+    /// account's own stays listed. Replacing whatever was there threw the account's own
+    /// away, and for a shared trial, or an unlock whose entry ignores Family Sharing,
+    /// left someone who had paid owning nothing. The shared copy is not kept: should
+    /// the account's own be refunded afterwards, nothing is left, where the real store
+    /// might still list the family member's.
     public func deliver(_ product: OwnedProduct) {
         announce(.granted(product)) { state in
-            state.listed.removeAll { $0.id == product.id }
-            state.unlisted.removeAll { $0.product.id == product.id }
-            let lag = state.behaviour.listsPurchasesAfterReads
-            if lag <= 0 {
-                state.listed.append(product)
-            } else {
-                state.unlisted.append(Unlisted(product: product, readsUntilListed: lag))
-            }
             state.pending.remove(product.id)
+            if let held = Self.held(product.id, in: state), Self.outranks(held, product) { return }
+            Self.hold(product, in: &state)
         }
     }
 
@@ -273,10 +276,20 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
     /// The store takes a purchase back, as a refund does, and says so — whether or
     /// not it had got as far as listing it. Unlike a grant, this does not lag: the
     /// real listing was already empty at the instant the refund was announced.
+    ///
+    /// What is taken back is the copy this device holds, and the same purchase where
+    /// the account holds it elsewhere; left behind, a restore brought a refunded
+    /// purchase back and buying it again handed it over as owned. A copy elsewhere
+    /// that reached the account another way is another purchase, and stays: a family
+    /// member's sharing ending here takes nothing the account bought for itself. With
+    /// nothing held here, the copy elsewhere is the one taken back. Anything pending
+    /// stays pending: nothing had been bought, and approved later it is a new purchase.
     public func revoke(_ id: ProductID) {
         announce(.withdrawn(id)) { state in
+            let held = Self.held(id, in: state)
             state.listed.removeAll { $0.id == id }
             state.unlisted.removeAll { $0.product.id == id }
+            state.earlier.removeAll { $0.id == id && (held == nil || $0.ownership == held?.ownership) }
         }
     }
 
@@ -358,8 +371,14 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
             case .succeeds: break
             }
             if state.behaviour.restoreListsEarlierPurchases {
-                let known = Set((state.listed + state.unlisted.map(\.product)).map(\.id))
-                state.listed.append(contentsOf: state.earlier.filter { !known.contains($0.id) })
+                // What this device already holds stays, unless the account's own copy
+                // is arriving in place of somebody else's.
+                for product in state.earlier {
+                    if let held = Self.held(product.id, in: state), !Self.outranks(product, held) { continue }
+                    state.listed.removeAll { $0.id == product.id }
+                    state.unlisted.removeAll { $0.product.id == product.id }
+                    state.listed.append(product)
+                }
                 state.earlier = []
             }
             return .success(.completed)
@@ -422,23 +441,48 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
     /// The transaction a purchase of `id` comes to, whether it goes through at once
     /// or is approved later: the one the account already has, original date and all,
     /// or failing that a new one dated `now` — listed late, as the real store lists it.
+    ///
+    /// Where this device holds only a family member's copy and the account's own is
+    /// elsewhere, it is the account's own, which takes the shared one's place. Handed
+    /// the shared one, the store would call buying something the account owns
+    /// `.notCounted`.
     private static func buy(_ id: ProductID, at now: Date, in state: inout State) -> OwnedProduct {
-        if let owned = (state.listed + state.unlisted.map(\.product)).first(where: { $0.id == id }) {
-            return owned
+        let held = Self.held(id, in: state)
+        if let held, held.ownership == .purchased { return held }
+        if let index = state.earlier.firstIndex(where: { $0.id == id }),
+           held.map({ Self.outranks(state.earlier[index], $0) }) ?? true {
+            let product = state.earlier.remove(at: index)
+            Self.hold(product, in: &state)
+            return product
         }
-        let product: OwnedProduct
-        if let index = state.earlier.firstIndex(where: { $0.id == id }) {
-            product = state.earlier.remove(at: index)
-        } else {
-            product = OwnedProduct(id: id, originalPurchaseDate: now)
-        }
+        if let held { return held }
+        let product = OwnedProduct(id: id, originalPurchaseDate: now)
+        Self.hold(product, in: &state)
+        return product
+    }
+
+    /// The copy of `id` this device holds, listed or not yet.
+    private static func held(_ id: ProductID, in state: State) -> OwnedProduct? {
+        state.listed.first { $0.id == id } ?? state.unlisted.first { $0.product.id == id }?.product
+    }
+
+    /// Whether `copy` stays when `other` arrives: the account's own copy is never put
+    /// aside for anybody else's. `StandingResolver` prefers it the same way.
+    private static func outranks(_ copy: OwnedProduct, _ other: OwnedProduct) -> Bool {
+        copy.ownership == .purchased && other.ownership != .purchased
+    }
+
+    /// Holds `product` in place of any copy of it this device has, listed late, as the
+    /// real store lists it.
+    private static func hold(_ product: OwnedProduct, in state: inout State) {
+        state.listed.removeAll { $0.id == product.id }
+        state.unlisted.removeAll { $0.product.id == product.id }
         let lag = state.behaviour.listsPurchasesAfterReads
         if lag <= 0 {
             state.listed.append(product)
         } else {
             state.unlisted.append(Unlisted(product: product, readsUntilListed: lag))
         }
-        return product
     }
 
     private func date(ago age: Duration) -> Date {
