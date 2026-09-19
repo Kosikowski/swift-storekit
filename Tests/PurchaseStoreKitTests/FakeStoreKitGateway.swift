@@ -1,5 +1,6 @@
 import Foundation
 import PurchaseCore
+import StoreKit
 import Synchronization
 
 @testable import PurchaseStoreKit
@@ -16,6 +17,8 @@ final class FakeStoreKitGateway: StoreKitGateway {
         var sync: (any Error)?
         var finished: [ProductID] = []
         var updates: AsyncStream<TransactionSnapshot>.Continuation?
+        var statuses: [SubscriptionGroupID: Result<[StatusSnapshot], any Error>] = [:]
+        var statusUpdates: AsyncStream<StatusSnapshot>.Continuation?
     }
 
     let state = Mutex(State())
@@ -31,6 +34,24 @@ final class FakeStoreKitGateway: StoreKitGateway {
             productID: id, originalPurchaseDate: date, purchaseDate: date, ownership: ownership,
             isRevoked: isRevoked, verification: verification, environment: "Xcode",
             finish: { [weak self] in self?.state.withLock { $0.finished.append(id) } })
+    }
+
+    /// A subscription transaction, for a period from `start` to `end`.
+    func subscription(
+        _ id: ProductID, from start: Date, to end: Date, verification: TransactionSnapshot.Verification = .verified,
+        revoked: Date? = nil, isUpgraded: Bool = false, ownership: Ownership = .purchased,
+        offer: (StoreKit.Transaction.OfferType, String?, StoreKit.Transaction.Offer.PaymentMode)? = nil
+    ) -> TransactionSnapshot {
+        TransactionSnapshot(
+            productID: id, originalPurchaseDate: start.addingTimeInterval(-86_400 * 90), purchaseDate: start,
+            ownership: ownership, isRevoked: revoked != nil, verification: verification, environment: "Xcode",
+            finish: { [weak self] in self?.state.withLock { $0.finished.append(id) } },
+            expirationDate: end, revocationDate: revoked, isUpgraded: isUpgraded,
+            offerType: offer?.0, offerID: offer?.1, offerPaymentMode: offer?.2)
+    }
+
+    func announce(_ status: StatusSnapshot) {
+        state.withLock { $0.statusUpdates }?.yield(status)
     }
 
     func deliver(_ snapshot: TransactionSnapshot) {
@@ -62,6 +83,18 @@ final class FakeStoreKitGateway: StoreKitGateway {
     func updates() -> AsyncStream<TransactionSnapshot> {
         let (stream, continuation) = AsyncStream<TransactionSnapshot>.makeStream()
         state.withLock { $0.updates = continuation }
+        return stream
+    }
+
+    /// As measured of the real store: asked from a cancelled task, it answers with nothing.
+    func subscriptionStatuses(for group: SubscriptionGroupID) async throws -> [StatusSnapshot] {
+        if Task.isCancelled { return [] }
+        return try (state.withLock { $0.statuses[group] } ?? .success([])).get()
+    }
+
+    func statusUpdates() -> AsyncStream<StatusSnapshot> {
+        let (stream, continuation) = AsyncStream<StatusSnapshot>.makeStream()
+        state.withLock { $0.statusUpdates = continuation }
         return stream
     }
 }

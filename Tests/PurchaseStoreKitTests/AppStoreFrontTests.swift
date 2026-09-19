@@ -28,6 +28,8 @@ private final class CancellationSensitiveGateway: StoreKitGateway {
     func purchase(_ id: ProductID, confirmation: PurchaseConfirmation) async throws -> GatewayPurchaseResult? { nil }
     func sync() async throws {}
     func updates() -> AsyncStream<TransactionSnapshot> { AsyncStream { $0.finish() } }
+    func subscriptionStatuses(for group: SubscriptionGroupID) async throws -> [StatusSnapshot] { [] }
+    func statusUpdates() -> AsyncStream<StatusSnapshot> { AsyncStream { $0.finish() } }
 }
 
 @Suite("App Store front", .timeLimit(.minutes(1)))

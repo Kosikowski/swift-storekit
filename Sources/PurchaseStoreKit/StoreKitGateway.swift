@@ -28,4 +28,10 @@ protocol StoreKitGateway: Sendable {
 
     /// Transactions arriving on their own, verified or not, catalogue or not.
     func updates() -> AsyncStream<TransactionSnapshot>
+
+    /// Every status StoreKit has for the group. Throws StoreKit's own error.
+    func subscriptionStatuses(for group: SubscriptionGroupID) async throws -> [StatusSnapshot]
+
+    /// Statuses as they change, for any group.
+    func statusUpdates() -> AsyncStream<StatusSnapshot>
 }

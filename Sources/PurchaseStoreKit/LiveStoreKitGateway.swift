@@ -94,6 +94,22 @@ final class LiveStoreKitGateway: StoreKitGateway {
         return stream
     }
 
+    func subscriptionStatuses(for group: SubscriptionGroupID) async throws -> [StatusSnapshot] {
+        try await Product.SubscriptionInfo.status(for: group.rawValue).map(Self.snapshot(of:))
+    }
+
+    func statusUpdates() -> AsyncStream<StatusSnapshot> {
+        let (stream, continuation) = AsyncStream<StatusSnapshot>.makeStream()
+        let task = Task {
+            for await status in Product.SubscriptionInfo.Status.updates {
+                continuation.yield(Self.snapshot(of: status))
+            }
+            continuation.finish()
+        }
+        continuation.onTermination = { _ in task.cancel() }
+        return stream
+    }
+
     // MARK: - Private
 
     private func product(_ id: ProductID) async throws -> Product? {
@@ -142,7 +158,28 @@ final class LiveStoreKitGateway: StoreKitGateway {
             isRevoked: transaction.revocationDate != nil,
             verification: verification,
             environment: transaction.environment.rawValue,
-            finish: { await transaction.finish() })
+            finish: { await transaction.finish() },
+            expirationDate: transaction.expirationDate,
+            revocationDate: transaction.revocationDate,
+            isUpgraded: transaction.isUpgraded,
+            offerType: transaction.offer?.type,
+            offerID: transaction.offer?.id,
+            offerPaymentMode: transaction.offer?.paymentMode)
+    }
+
+    private static func snapshot(of status: Product.SubscriptionInfo.Status) -> StatusSnapshot {
+        let renewal: RenewalSnapshot? =
+            if case let .verified(info) = status.renewalInfo {
+                RenewalSnapshot(
+                    willAutoRenew: info.willAutoRenew, autoRenewPreference: info.autoRenewPreference,
+                    expirationReason: info.expirationReason, isInBillingRetry: info.isInBillingRetry,
+                    gracePeriodExpirationDate: info.gracePeriodExpirationDate,
+                    priceIncreaseStatus: info.priceIncreaseStatus, renewalPrice: info.renewalPrice,
+                    currencyCode: info.currency?.identifier, eligibleWinBackOfferIDs: info.eligibleWinBackOfferIDs)
+            } else {
+                nil
+            }
+        return StatusSnapshot(state: status.state, transaction: snapshot(of: status.transaction), renewal: renewal)
     }
 
     /// `.assigned` is matched by its raw value. The *name* arrived with the 27 SDK — back

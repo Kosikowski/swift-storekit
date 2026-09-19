@@ -15,7 +15,7 @@ public import PurchaseCore
 /// The App Store.
 ///
 ///     let store = PurchaseStore(catalogue: catalogue, front: AppStoreFront(catalogue: catalogue))
-public struct AppStoreFront: StoreFront, StoreDiagnosing {
+public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusReading {
     public let catalogue: Catalogue
     private let gateway: any StoreKitGateway
     private let logger: any PurchaseLogging
@@ -71,7 +71,8 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
             switch TransactionTriage.verdict(for: snapshot, catalogue: catalogue) {
             case let .adopt(product): owned.append(product)
             case .unverified: logger.log(.unverifiedTransactionIgnored(snapshot.productID))
-            case .withdrawn, .foreign: break
+            // Upgraded away from, it is the higher plan's transaction that counts.
+            case .withdrawn, .pastPeriodWithdrawn, .superseded, .foreign: break
             }
         }
         return owned
@@ -105,10 +106,10 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
             throw .unknown(typeName: "Product.PurchaseResult")
         case let .success(snapshot):
             switch TransactionTriage.verdict(for: snapshot, catalogue: catalogue) {
-            case let .adopt(product):
+            case let .adopt(product), let .superseded(product):
                 await snapshot.finish()
                 return .purchased(product)
-            case .withdrawn:
+            case .withdrawn, .pastPeriodWithdrawn:
                 await snapshot.finish()
                 throw .revoked
             case .unverified:
@@ -170,6 +171,10 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
                 case .withdrawn:
                     await snapshot.finish()
                     continuation.yield(.withdrawn(snapshot.productID))
+                case .pastPeriodWithdrawn, .superseded:
+                    // Dealt with, and nothing to announce: a period long over, or a plan
+                    // the person moved up from. The status says the rest.
+                    await snapshot.finish()
                 case .unverified:
                     logger.log(.unverifiedTransactionIgnored(snapshot.productID))
                 case .foreign:
@@ -180,8 +185,51 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
             for await snapshot in source { await take(snapshot) }
             continuation.finish()
         }
-        continuation.onTermination = { _ in task.cancel() }
+        // An expiry sends no transaction at all, and a cancellation or a grace period
+        // none either (measured, spike/README.md): a status change is how they are heard.
+        let statuses = gateway.statusUpdates()
+        let statusTask = Task { [catalogue, logger] in
+            for await status in statuses {
+                switch SubscriptionTriage.verdict(for: status, catalogue: catalogue) {
+                case let .status(held): continuation.yield(.subscriptionChanged(held))
+                case .unverified: logger.log(.unverifiedTransactionIgnored(status.transaction.productID))
+                case .foreign: break
+                }
+            }
+        }
+        continuation.onTermination = { _ in
+            task.cancel()
+            statusTask.cancel()
+        }
         return stream
+    }
+
+    // MARK: - SubscriptionStatusReading
+
+    /// Every status for each group, **in a task nobody cancels**: asked from a cancelled
+    /// task StoreKit answers with an empty array (measured, spike/README.md), which reads
+    /// as "never subscribed". A group StoreKit could not be asked about is left out, and
+    /// logged — never answered empty.
+    public func subscriptionStatuses(in groups: Set<SubscriptionGroupID>) async -> [SubscriptionGroupID: [HeldSubscription]] {
+        await Task { [catalogue, gateway, logger] () -> [SubscriptionGroupID: [HeldSubscription]] in
+            var answer: [SubscriptionGroupID: [HeldSubscription]] = [:]
+            for group in groups.sorted() {
+                do {
+                    var held: [HeldSubscription] = []
+                    for status in try await gateway.subscriptionStatuses(for: group) {
+                        switch SubscriptionTriage.verdict(for: status, catalogue: catalogue) {
+                        case let .status(subscription) where subscription.group == group: held.append(subscription)
+                        case .unverified: logger.log(.unverifiedTransactionIgnored(status.transaction.productID))
+                        case .status, .foreign: break
+                        }
+                    }
+                    answer[group] = held
+                } catch {
+                    logger.log(.subscriptionStatusUnavailable(group))
+                }
+            }
+            return answer
+        }.value
     }
 
     // MARK: - StoreDiagnosing

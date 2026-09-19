@@ -42,4 +42,7 @@ public enum PurchaseEvent: Hashable, Sendable {
     /// that product's to finish.
     case foreignTransactionIgnored(ProductID)
     case unrecognisedConfirmationAnchor(typeName: String)
+    /// A subscription group's statuses could not be read. The listing stands in for it,
+    /// and nothing is known of its renewals until the next read.
+    case subscriptionStatusUnavailable(SubscriptionGroupID)
 }
