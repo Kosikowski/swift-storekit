@@ -304,6 +304,28 @@ struct PurchaseStoreSubscriptionTests {
         await waitUntil { group().isActive == false }
         #expect(group().isActive == false)
     }
+
+    /// On the Mac the listing and the status are both empty for about 0.6 s after a purchase
+    /// (measured), and nothing says which catches up first. With the listing first, the hold
+    /// used to go the moment the listing had it — and the status, still empty, said "never
+    /// subscribed" to someone who had just paid (D36).
+    @Test("a subscription bought is not lost in the moment the listing has it and its STATUS DOES NOT YET")
+    func statusLaggingTheListing() async throws {
+        let logger = RecordingPurchaseLogger()
+        let store = PurchaseStore(catalogue: Plans.catalogue, front: front, clock: clock, logger: logger)
+        front.behaviour.saysStatusAfterReads = 2
+        await store.start()
+        try await store.purchase(Plans.monthly)
+        let bought = logger.events.count
+        for _ in 0 ..< 5 { await store.refresh() }
+        #expect(front.snapshot.listed.map(\.id) == [Plans.monthly])
+        let reads = logger.events.dropFirst(bought).compactMap { event -> Set<ProductID>? in
+            if case let .standingResolved(owned) = event { owned } else { nil }
+        }
+        #expect(reads.count >= 5)
+        #expect(reads.allSatisfy { $0.contains(Plans.monthly) }, "a read granted nothing: \(reads)")
+        #expect(store.standing.subscription(in: Plans.group).current?.renewal != nil)
+    }
 }
 
 #endif

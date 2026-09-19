@@ -16,7 +16,9 @@
 //  **It is held for a moment and no longer.** A hold ends when the store lists the
 //  product *and that listing counts* (a family member's copy of something this account
 //  has just bought for itself does not take over from the hold), when the store
-//  withdraws it, or when its time is up — whichever is first.
+//  withdraws it, or when its time is up — whichever is first. A subscription's hold is
+//  let go by its status rather than the listing (docs/10-decisions.md, D36); the store
+//  decides which of the two it passes to `settle`.
 //  The time limit is what keeps the listing the last word: a grant the store never
 //  goes on to list (a shared purchase withdrawn without a date has been reported to
 //  arrive looking like one) lapses, rather than being vouched for all session.

@@ -323,8 +323,17 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         // product and does not count it — a family member's copy of something this
         // account has just bought for itself — has not taken over from the hold, and
         // letting go on the identifier alone left the purchase vouched for by nobody.
-        // A subscription's hold is settled, too, once a status has caught up with it.
-        unlisted.settle(listedIn: listed.filter { resolver.counts($0, in: catalogue) } + caughtUp(with: statuses), at: now)
+        //
+        // A subscription's hold is settled by its status, not by the listing: the two catch
+        // up a moment apart, in either order (measured), and a listing that let go first left
+        // an empty status saying "never subscribed" to someone who had just paid. Only for a
+        // group whose status could not be read does the listing stand in, as it does there.
+        let settledByListing = listed.filter { owned in
+            guard resolver.counts(owned, in: catalogue) else { return false }
+            guard let group = catalogue.entry(for: owned.id)?.subscriptionTerms?.group else { return true }
+            return statuses[group] == nil
+        }
+        unlisted.settle(listedIn: settledByListing + caughtUp(with: statuses), at: now)
         let held = unlisted.held
         var subscriptions: [SubscriptionGroupID: SubscriptionStanding] = [:]
         recheck = nil

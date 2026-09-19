@@ -59,6 +59,8 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
         var isSaid: Bool
         /// A renewal made and not yet listed: the status it becomes once it is.
         var renewal: HeldSubscription?
+        /// Reads of the statuses still to go before this one is said (`saysStatusAfterReads`).
+        var readsUntilSaid = 0
     }
 
     private struct Unlisted {
@@ -481,6 +483,11 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
             for group in groups {
                 answer[group] = silent ? [] : state.subscriptions.filter { $0.isSaid && $0.status.group == group }.map(\.status)
             }
+            // Said from the *next* read of the statuses, as a listing is from the next read.
+            for index in state.subscriptions.indices where state.subscriptions[index].readsUntilSaid > 0 {
+                state.subscriptions[index].readsUntilSaid -= 1
+                if state.subscriptions[index].readsUntilSaid == 0 { state.subscriptions[index].isSaid = true }
+            }
             return (answer, updates, Array(state.listeners.values))
         }
         for update in updates { for listener in listeners { listener.yield(update) } }
@@ -681,7 +688,13 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
                     state.subscriptions[index].status = renewal
                     state.subscriptions[index].renewal = nil
                 }
-                if state.subscriptions[index].status.product == product.id { state.subscriptions[index].isSaid = true }
+                guard state.subscriptions[index].status.product == product.id, !state.subscriptions[index].isSaid else { continue }
+                let lag = state.behaviour.saysStatusAfterReads
+                if lag > 0 {
+                    state.subscriptions[index].readsUntilSaid = lag
+                } else {
+                    state.subscriptions[index].isSaid = true
+                }
             }
         }
     }

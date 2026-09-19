@@ -71,6 +71,12 @@ extension SimulatedStoreFront {
         /// near as a fixed length gets; a test that watches renewals sets it to seconds.
         public var subscriptionPeriod: Duration = .seconds(30 * 86_400)
 
+        /// How many reads of the statuses go by, once a subscription is listed, before its
+        /// status is said. Zero: said with the listing. On the Mac both were measured empty
+        /// for about 0.6 s after a purchase, and nothing says which catches up first; a test
+        /// of the moment the listing has a new subscription and the status does not sets this.
+        public var saysStatusAfterReads = 0
+
         /// What happens at a renewal. Change it before the period ends.
         public var renewal: RenewalScript = .renews
 

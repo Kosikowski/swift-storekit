@@ -167,7 +167,7 @@ The simulated store runs subscriptions **by its own clock**. Each read first doe
 
 | Habit of the real store | macOS 26.6 | iOS 27.0 simulator | Held to it by | In the simulated one |
 |---|---|---|---|---|
-| A subscription is listed *after* `purchase()` returns | about 0.6 s after **[ran]** | at once **[ran]** | `habitListingLag` (subscriptions) | One read late, and its status said once it is listed |
+| A subscription is listed *after* `purchase()` returns | about 0.6 s after **[ran]** | at once **[ran]** | `habitListingLag` (subscriptions) | One read late, and its status said once it is listed — or `saysStatusAfterReads` reads later still, for the order nothing measured rules out |
 | A subscription bought here is also announced | yes, half a second later **[ran]** | no **[ran]** | `habitBoughtHereAnnounced` | No |
 | At a renewal, the status says expired for a moment | up to 0.7 s, still renewing **[ran]** | 0.03–0.3 s, "will not renew" **[ran]** | `habitRenewalMoment` | **Yes, by default** (`showsTheRenewalMoment`): the renewal announced first, the status expired and not renewing, the listing empty, for one read more than `listsPurchasesAfterReads` |
 | Renewals missed while nothing ran arrive newest first | yes **[ran]** | yes **[ran]** | phase 0, q04 | Yes |
