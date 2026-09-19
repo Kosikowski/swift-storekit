@@ -44,7 +44,8 @@
 //
 //  **And PurchaseTestKit must not be in an app at all**, debug or release: it is what
 //  tests import, none of it is guarded, and Xcode links a package product into every
-//  configuration of a target or none. Its control is the hosted test bundle inside the
+//  configuration of a target or none. An app that links it does not build, since it
+//  calls Swift Testing (D34); this is for whatever gets past that. Its control is the hosted test bundle inside the
 //  debug app, which is where it belongs.
 //
 //  **And it looks at the app, not only at the package** (`--app`, `--debug-app`). What

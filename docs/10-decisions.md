@@ -125,7 +125,7 @@ The alternative is a separate product, linked only where it is wanted and with n
 
 The gate has three costs, and each is paid for rather than denied:
 
-- **Whatever names the simulated store must itself be under `#if DEBUG`**, or the first Release build fails. (That was a test, a preview or a composition root; since D33 an app has no need to name it, and it is a test.) This package's own suite was not, and did not compile in release **[ran]**; it is now, `make check` runs it in release, and the rule is stated where a reader meets the type ([testing](05-testing.md#guard-every-test-that-names-the-simulated-store)).
+- **Whatever names the simulated store must itself be under `#if DEBUG`**, or the first Release build fails. (That was a test, a preview or a composition root; since D33 an app has no need to name it, and it is a test.) This package's own suite was not, and did not compile in release **[ran]**; it is now, `make check` runs it in release, and the rule is stated where a reader meets the type ([testing](05-testing.md#a-test-imports-the-test-kit-and-an-app-cannot-link-it)).
 - **A scenario the build cannot honour is silent.** A UI test run in a Release configuration launches the real store and nothing fails. Hence the "Simulated store" marker, asserted first ([the simulated store](06-simulated-store.md#ui-tests-and-screenshots)).
 - **A package gets `DEBUG` by the configuration's name** (D13), by a heuristic Apple does not document. So the release check also reads a built app, not only the package (D27).
 - **A TestFlight build is a Release build.** Testers get no simulated store, no scenarios and no debug panel; and a `Debug…` build handed out ad hoc can be unlocked by an argument, by design. Both are now said where a reader meets them ([release safety](07-release-safety.md)).
@@ -237,7 +237,7 @@ So the test kit calls Swift Testing, for a reason of its own. `StoreKitConfigura
 
 The costs, stated:
 
-- **The failure is the linker's, not a sentence of this package's.** It names the test kit and Swift Testing, and [testing](05-testing.md#guard-every-test-that-names-the-simulated-store) quotes it, so a search finds the reason.
+- **The failure is the linker's, not a sentence of this package's.** It names the test kit and Swift Testing, and [testing](05-testing.md#a-test-imports-the-test-kit-and-an-app-cannot-link-it) quotes it, so a search finds the reason.
 - **It can be got past on purpose.** An app that puts Swift Testing on its own search paths may link. That is what `release-check --app` is still for.
 - **Not measured: a product Xcode builds as a dynamic framework**, which it may do when one product is shared between an app and its extension. **[check]**
 

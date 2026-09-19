@@ -9,9 +9,10 @@
 //
 //      -PurchaseScenario "owns=trial@13d23h55m; purchase=pending"
 //
-//  **This library only parses a scenario. Whether to honour one is the app's
-//  decision**, made at its composition root under a compilation condition of its
-//  own, and that division is deliberate. On macOS anyone can pass launch arguments
+//  **This file only parses a scenario. Whether to honour one is decided at the
+//  composition root**: `StoreLaunch.make` does in a debug build and cannot in a
+//  release one, and an app with a root of its own decides under a compilation
+//  condition of its own. That division is deliberate. On macOS anyone can pass launch arguments
 //  to a shipped app — `open -a App --args -PurchaseScenario owns=pro` — so an app
 //  that obeyed one in a release build would unlock itself for whoever asked. Nothing
 //  here reads the process's arguments unless it is called, nothing here builds a

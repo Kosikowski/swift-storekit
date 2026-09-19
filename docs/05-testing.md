@@ -45,7 +45,7 @@ Measured on macOS 26.6 and in the iOS 27.0 simulator, with Xcode 27.0. **[ran]**
 | Family Sharing, real products, real signatures, servers | Sandbox, then TestFlight | by hand |
 | **Where the payment sheet appears** — `PurchaseAction`, a window, a view controller | nothing automated: the hosted tests buy with `.automatic`, and no test here reaches `PurchaseButton`'s own path | by hand, with two windows open |
 
-## Guard every test that names the simulated store
+## A test imports the test kit, and an app cannot link it
 
 **A test imports `PurchaseTestKit`, and an app cannot.** It is to this package what StoreKitTest is to StoreKit: the simulated store, a manual clock, the waits and the `.storekit` check, behind one import, for test targets. Its checks report through Swift Testing, which only a test target can link, so an app that links the test kit does not build — Debug or Release, used or not — and the linker names it: `Undefined symbols … in PurchaseTestKit.o`. **[ran]** ([decisions](10-decisions.md#d34-the-test-kit-reports-through-swift-testing-so-no-app-can-link-it)) To try the app by hand on a simulated store, launch a debug build with a [scenario](06-simulated-store.md#scenarios) or open the [debug panel](06-simulated-store.md#the-debug-panel): both reach the simulator without the test kit.
 
@@ -72,7 +72,6 @@ This package's own suite is guarded the same way, and `make check` runs it in re
 ## The simulated store in a unit test
 
 ```swift
-#if DEBUG
 import PurchaseCore
 import PurchaseTestKit
 import Testing
@@ -94,7 +93,6 @@ func trialRunsOut() async {
     await waitUntil { store.standing.access(to: Shop.pro) == .none }
     #expect(store.standing.access(to: Shop.pro) == .none)
 }
-#endif
 ```
 
 Three rules keep such tests from flaking:
@@ -135,7 +133,6 @@ final class ExportModel {
 The most useful test in a purchasing suite. Nothing may be locked, nothing offered, and nobody who has paid shown a paywall.
 
 ```swift
-#if DEBUG
 import PurchaseCore
 import PurchaseTestKit
 import Testing
@@ -156,7 +153,6 @@ func ownerIsNotJudgedEarly() async {
     await exported.value
     #expect(!model.isShowingPaywall)                  // an owner, once it has
 }
-#endif
 ```
 
 `catalogueGate` does the same for a slow network: ownership must still be answered while it is shut. `purchaseGate` holds a purchase with its payment sheet still up, which is when a second tap does its damage ([the simulated store](06-simulated-store.md#arranging-it)).

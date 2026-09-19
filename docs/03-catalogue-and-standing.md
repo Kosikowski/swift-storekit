@@ -145,7 +145,7 @@ public enum ProductAccess: Hashable, Sendable {
 | `.onTrial(TrialPeriod, via:)` | Lent by a trial that is still running at the date asked; `via` is the trial product |
 | `.none` | The store has answered, and there is no right to it |
 
-There is deliberately no `Bool`. Collapsing this to "is it unlocked" throws away `.unknown`, and `.unknown` read as "no" is the bug where a paying customer meets the paywall at every launch. An app that wants a `Bool` decides what `.unknown` means for the thing being asked, which is usually "wait", and says so itself:
+There is deliberately no `Bool`. (`isGranted` is the nearest thing, and is a `Bool?`: nil until the store has answered, so it cannot be tested with `if` until somebody has decided what nil means — [getting started](02-getting-started.md#derive-your-own-ispro).) Collapsing this to "is it unlocked" throws away `.unknown`, and `.unknown` read as "no" is the bug where a paying customer meets the paywall at every launch. An app that wants a `Bool` decides what `.unknown` means for the thing being asked, which is usually "wait", and says so itself:
 
 ```swift
 enum Plan: Equatable {

@@ -3,7 +3,9 @@
 //  PurchaseTestKit
 //
 //  Everything a test of purchasing needs, behind one import — and **nothing an app
-//  imports**. It is to this package what StoreKitTest is to StoreKit.
+//  can link**: its checks report through Swift Testing, which only a test target can
+//  link, so an app that links this module does not build (D34). It is to this
+//  package what StoreKitTest is to StoreKit.
 //
 //  · the simulated store, its gates and its scenarios, which live in PurchaseSimulator
 //    (DEBUG only) and are re-exported here, so that a test writes `import PurchaseTestKit`
