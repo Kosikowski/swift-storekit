@@ -139,6 +139,8 @@ Test your own app against `SimulatedStoreFront` and a `ManualClock`, both from `
 | [App Store Connect](docs/09-app-store-connect.md) | The setup that is not code |
 | [Decisions](docs/10-decisions.md) | Why, with the evidence for each |
 | [Not implemented, deliberately](docs/11-roadmap.md) | Subscriptions, consumables, and the rest |
+| [Subscriptions and offers in StoreKit](docs/13-subscriptions-and-offers.md) | Research: how the App Store runs subscriptions and offers, and what an app can see |
+| [Plan: subscriptions and offers](docs/14-subscriptions-plan.md) | Proposed: what to build, in what order, and what to measure first |
 | [Migrating an existing app](docs/12-migrating-an-existing-app.md) | From hand-written StoreKit 2 |
 | [Checklist](docs/checklist.md) | Everything to get right, and who handles it |
 
