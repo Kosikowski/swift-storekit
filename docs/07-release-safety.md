@@ -42,14 +42,14 @@ So the plugin follows three rules, one for each:
 | Rule | Why |
 |---|---|
 | **The build says what it built.** `packageManager.build` hands back the libraries of *that* configuration; nothing is inferred from a path. Where the older build system reports none, the objects come from that configuration's own directory. | A script has to go looking, and twice looked in the wrong place. |
-| **The release search has a control of its own**: it must find `ManualClock`, which ships in every configuration. | Finding nothing forbidden in a search that can see nothing is not a pass. |
+| **The release search has a control of its own**: it must find `PurchaseLaunch` (as the mangling spells it, `14PurchaseLaunch` — the type's own name is abbreviated away), which ships in every configuration. | Finding nothing forbidden in a search that can see nothing is not a pass. |
 | **Every forbidden name is controlled separately**: each must turn up in the debug build. | A misspelt name, or one a rename left behind, guards nothing and says nothing. |
 
-It was then made to fail on purpose, both ways: with the guards taken off the test kit it reports `SimulatedStoreFront` and `Scenario` present in release, and with a name misspelt it reports itself vacuous. It passes under both SwiftPM build systems. **[ran]**
+It was then made to fail on purpose, both ways: with the guards taken off the simulated store (then in the test kit) it reports `SimulatedStoreFront` and `Scenario` present in release, and with a name misspelt it reports itself vacuous. It passes under both SwiftPM build systems. **[ran]**
 
 A macro was considered and cannot do this. A macro sees source at compile time, and the question is about a finished binary; what a macro *could* enforce — that a release build never mentions the simulated store — `#if DEBUG` round the whole file already does, as a compile error, without taking on swift-syntax in a package that has no dependencies.
 
-**What it does not prove is anything about your app.** It checks this package's own products. An app that wants the same assurance about what it ships should search its archived binary for `SimulatedStoreFront` — with `strings`, not `nm`, since a shipped app's symbols are stripped.
+**Run against the package alone, it proves nothing about your app** — which is what `--app`, above, is for, and what [a build phase of your own](#making-the-apps-check-automatic) makes automatic.
 
 What is not under `#if DEBUG` is `PurchaseTestKit`'s own: `ManualClock`, `waitUntil`, `RecordingPurchaseLogger`, and `StoreKitConfiguration` with its problems and errors. They grant nothing, and a test needs them in whatever configuration it is built — **but an app does not need them at all**, and Xcode links a package product into every configuration of a target or none. `PurchaseTestKit` is what tests import, as StoreKitTest is, and no app can link it: it reports through Swift Testing, which only a test target can link, so an app that links it stops in the linker, in Debug and Release alike. **[ran]** ([D34](10-decisions.md#d34-the-test-kit-reports-through-swift-testing-so-no-app-can-link-it))
 
@@ -58,6 +58,39 @@ What is not under `#if DEBUG` is `PurchaseTestKit`'s own: `ManualClock`, `waitUn
 `EverythingOwnedStoreFront` is the opposite case and ships in release **by design**: it is for a build sold some other way (Developer ID, Setapp). It cannot be switched on by an argument or a preference; it is what the app was built with. It is in a product of its own, `PurchaseDirectDistribution`, so that an App Store build — which has no use for a store in which everything is owned — does not contain one.
 
 **What this does not cover.** A TestFlight build is a Release build: testers get no simulated store, no scenarios and no debug panel. And in a DEBUG build `StoreLaunch` *does* honour `-PurchaseScenario` and `PURCHASE_SCENARIO`, by design — so a build in any `Debug…`-named configuration, handed to somebody ad hoc, can be unlocked by whoever can pass it an argument. Hand out Release builds.
+
+### Making the app's check automatic
+
+`release-check --app` runs when somebody runs it, and nothing runs it on the way to an archive. The plugin cannot be that step. Xcode offers a dependency's command plugin in an app's project only if it also supports Xcode projects (`XcodeCommandPlugin`), which this one does not; a command plugin runs when chosen, never as part of a build; and the app check needs a Debug and a Release app already built. A build tool plugin, which does run in every build, runs before the app is linked, and so has nothing to look at.
+
+So give the app target a last **Run Script build phase**, which searches the linked app itself in every build that is not a Debug one — a Release build, an archive — and fails it:
+
+```sh
+case "$CONFIGURATION" in Debug*) exit 0 ;; esac
+binary="$TARGET_BUILD_DIR/$EXECUTABLE_PATH"
+contents=$( { xcrun nm -a "$binary"; strings -a "$binary"; } 2>/dev/null )
+if ! printf '%s\n' "$contents" | grep -q PurchaseStore; then
+  echo "error: the purchase release check found nothing it knows in $binary, so it read nothing."
+  exit 1
+fi
+leaked=$(printf '%s\n' "$contents" \
+  | grep -o -E '17PurchaseSimulator|SimulatedStoreFront|12PanelContent|PurchaseScenario|PURCHASE_SCENARIO|15PurchaseTestKit' \
+  | sort -u | tr '\n' ' ')
+if [ -n "$leaked" ]; then
+  echo "error: swift-storekit's purchase simulator is in this $CONFIGURATION build (${leaked% })."
+  exit 1
+fi
+touch "$SCRIPT_OUTPUT_FILE_0"
+```
+
+With `$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)` as its input file and a stamp such as `$(DERIVED_FILE_DIR)/no-purchase-simulator.stamp` as its output: user script sandboxing lets a script read only what it declares, and the pair means it runs only when the binary has changed.
+
+- **Strings as well as symbols.** An archive strips symbols. The first app moved onto this package, archived, has no `PurchaseStore` symbol at all and names it in its strings twelve times; a search of symbols alone would call every archive unreadable. **[ran]**
+- **It proves it read the binary**: `PurchaseStore`, which every app using the package carries, must be found.
+- **It does not prove the names are spelt so as to be found.** That needs a Debug build beside it, which a build phase does not have. This package's CI proves it against the Demo on every push; `release-check --app … --debug-app …` proves it against your app — run it when you move to a new version of the package, whose names are what the list above must match.
+- **It searches the executable**, because Xcode links package products into it statically. An app that embeds package frameworks, or a `.debug.dylib` in a configuration it ships, adds those binaries to the search and to the inputs.
+
+Made to fail on purpose, both ways: a Release build with `-DDEBUG` appended to every target's flags — the package given `DEBUG` where it must not have it — failed at this phase and nowhere else, naming the simulator's module, its store, the panel's content and both spellings of the scenario; an ordinary Release build and an archive pass, and a Debug build is left alone. **[ran]**
 
 ## Decide by the build, not by an argument
 

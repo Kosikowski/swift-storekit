@@ -28,7 +28,7 @@
 //    older one compiles a library to loose objects — they are taken from that
 //    configuration's own directory, never matched by name across the build folder.
 //  · **The release search has a control of its own.** It must find something that
-//    ships in every configuration (`ManualClock`). Finding nothing forbidden in a
+//    ships in every configuration (`PurchaseLaunch`). Finding nothing forbidden in a
 //    search that can see nothing is not a pass.
 //  · **Every forbidden name is controlled separately.** Each must turn up in the debug
 //    build, so a name that is misspelt, or that a rename has left behind, fails here
