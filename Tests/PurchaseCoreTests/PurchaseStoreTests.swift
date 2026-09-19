@@ -388,6 +388,25 @@ struct PurchaseStoreTests {
         #expect(store.standing.access(to: Shop.pro) == .none)
     }
 
+    /// The debug panel's "Trial through Family Sharing", pressed during the account's
+    /// own trial. The simulated store swapped the account's copy for the shared one,
+    /// and the trial, taken and still running, was offered again.
+    @Test("a family member's copy of a trial the account is ON neither ends nor restarts it")
+    func sharedCopyBesideOwnTrial() async {
+        front.seedTrial(Shop.trial, remaining: .seconds(300))
+        await store.start()
+        guard case let .running(period) = store.standing.trial(Shop.trial) else {
+            Issue.record("the trial should be running")
+            return
+        }
+        front.deliver(Shop.trial, ownership: .familyShared)
+        await waitUntil { logger.events.contains(.transactionUpdated(Shop.trial)) }
+        await store.refresh()
+        await store.refresh()
+        #expect(front.snapshot.listed.map(\.ownership) == [.purchased])
+        #expect(store.standing.trial(Shop.trial) == .running(period))
+    }
+
     /// The hold used to end as soon as the listing had the same *identifier*, whatever
     /// the listing said about it. Here the listing has the trial and it does not count
     /// — a family member's — so the account's own copy was let go the moment it

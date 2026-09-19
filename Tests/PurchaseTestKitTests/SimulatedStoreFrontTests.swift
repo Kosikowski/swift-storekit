@@ -242,6 +242,104 @@ struct SimulatedStoreFrontTests {
         #expect(await store.ownedProducts().isEmpty)
     }
 
+    /// A refund left the copy this device had not heard of, so a restore brought the
+    /// refunded purchase back, and buying it again handed it over as owned.
+    @Test("a refund takes back the copy this device HAS NOT HEARD OF too")
+    func refundReachesEarlierPurchases() async throws {
+        let store = store()
+        store.seedEarlierPurchase(trial, age: .seconds(20 * 86_400))
+        store.revoke(trial)
+        #expect(store.snapshot.earlier.isEmpty)
+        #expect(try await store.restorePurchases() == .completed)
+        #expect(await store.ownedProducts().isEmpty)
+        // Bought again, it is a purchase of today's, not the refunded one.
+        let outcome = try await store.purchase(trial, confirmation: .automatic)
+        #expect(outcome == .purchased(OwnedProduct(id: trial, originalPurchaseDate: clock.now)))
+    }
+
+    /// Clearing every copy elsewhere by identifier took the account's own purchase
+    /// with it when what ended was a family member's sharing, here.
+    @Test("a family member's copy taken back HERE leaves the account's own copy elsewhere")
+    func withdrawingSharedLeavesOwnElsewhere() async throws {
+        let store = store()
+        store.seed(trial, ownership: .familyShared)
+        let own = OwnedProduct(id: trial, originalPurchaseDate: clock.now.addingTimeInterval(-20 * 86_400))
+        store.seedEarlierPurchase(own)
+        store.revoke(trial)
+        #expect(await store.ownedProducts().isEmpty)
+        #expect(store.snapshot.earlier == [own])
+        #expect(try await store.restorePurchases() == .completed)
+        #expect(await store.ownedProducts() == [own])
+    }
+
+    /// Nothing pending has been bought, so a refund has nothing of it to take back:
+    /// approved afterwards, it is a new purchase.
+    @Test("a refund leaves an Ask to Buy pending, and approved it is a NEW purchase")
+    func refundLeavesPending() async throws {
+        let store = store(.init(purchase: .pending))
+        store.seedEarlierPurchase(trial, age: .seconds(20 * 86_400))
+        #expect(try await store.purchase(trial, confirmation: .automatic) == .pending)
+        store.revoke(trial)
+        #expect(store.snapshot.pending == [trial])
+        #expect(store.approvePending(trial))
+        #expect(store.snapshot.unlisted == [OwnedProduct(id: trial, originalPurchaseDate: clock.now)])
+    }
+
+    /// Delivering a family member's copy replaced the account's own. For a shared
+    /// trial, or an unlock whose entry ignores Family Sharing, the account that had
+    /// paid then owned nothing.
+    @Test("a copy SHARED BY A FAMILY MEMBER is announced, and does not replace the account's own")
+    func sharedCopyDoesNotReplaceOwn() async {
+        let store = store()
+        var updates = store.transactionUpdates().makeAsyncIterator()
+        let own = OwnedProduct(id: trial, originalPurchaseDate: clock.now.addingTimeInterval(-86_400))
+        store.seed(own)
+        store.deliver(trial, ownership: .familyShared)
+        store.listUnlisted()
+        let shared = OwnedProduct(id: trial, originalPurchaseDate: clock.now, ownership: .familyShared)
+        #expect(await updates.next() == .granted(shared))
+        #expect(await store.ownedProducts() == [own])
+    }
+
+    @Test("the account's OWN copy, delivered, takes the place of a family member's")
+    func ownCopyReplacesShared() async {
+        let store = store()
+        store.seed(trial, ownership: .familyShared)
+        let own = OwnedProduct(id: trial, originalPurchaseDate: clock.now.addingTimeInterval(-86_400))
+        store.deliver(own)
+        store.listUnlisted()
+        #expect(await store.ownedProducts() == [own])
+    }
+
+    /// The shared copy here was handed back, and the account's own, bought on another
+    /// device, stayed there: a purchase of something the account owns, not counted.
+    @Test("buying what this device holds only as a family member's copy brings the account's OWN from elsewhere")
+    func rebuyBringsOwnInPlaceOfShared() async throws {
+        let store = store()
+        store.seed(trial, ownership: .familyShared)
+        let own = OwnedProduct(id: trial, originalPurchaseDate: clock.now.addingTimeInterval(-20 * 86_400))
+        store.seedEarlierPurchase(own)
+        #expect(try await store.purchase(trial, confirmation: .automatic) == .purchased(own))
+        #expect(store.snapshot.earlier.isEmpty)
+        #expect(store.snapshot.listed + store.snapshot.unlisted == [own])
+    }
+
+    /// A restore skipped the account's own copy because the identifier was known here,
+    /// and then forgot it for good.
+    @Test("a restore brings the account's OWN copy in place of a family member's, and keeps it otherwise")
+    func restoreBringsOwnInPlaceOfShared() async throws {
+        let store = store()
+        store.seed(trial, ownership: .familyShared)
+        let own = OwnedProduct(id: trial, originalPurchaseDate: clock.now.addingTimeInterval(-20 * 86_400))
+        store.seedEarlierPurchase(own)
+        let sharedPro = OwnedProduct(id: pro, originalPurchaseDate: clock.now, ownership: .familyShared)
+        store.seed(pro)
+        store.seedEarlierPurchase(sharedPro)
+        #expect(try await store.restorePurchases() == .completed)
+        #expect(Set(await store.ownedProducts()) == [own, OwnedProduct(id: pro, originalPurchaseDate: clock.now)])
+        #expect(store.snapshot.earlier.isEmpty)
+    }
+
     @Test("a listener that goes away is forgotten")
     func listenerGoes() async {
         let store = store()
