@@ -84,9 +84,9 @@ struct RealStoreKitTests {
         let store = store()
         await store.loadProducts()
         #expect(store.productLoad == .loaded)
-        #expect(store.products.map(\.id) == [Self.pro, Self.trial])
-        #expect(store.products.first?.isFamilyShareable == true)
-        #expect(store.products.last?.price == 0)
+        #expect(store.products.map(\.id) == Shop.catalogue.entries.map(\.id))
+        #expect(store.products.first { $0.id == Self.pro }?.isFamilyShareable == true)
+        #expect(store.products.first { $0.id == Self.trial }?.price == 0)
         withExtendedLifetime(session) {}
     }
 
@@ -498,7 +498,7 @@ struct RealStoreKitTests {
             return ((try? await front.products().count) ?? -1, await front.diagnose().hints)
         }
         let (count, hints) = await asked.value
-        #expect(count == 2)
+        #expect(count == Self.catalogue().entries.count)
         #expect(hints.isEmpty)
         withExtendedLifetime(session) {}
     }
@@ -576,7 +576,7 @@ struct RealStoreKitTests {
         let front = AppStoreFront(catalogue: Self.catalogue())
         await waitUntil(timeout: .seconds(10)) { await front.diagnose().verifiedEntitlements == 1 }
         let diagnosis = await front.diagnose()
-        #expect(diagnosis.received == [Self.pro, Self.trial])
+        #expect(diagnosis.received == Self.catalogue().identifiers)
         #expect(diagnosis.hints.isEmpty)
         #expect(diagnosis.environment == "Xcode")
         withExtendedLifetime(session) {}

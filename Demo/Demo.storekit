@@ -1,13 +1,17 @@
 {
   "identifier" : "D3A0C0DE",
-  "nonRenewingSubscriptions" : [ ],
+  "nonRenewingSubscriptions" : [],
   "products" : [
     {
       "displayPrice" : "19.99",
       "familyShareable" : true,
       "internalID" : "6800000001",
       "localizations" : [
-        { "description" : "Everything, for good.", "displayName" : "Demo Pro", "locale" : "en_US" }
+        {
+          "description" : "Everything, for good.",
+          "displayName" : "Demo Pro",
+          "locale" : "en_US"
+        }
       ],
       "productID" : "com.example.purchasedemo.pro",
       "referenceName" : "Pro",
@@ -18,7 +22,11 @@
       "familyShareable" : false,
       "internalID" : "6800000002",
       "localizations" : [
-        { "description" : "Everything, for a fortnight.", "displayName" : "14-day Trial", "locale" : "en_US" }
+        {
+          "description" : "Everything, for a fortnight.",
+          "displayName" : "14-day Trial",
+          "locale" : "en_US"
+        }
       ],
       "productID" : "com.example.purchasedemo.trial",
       "referenceName" : "Trial",
@@ -29,8 +37,103 @@
     "_failTransactionsEnabled" : false,
     "_locale" : "en_US",
     "_storefront" : "USA",
-    "_storeKitErrors" : [ ]
+    "_storeKitErrors" : []
   },
-  "subscriptionGroups" : [ ],
-  "version" : { "major" : 4, "minor" : 0 }
+  "subscriptionGroups" : [
+    {
+      "id" : "21482000",
+      "localizations" : [],
+      "name" : "Membership",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "15.99",
+          "familyShareable" : true,
+          "groupNumber" : 2,
+          "internalID" : "6800000011",
+          "introductoryOffer" : {
+            "displayPrice" : "10.99",
+            "internalID" : "6800000012",
+            "numberOfPeriods" : 2,
+            "paymentMode" : "payAsYouGo",
+            "subscriptionPeriod" : "P1M"
+          },
+          "localizations" : [
+            {
+              "description" : "Everything, month by month.",
+              "displayName" : "Membership",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.example.purchasedemo.membership.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Membership Monthly",
+          "subscriptionGroupID" : "21482000",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+            {
+              "displayPrice" : "10.99",
+              "internalID" : "6800000013",
+              "isEligible" : true,
+              "numberOfPeriods" : 3,
+              "offerID" : "membership.winback.three",
+              "paymentMode" : "payAsYouGo",
+              "priority" : "normal",
+              "referenceName" : "Win back: three months at 10.99",
+              "subscriptionPeriod" : "P1M"
+            }
+          ]
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "149.99",
+          "familyShareable" : true,
+          "groupNumber" : 2,
+          "internalID" : "6800000021",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Everything, a year at a time.",
+              "displayName" : "Membership, yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.example.purchasedemo.membership.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Membership Yearly",
+          "subscriptionGroupID" : "21482000",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "25.99",
+          "familyShareable" : true,
+          "groupNumber" : 1,
+          "internalID" : "6800000031",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Everything, and more, month by month.",
+              "displayName" : "Membership Plus",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.example.purchasedemo.membership.plus",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Membership Plus",
+          "subscriptionGroupID" : "21482000",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
 }

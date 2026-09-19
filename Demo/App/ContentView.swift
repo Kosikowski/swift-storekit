@@ -58,6 +58,8 @@ struct ContentView: View {
                     if case let .failure(error) = result { notice = Self.words(for: error) }
                 }
             }
+            Divider()
+            membership
             debugPanelButton
         }
         .padding(24)
@@ -95,6 +97,59 @@ struct ContentView: View {
             Label("Pro", systemImage: "checkmark.seal.fill").font(.title2)
         case .none?:
             Label("Free", systemImage: "lock").font(.title2)
+        }
+    }
+
+    // MARK: - Membership, a subscription
+
+    /// Where the membership stands, in the app's own words: the package says the state
+    /// and the dates, and what they are called is the app's. A grace period is still a
+    /// member — Apple's rule, and a promise the developer makes — and billing retry is not,
+    /// said so that the person knows why and what to do.
+    @ViewBuilder
+    private var membership: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(membershipStatus).accessibilityIdentifier("membership-status")
+            HStack {
+                ForEach([Shop.monthly, Shop.yearly, Shop.plus], id: \.self) { plan in
+                    PurchaseButton(plan) { notice = Self.words(for: $0) } label: {
+                        Text("\(Self.name(of: plan))\(price(of: plan))")
+                    }
+                }
+                ManageSubscriptionsButton("Manage", group: Shop.membership)
+            }
+        }
+    }
+
+    private var membershipStatus: String {
+        switch purchases?.standing.subscription(in: Shop.membership) {
+        case nil, .unknown?:
+            return "Membership: …"
+        case .none?:
+            return "Not a member"
+        case let .active(held, _)?:
+            let plan = Self.name(of: held.product)
+            if case let .inGracePeriod(until) = held.state {
+                return "\(plan) — your payment didn't go through. Update it by \(Self.moment(until)) to stay a member."
+            }
+            guard let renewal = held.renewal else { return "\(plan) member" }
+            if !renewal.willRenew { return "\(plan) member until \(Self.moment(held.periodEnds)), then it ends" }
+            if let next = renewal.nextProduct, next != held.product {
+                return "\(plan) member; \(Self.name(of: next)) from \(Self.moment(held.periodEnds))"
+            }
+            return "\(plan) member; renews \(Self.moment(held.periodEnds))"
+        case let .inactive(held, _)?:
+            if held.state == .inBillingRetry { return "Membership paused: the App Store couldn't take payment" }
+            return "Membership ended \(Self.moment(held.periodEnds))"
+        }
+    }
+
+    private static func name(of plan: ProductID) -> String {
+        switch plan {
+        case Shop.monthly: "Monthly"
+        case Shop.yearly: "Yearly"
+        case Shop.plus: "Plus"
+        default: plan.rawValue
         }
     }
 
