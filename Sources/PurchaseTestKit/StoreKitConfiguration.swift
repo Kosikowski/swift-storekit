@@ -1,6 +1,6 @@
 //
 //  StoreKitConfiguration.swift
-//  PurchaseTestSupport
+//  PurchaseTestKit
 //
 //  An Xcode `.storekit` file, read without StoreKit, so that it can be checked
 //  against the app's catalogue by an ordinary unit test.

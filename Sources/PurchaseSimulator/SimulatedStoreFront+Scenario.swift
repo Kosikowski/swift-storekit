@@ -1,6 +1,6 @@
 //
 //  SimulatedStoreFront+Scenario.swift
-//  PurchaseTestKit
+//  PurchaseSimulator
 //
 //  Arranging a simulated store from a `Scenario`.
 //

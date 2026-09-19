@@ -20,28 +20,37 @@ Selling a non-consumable looks like sixty lines of StoreKit, and every app that 
 ## Layout
 
 ```
-  what ships in the app                 DEBUG builds only                    tests only
-┌──────────────────┐ ┌────────────┐  ┌─────────────────┐ ┌─────────────────┐  ┌─────────────────────┐
-│ PurchaseStoreKit │ │ PurchaseUI │  │ PurchaseTestKit │◄│ PurchaseDebugUI │  │ PurchaseTestSupport │
-│  the App Store   │ │  SwiftUI   │  │ simulated store │ │   debug panel   │  │ manual clock, waits,│
-└────────┬─────────┘ └─────┬──────┘  └────────┬────────┘ └─────────────────┘  │ the .storekit check │
-         │                 │                  │      ▲                        └──────────┬──────────┘
-         │                 │                  │      └───────────────────────────────────┤
-         └─────────────────┼──────────────────┴──────────────────────────────────────────┘
-                  ┌────────▼────────┐
-                  │  PurchaseCore   │   Foundation and Observation only.
-                  │  all the logic  │   No StoreKit, no SwiftUI.
-                  └─────────────────┘
+        what an app imports                                  what a test imports
+┌──────────────────┐ ┌────────────┐ ┌────────────────┐ ┌─────────────────┐   ┌─────────────────┐
+│ PurchaseStoreKit │ │ PurchaseUI │ │ PurchaseLaunch │ │ PurchaseDebugUI │   │ PurchaseTestKit │
+│  the App Store   │ │  SwiftUI   │ │ this launch's  │ │   debug panel   │   │ simulated store,│
+│                  │ │            │ │     store      │ │ (empty view in  │   │ manual clock,   │
+│                  │ │            │ │                │ │    release)     │   │ .storekit check │
+└────────┬─────────┘ └─────┬──────┘ └───┬────────┬───┘ └───┬─────────┬───┘   └───┬─────────┬───┘
+         │                 │            │        └─────────┼────┐    │           │         │
+         │                 │            │                  │    ▼    ▼           ▼         │
+         │                 │            │                  │  ┌───────────────────────┐    │
+         │                 │            │                  │  │   PurchaseSimulator   │    │
+         │                 │            │                  │  │ DEBUG builds only, and│    │
+         │                 │            │                  │  │ imported by no app    │    │
+         │                 │            │                  │  └───────────┬───────────┘    │
+         └─────────────────┴────────────┴──────────────────┴──────────────┴────────────────┘
+                                      ┌─────────────────┐
+                                      │  PurchaseCore   │   Foundation and Observation only.
+                                      │  all the logic  │   No StoreKit, no SwiftUI.
+                                      └─────────────────┘
 ```
 
-| Product | Link it into | In a release build |
+| Product | Who imports it | In a release build |
 |---|---|---|
 | `PurchaseCore`, `PurchaseStoreKit`, `PurchaseUI` | the app | Everything |
-| `PurchaseTestKit`, `PurchaseDebugUI` | the app, for a simulated store, scenarios, previews and the debug panel | **Nothing at all**: both modules are behind `#if DEBUG` from first line to last, and `swift package release-check` proves it, of the package and of a built app |
-| `PurchaseTestSupport` | test targets only | Everything — it grants nothing — which is why it is not the app's to link |
+| `PurchaseLaunch` | the app | The App Store, always. In a debug build a `-PurchaseScenario` argument chooses a simulated store instead; in release that branch does not exist |
+| `PurchaseDebugUI` | the app | A view that draws nothing |
+| `PurchaseTestKit` | **test targets, and never an app** — it is to this package what StoreKitTest is to StoreKit | Everything that grants nothing (the clock, the waits, the `.storekit` check); the simulated store only in debug |
+| `PurchaseSimulator` | nobody, usually: it is reached through the two above | **Nothing at all.** Behind `#if DEBUG` from first line to last, and `swift package release-check` proves it, of the package and of a built app |
 | `PurchaseDirectDistribution` | a build sold outside the App Store | `EverythingOwnedStoreFront`, and nothing an App Store build should carry |
 
-Everything that decides anything is in `PurchaseCore` and runs under plain `swift test`, offline. That is not tidiness: `SKTestSession` does not work in a package test target at all.
+An app's code has no `#if DEBUG` about purchases, and imports nothing that is missing from a release build.
 
 ## Using it
 
@@ -53,7 +62,7 @@ Up to the next *minor*, until 1.0: `from: "0.1.0"` accepts everything below 1.0,
 
 ```swift
 import PurchaseCore
-import PurchaseStoreKit
+import PurchaseLaunch
 import PurchaseUI
 import SwiftUI
 
@@ -65,10 +74,10 @@ let catalogue: Catalogue = [
 @main
 struct ExampleApp: App {
     // `PurchaseStore` is on the main actor, so it is made where the app is.
-    private let purchases = PurchaseStore(catalogue: catalogue, front: AppStoreFront(catalogue: catalogue))
+    private let launch = StoreLaunch.make(catalogue: catalogue)
 
     var body: some Scene {
-        WindowGroup { ContentView().purchaseStore(purchases) }
+        WindowGroup { ContentView().purchaseStore(launch.store) }
     }
 }
 ```
@@ -112,7 +121,7 @@ make ui-tests         # the Demo launched with scenarios, as a screenshot run la
 make stress           # the suite ten times, for races
 ```
 
-Test your own app against `SimulatedStoreFront` (`PurchaseTestKit`) and a `ManualClock` (`PurchaseTestSupport`): a trial with five minutes left runs out in no time at all. Launch it for a UI test already owning something with `-PurchaseScenario "owns=pro"`. Anything that names the simulated store goes inside `#if DEBUG`, because that is the only place it exists. See [testing](docs/05-testing.md) and [the simulated store](docs/06-simulated-store.md).
+Test your own app against `SimulatedStoreFront` and a `ManualClock`, both from `import PurchaseTestKit`: a trial with five minutes left runs out in no time at all. Launch it for a UI test already owning something with `-PurchaseScenario "owns=pro"`. A test that names the simulated store builds in debug, because that is the only place it exists; an app never names it at all. See [testing](docs/05-testing.md) and [the simulated store](docs/06-simulated-store.md).
 
 ## Documentation
 

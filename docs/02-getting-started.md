@@ -40,12 +40,12 @@ targets: [
 | `PurchaseCore` | the app | All the logic. Imports Foundation and Observation only. |
 | `PurchaseStoreKit` | the app | `AppStoreFront`: the App Store behind Core's protocols. |
 | `PurchaseUI` | the app | Two environment entries, `.purchaseStore(_:)`, `PurchaseButton`, `RestorePurchasesButton`. No paywall. |
-| `PurchaseTestKit` | the app, and tests | `SimulatedStoreFront`, `AnswerGate`, `Scenario`. **DEBUG only, the whole module**: in a release build it is empty. |
-| `PurchaseDebugUI` | the app | `PurchaseDebugPanel`, which drives a simulated store in a running app. DEBUG only, likewise. |
-| `PurchaseTestSupport` | **test targets only** | `ManualClock`, `waitUntil`, `RecordingPurchaseLogger`, `StoreKitConfiguration`. In every configuration, which is why the app should not link it. |
+| `PurchaseLaunch` | the app | `StoreLaunch.make(catalogue:)`: the store for this launch. The App Store — and, in a debug build given `-PurchaseScenario`, a simulated one. |
+| `PurchaseDebugUI` | the app | `PurchaseDebugPanel`, which drives a simulated store in a running debug build and draws nothing in a release one. |
+| `PurchaseTestKit` | **test targets only** | `SimulatedStoreFront`, `AnswerGate`, `Scenario` (debug builds); `ManualClock`, `waitUntil`, `RecordingPurchaseLogger`, `StoreKitConfiguration` (every build). |
 | `PurchaseDirectDistribution` | a build sold outside the App Store | `EverythingOwnedStoreFront`. |
 
-`SimulatedStoreFront`, `Scenario` and `PurchaseDebugPanel` exist only in `DEBUG` builds: a store that hands out purchases for nothing must be absent from a shipped binary, not disabled in it. The app target may still link both products in every configuration, as the demo app does, provided its own `import` and use of them sit inside `#if DEBUG`. Read [release safety](07-release-safety.md) before adding a custom build configuration: Xcode gives a package target `DEBUG` by the configuration's *name* `[ran]`. **If your everyday configuration is called `Development` or `Staging`, the package is built for release in it**, the two modules are empty, and the first you hear of it is "cannot find 'SimulatedStoreFront' in scope" in your composition root: the name has to begin with `Debug`.
+**An app imports modules that do something in every build, and nothing else.** The simulated store exists only in `DEBUG` builds — a store that hands out purchases for nothing must be absent from a shipped binary, not disabled in it — and an app never names it: `PurchaseLaunch` reaches it, in a debug build, under an `#if` of the package's own. So there is no `#if DEBUG` about purchases in your code, no import that names a module missing from a release build, and nothing for a test module to do in an app. Read [release safety](07-release-safety.md) before adding a custom build configuration: Xcode gives a package target `DEBUG` by the configuration's *name* `[ran]`. **If your everyday configuration is called `Development` or `Staging`, the package is built for release in it**: scenarios are not honoured and the debug panel draws nothing, quietly. The name has to begin with `Debug`.
 
 ## Declare the catalogue once
 
@@ -69,37 +69,43 @@ The store is asked for exactly these products, only these are counted as owned, 
 
 ## The composition root
 
-One place in the app decides which store this build runs on.
+One place in the app decides which store this launch runs on, and the package has written it:
 
 ```swift
 import PurchaseCore
-import PurchaseStoreKit
-#if DEVELOPER_ID
-import PurchaseDirectDistribution
-#endif
+import PurchaseLaunch
 
 @MainActor
 enum Purchases {
-    static func makeStore() -> PurchaseStore {
-        let logger = OSPurchaseLogger()
-        #if DEVELOPER_ID
-        // Sold some other way: every unlock owned, nothing for sale, no trial on offer.
-        let front = EverythingOwnedStoreFront(catalogue: Shop.catalogue)
-        #else
-        let front = AppStoreFront(catalogue: Shop.catalogue, logger: logger)
-        #endif
-        return PurchaseStore(catalogue: Shop.catalogue, front: front, logger: logger)
-    }
+    static let launch = StoreLaunch.make(catalogue: Shop.catalogue, logger: OSPurchaseLogger())
 }
 ```
 
-`PurchaseStore` is `@MainActor` and `@Observable`. Building one touches nothing: no listener is started and nothing is read until `start()`, so a store made for a preview or a test has not spoken to anything.
+`StoreLaunch.make` answers with the store (`launch.store`) and whether it is a simulated one (`launch.isSimulated`):
 
-`PurchaseStore.init(catalogue:front:clock:logger:listingGrace:)` defaults the clock to `SystemClock()`, the logger to `SilentPurchaseLogger()` and `listingGrace` to 30 seconds. A second initialiser takes the five store roles one at a time ([architecture](01-architecture.md)).
+| Build | Launched with | The store |
+|---|---|---|
+| Release | anything at all | The App Store. **There is no other branch**: the simulator's module compiles to nothing in release, so an argument has nothing to switch on. On macOS anyone can pass a shipped app launch arguments |
+| Debug | nothing | The App Store |
+| Debug | `-PurchaseScenario "owns=trial@13d23h55m"`, or `PURCHASE_SCENARIO` in the environment | A [simulated store](06-simulated-store.md) arranged as the scenario says. One that does not parse **crashes**, rather than quietly running on the real store and producing screenshots of the wrong thing |
 
-**`EverythingOwnedStoreFront`** is for a build with no App Store behind it: Developer ID, an enterprise build, a build distributed through another shop. The real store lists nothing to such a build, so a build that *is* the paid edition would lock out its own buyers. This front answers that every unlock has been owned since long ago, offers no trial, sells nothing (`products()` is empty and `purchase` throws `.purchaseNotAllowed`), and completes a restore without doing anything. It ships in release builds by design, and is chosen by a compilation condition of your own (`DEVELOPER_ID` above is an example, not something the package defines). It cannot be switched on by a launch argument or a preference.
+The logger goes to the store and to the App Store front alike, so that a purchase that does not verify is heard of whichever of them met it.
 
-In a debug build the same function is where a [simulated store](06-simulated-store.md) is chosen, as `Demo/App/AppPurchases.swift` does.
+**A build sold some other way** — Developer ID, an enterprise build, another shop — has no App Store behind it. The real store lists nothing to such a build, so a build that *is* the paid edition would lock out its own buyers. Say what the live store is:
+
+```swift
+import PurchaseDirectDistribution
+
+StoreLaunch.make(catalogue: Shop.catalogue) { catalogue, _ in
+    EverythingOwnedStoreFront(catalogue: catalogue)
+}
+```
+
+It answers that every unlock has been owned since long ago, offers no trial, sells nothing (`products()` is empty and `purchase` throws `.purchaseNotAllowed`), and completes a restore without doing anything. It ships in release builds by design, is chosen by a target or a compilation condition of your own, and cannot be switched on by a launch argument or a preference. It is a product of its own so that an App Store build does not link it.
+
+**Writing the root yourself** is still possible, and is what a screenshots configuration with a condition of its own wants (`#if SCREENSHOTS`, in a configuration named `Debug-Screenshots`): `SimulatedStoreFront` and `Scenario` are public, in `PurchaseSimulator`, and [release safety](07-release-safety.md#writing-the-root-yourself) has the shape. That code is then the one place in your app with an `#if` in it.
+
+`PurchaseStore` is `@MainActor` and `@Observable`. Building one touches nothing: no listener is started and nothing is read until `start()`, so a store made for a preview or a test has not spoken to anything. `PurchaseStore.init(catalogue:front:clock:logger:listingGrace:)` defaults the clock to `SystemClock()`, the logger to `SilentPurchaseLogger()` and `listingGrace` to 30 seconds. A second initialiser takes the five store roles one at a time ([architecture](01-architecture.md)).
 
 ## Put the store in the environment
 
@@ -110,7 +116,7 @@ import SwiftUI
 
 @main
 struct ExampleApp: App {
-    private let store = Purchases.makeStore()
+    private let store = Purchases.launch.store
 
     var body: some Scene {
         WindowGroup {

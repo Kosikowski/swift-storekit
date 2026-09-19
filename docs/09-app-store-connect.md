@@ -112,10 +112,10 @@ The root `identifier` and each product's `internalID` are yours to make up. Choo
 
 ### Check the file against the catalogue
 
-A product identifier is written in three places (App Store Connect, the `.storekit` file, the app) and nothing compares them. `StoreKitConfiguration` in `PurchaseTestSupport` reads the file as the JSON it is, without StoreKit, so the comparison is an ordinary unit test:
+A product identifier is written in three places (App Store Connect, the `.storekit` file, the app) and nothing compares them. `StoreKitConfiguration` in `PurchaseTestKit` reads the file as the JSON it is, without StoreKit, so the comparison is an ordinary unit test:
 
 ```swift
-import PurchaseTestSupport
+import PurchaseTestKit
 import Testing
 @testable import YourApp        // for `Shop`
 

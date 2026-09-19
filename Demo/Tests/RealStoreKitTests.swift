@@ -27,7 +27,7 @@
 import Foundation
 import PurchaseCore
 @testable import PurchaseStoreKit
-import PurchaseTestSupport
+import PurchaseTestKit
 import StoreKit
 import StoreKitTest
 import Testing

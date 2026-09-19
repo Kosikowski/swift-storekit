@@ -30,6 +30,9 @@ targets:
     sources:
       - path: App
     dependencies:
+      # What an app links: modules that do something in every build. The simulated store
+      # comes with PurchaseLaunch, in debug builds, without being named here or anywhere
+      # in the app. PurchaseTestKit is for the tests below, and never for this target.
       - package: swift-storekit
         product: PurchaseCore
       - package: swift-storekit
@@ -37,7 +40,7 @@ targets:
       - package: swift-storekit
         product: PurchaseUI
       - package: swift-storekit
-        product: PurchaseTestKit
+        product: PurchaseLaunch
       - package: swift-storekit
         product: PurchaseDebugUI
     settings:
@@ -67,10 +70,10 @@ targets:
         product: PurchaseCore
       - package: swift-storekit
         product: PurchaseStoreKit
-      # What a test needs and an app does not. The app links PurchaseTestKit, which is
-      # nothing at all in Release; this, the tests link, and the app never carries.
+      # What a test imports, and an app never: `swift package release-check --app` fails a
+      # release app that carries it.
       - package: swift-storekit
-        product: PurchaseTestSupport
+        product: PurchaseTestKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.purchasedemo.tests

@@ -1,6 +1,6 @@
 //
 //  WaitUntil.swift
-//  PurchaseTestSupport
+//  PurchaseTestKit
 //
 
 /// Waits for `condition`, for at most `timeout`, returning as soon as it holds.

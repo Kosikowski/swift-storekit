@@ -1,6 +1,6 @@
 //
 //  SimulatedStoreFront+Behaviour.swift
-//  PurchaseTestKit
+//  PurchaseSimulator
 //
 //  The ways the simulated store can be made to misbehave.
 //

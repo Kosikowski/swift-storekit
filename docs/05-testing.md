@@ -47,20 +47,21 @@ Measured on macOS 26.6 and in the iOS 27.0 simulator, with Xcode 27.0. **[ran]**
 
 ## Guard every test that names the simulated store
 
-`SimulatedStoreFront`, `AnswerGate` and `Scenario` — the whole of `PurchaseTestKit` — exist only in DEBUG builds ([release safety](07-release-safety.md)), so **a test that names them must too**:
+**A test imports `PurchaseTestKit`, and an app never does.** It is to this package what StoreKitTest is to StoreKit: the simulated store, a manual clock, the waits and the `.storekit` check, behind one import, linked into test targets only (`swift package release-check --app` fails a release app that carries it).
+
+Part of it exists only in DEBUG builds: `SimulatedStoreFront`, `AnswerGate` and `Scenario`, which are the simulator's ([release safety](07-release-safety.md)). So **a test that names them builds in debug**. Most test bundles only ever build in debug, and need do nothing about that. Where tests are also built for release — `swift test -c release`, a test plan whose configuration is Release — guard the tests that name the simulator, or the failure is a wall of "cannot find 'SimulatedStoreFront' in scope":
 
 ```swift
 #if DEBUG
 import PurchaseCore
-import PurchaseTestKit          // the simulated store: DEBUG only
-import PurchaseTestSupport      // the clock and the waits: every configuration
+import PurchaseTestKit
 import Testing
 
 // …every test below…
 #endif
 ```
 
-Without the guard the file does not compile in a release test run — `swift test -c release`, or a test plan whose configuration is Release — and the failure is a wall of "cannot find 'SimulatedStoreFront' in scope". What is in `PurchaseTestSupport` — `ManualClock`, `waitUntil`, `RecordingPurchaseLogger`, `StoreKitConfiguration` — needs no guard: it grants nothing, and exists in every configuration. Link it into test targets and not into the app.
+The import itself never needs a guard. `ManualClock`, `waitUntil`, `RecordingPurchaseLogger` and `StoreKitConfiguration` need none either: they grant nothing, and exist in every configuration.
 
 **A release test job then proves that these files compile, and nothing more**: the guarded tests are not there to run. A suite that is guarded from top to bottom reports "Test run with 0 tests" and passes. **[ran]** Keep what needs no simulated store — the `.storekit` check, anything on `ManualClock` alone — outside the guard, and if the job's count matters, put a floor under it, as this package's CI does for both configurations.
 
@@ -74,7 +75,6 @@ This package's own suite is guarded the same way, and `make check` runs it in re
 #if DEBUG
 import PurchaseCore
 import PurchaseTestKit
-import PurchaseTestSupport
 import Testing
 @testable import YourApp
 
@@ -138,7 +138,6 @@ The most useful test in a purchasing suite. Nothing may be locked, nothing offer
 #if DEBUG
 import PurchaseCore
 import PurchaseTestKit
-import PurchaseTestSupport
 import Testing
 @testable import YourApp
 

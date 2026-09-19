@@ -125,11 +125,11 @@ The alternative is a separate product, linked only where it is wanted and with n
 
 The gate has three costs, and each is paid for rather than denied:
 
-- **A test, a preview or a composition root that names the simulated store must itself be under `#if DEBUG`**, or the first Release build fails. This package's own suite was not, and did not compile in release **[ran]**; it is now, `make check` runs it in release, and the rule is stated where a reader meets the type ([testing](05-testing.md#guard-every-test-that-names-the-simulated-store)).
+- **Whatever names the simulated store must itself be under `#if DEBUG`**, or the first Release build fails. (That was a test, a preview or a composition root; since D33 an app has no need to name it, and it is a test.) This package's own suite was not, and did not compile in release **[ran]**; it is now, `make check` runs it in release, and the rule is stated where a reader meets the type ([testing](05-testing.md#guard-every-test-that-names-the-simulated-store)).
 - **A scenario the build cannot honour is silent.** A UI test run in a Release configuration launches the real store and nothing fails. Hence the "Simulated store" marker, asserted first ([the simulated store](06-simulated-store.md#ui-tests-and-screenshots)).
 - **A package gets `DEBUG` by the configuration's name** (D13), by a heuristic Apple does not document. So the release check also reads a built app, not only the package (D27).
 - **A TestFlight build is a Release build.** Testers get no simulated store, no scenarios and no debug panel; and a `Debug…` build handed out ad hoc can be unlocked by an argument, by design. Both are now said where a reader meets them ([release safety](07-release-safety.md)).
-- **Xcode links a package product into every configuration of a target or none**, so whatever shares a module with the simulated store and is not behind the guard is in every app that ships. There was such a thing — a manual clock, a gate, a `.storekit` reader — and there is not any more (D27).
+- **Xcode links a package product into every configuration of a target or none**, so whatever shares a module with the simulated store and is not behind the guard is in every app that ships. There was such a thing — a manual clock, a gate, a `.storekit` reader — and there is not any more (D27, D33).
 
 ## D23. Every hosted test resets StoreKit's test environment, and never disarms with nil
 
@@ -159,7 +159,7 @@ Both now ask from a task of their own. A cancellation that reaches the adapter a
 
 `PurchaseTestKit` held the simulated store, guarded, and beside it what a test needs — a manual clock, a wait, a recording logger, the `.storekit` reader — unguarded, because it grants nothing and tests need it in every configuration. But an app links `PurchaseTestKit` to have a debug panel, Xcode links it in Release as well, and a Release build of the Demo carried 115 symbols of `ManualClock` it never called. **[ran]** Harmless, and still test scaffolding in a shipped app, and a standing exception to "absent, not disabled".
 
-So the unguarded half is `PurchaseTestSupport`, which test targets link and apps do not, and `PurchaseTestKit` is guarded whole — `AnswerGate` included, which belongs to the store whose answers it holds. The dependency runs from Support to the test kit and not back, so the module an app links depends on nothing that is not behind the guard. `EverythingOwnedStoreFront` went to `PurchaseDirectDistribution` for the same reason from the other side: every App Store build was carrying a store in which everything is owned.
+So the two halves became two modules: the guarded one, which an app links, and the unguarded one, which test targets link and apps do not — `AnswerGate` going with the guarded half, since it belongs to the store whose answers it holds. The dependency runs from the unguarded module to the guarded one and not back, so the module an app links depends on nothing that is not behind the guard. (They were called `PurchaseTestKit` and `PurchaseTestSupport` then. D33 kept the split and changed the names, and who imports what.) `EverythingOwnedStoreFront` went to `PurchaseDirectDistribution` for the same reason from the other side: every App Store build was carrying a store in which everything is owned.
 
 That is what lets the release check ask a stronger question. It was a denylist of three type names; it is now **"no symbol mentions either guarded module"**, which a new granting type under a new name cannot get past. And it asks it of a built app as well as of the package, because what ships is Xcode's Release build, where whether the package got `DEBUG` hangs on a heuristic over the configuration's name — the one link a check of SwiftPM's build cannot test.
 
@@ -197,3 +197,32 @@ The app this package came out of was moved onto it, and then reviewed. Nothing w
 - **`SimulatedStoreFront(catalogue:owned:…)` and `Behaviour(purchase:…)`.** The app's tests wrote both as conveniences of their own, as every app's would.
 - **Said, rather than built:** what `alreadyInProgress` should be worded as (nothing; and Restore should be disabled while busy, as Buy is); that a paywall bound to app-wide state comes up in every window, so a shared notice shows N times ([migrating](12-migrating-an-existing-app.md)); and that before 1.0 the pin should be up to the next *minor*.
 
+## D33. An app imports nothing that is empty in release
+
+D22 and D27 left an app writing this, at its composition root, round its debug panel and round every preview:
+
+```swift
+#if DEBUG
+import PurchaseTestKit
+#endif
+```
+
+— or writing the import bare, which compiles, and imports a module with nothing in it. The first real integration (D32), which has neither a panel nor a scenario yet, wrote `#if DEBUG` seven times in its tests, two of them round an import. **[ran]** And the objection that settled it was not the count: **a module that is empty in the build that ships is not a thing to import.** Nobody imports `StoreKitTest` into an app, and `Combine` has no release build in which it is hollow. The import was a symptom — the app was being asked to *name the simulator*, and everything else followed from that.
+
+So an app no longer names it. What an app needs of the simulator is three things, and each is now something that exists in every build and does the dull thing in a release one:
+
+- **`StoreLaunch.make(catalogue:)`**, in `PurchaseLaunch`: the composition root. Live, unless this is a debug build launched with a scenario. In a release build there is no branch to take, and no mention of the simulator to take it to.
+- **`StoreLaunch.preview(catalogue:scenario:)`**: a preview's store, arranged by a scenario's *text* — so a preview, which is compiled into the archive too, names nothing that is not there.
+- **`PurchaseDebugPanel(launch)`**, with `isAvailable`: a view that is the panel in a debug build and `EmptyView` in a release one. The one `#if` left is round a `Window` scene, because a scene cannot be conditional, and it is the app's own `#if`, round the app's own window.
+
+The simulator is a module of its own, `PurchaseSimulator`, guarded whole as before; `PurchaseLaunch` and `PurchaseDebugUI` depend on it, so an app *links* it and never *imports* it. **`PurchaseTestKit` is now what its name says and only that** — what a test imports: the simulator re-exported, beside the manual clock, the waits, the recording logger and the `.storekit` reader. One import for a test, where there were two.
+
+What was weighed and not done:
+
+- **`@_spi(Testing)` on the test helpers.** SPI decides who can *see* a declaration; it has nothing to say about whether it is *linked*, which is D27's whole complaint. It is also an underscored attribute Apple does not document. The helpers are kept out of apps the dull way: a module apps do not link, and a check that they did not.
+- **Link the simulator for debug only.** SwiftPM's target conditions are platforms and traits; there is no configuration. **[ran]** Xcode links a package product into every configuration of a target or none. A trait would make "is the simulator in this build?" depend on how the package was resolved rather than on what is being built.
+- **A second app target for debugging**, linking what the shipping target does not. Honest, and it is D22's alternative again: two targets kept in step by hand, and the one that is tested is not the one that ships.
+
+The release check follows. `--app` still fails a release app in which any symbol mentions the simulator, and now also one that carries `PurchaseTestKit` — which asks more than "is it harmless": it asks whether somebody linked the test kit into an app. `--debug-app` must find both, the test kit in the hosted test bundle, or the check is searching for a misspelling (D27 has the history). **[ran]**
+
+The cost is that `StoreLaunch.make` is a root this package wrote, and a root is where an app says what it is. It takes the live store as a closure for an app whose live store is not the App Store's — a developer-ID build in which everything is owned — and an app with a screenshots configuration, or any other idea of when to simulate, [writes its own](07-release-safety.md#writing-the-root-yourself) in a dozen lines, with the `#if` and the import that come with naming the simulator. That is the old way, and it is still there; it is no longer the only way.

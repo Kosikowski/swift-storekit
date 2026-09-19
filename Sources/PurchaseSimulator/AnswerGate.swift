@@ -1,6 +1,6 @@
 //
 //  AnswerGate.swift
-//  PurchaseTestKit
+//  PurchaseSimulator
 //
 //  Holds an answer back until a test lets it through.
 //
@@ -9,9 +9,10 @@
 //  nobody who has paid must see a paywall. That moment is over in milliseconds
 //  unless something holds it open. This does.
 //
-//  DEBUG only, like the store whose answers it holds: this module is what an app links
-//  to have a simulated store at all, so whatever is in it and not behind the guard is
-//  in every app that ships. Nothing is.
+//  DEBUG only, like the store whose answers it holds. This module is inside every app
+//  that uses PurchaseLaunch or PurchaseDebugUI — an app never imports it, but it links
+//  it — so whatever is in it and not behind the guard is in every app that ships.
+//  Nothing is.
 //
 
 #if DEBUG

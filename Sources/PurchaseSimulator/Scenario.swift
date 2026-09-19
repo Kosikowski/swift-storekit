@@ -1,6 +1,6 @@
 //
 //  Scenario.swift
-//  PurchaseTestKit
+//  PurchaseSimulator
 //
 //  How a simulated store should be arranged, as a value — so that it can be written
 //  in a launch argument, and a UI test or a screenshot run can start the app already
@@ -23,7 +23,9 @@
 //  **On a scenario that does not parse, crash.** Falling back to the real store, or
 //  to a store that owns nothing, turns a typo into a run of screenshots that look
 //  plausible and are of the wrong thing; nobody finds out until they are on the App
-//  Store. A `fatalError` carrying the error finds out at once:
+//  Store. A `fatalError` carrying the error finds out at once. `StoreLaunch.make`, in
+//  PurchaseLaunch, is this, and an app that starts with it writes none of it; an app
+//  with a root of its own writes:
 //
 //      #if DEBUG       // or a condition of the app's own, in a Debug-named configuration
 //      do {
@@ -139,7 +141,7 @@ public struct Scenario: Hashable, Sendable {
         _ arguments: [String] = ProcessInfo.processInfo.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         catalogue: Catalogue
-    ) throws(PurchaseTestKitError) -> Scenario? {
+    ) throws(ScenarioError) -> Scenario? {
         if let flag = arguments.firstIndex(of: launchArgument) {
             let next = arguments.index(after: flag)
             guard next < arguments.endIndex else {

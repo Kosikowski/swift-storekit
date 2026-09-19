@@ -15,35 +15,60 @@
 //  one included. The controls appear only when the app is running on a simulated store
 //  and hands it in.
 //
-//  **The whole file exists only in DEBUG builds**, like the store it drives.
+//  **The panel itself exists only in DEBUG builds**, like the store it drives. What is
+//  here in every build is its *name*: `PurchaseDebugPanel(launch)` compiles in release and
+//  draws nothing, so that an app puts the panel in a sheet or a window without an `#if`
+//  of its own and without importing anything that is missing from a release build.
+//  `PurchaseDebugPanel.isAvailable` says which build this is, for the button that opens it.
 //
 
-#if DEBUG
-
 public import PurchaseCore
-public import PurchaseTestKit
+public import PurchaseLaunch
 public import SwiftUI
 
-/// Shows where purchases stand, and — given a simulated store — changes it.
+#if DEBUG
+public import PurchaseSimulator
+#endif
+
+/// Shows where purchases stand, and — on a simulated store — changes it. **Draws nothing in
+/// a release build.**
 ///
-///     Window("Purchases", id: "purchase-debug") {
-///         PurchaseDebugPanel(store: purchases, simulated: simulatedFront)
-///     }
+///     // A window of its own on the Mac (the scene is the app's to guard: a scene cannot
+///     // be conditional, and an empty window would still be in the Window menu):
+///     #if DEBUG
+///     Window("Purchases", id: "purchase-debug") { PurchaseDebugPanel(launch) }
+///     #endif
 ///
-/// `Window` scenes are the Mac's. On iOS, present it in a sheet:
-///
-///     .sheet(isPresented: $showsDebugPanel) {
-///         PurchaseDebugPanel(store: purchases, simulated: simulatedFront)
+///     // A sheet anywhere, with no `#if` at all:
+///     if PurchaseDebugPanel.isAvailable {
+///         Button("Purchases…") { showsPanel = true }
+///             .sheet(isPresented: $showsPanel) { PurchaseDebugPanel(launch) }
 ///     }
 public struct PurchaseDebugPanel: View {
-    private let store: any PurchaseStateProviding & PurchaseCommanding
-    private let simulated: SimulatedStoreFront?
-    private let diagnostics: (any StoreDiagnosing)?
+    /// Whether there is a panel to show: true in a DEBUG build and false in a release one.
+    public static var isAvailable: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
 
-    @State private var remainingSeconds = 300.0
-    @State private var diagnosis: StoreDiagnosis?
-    @State private var lastResult = ""
+    #if DEBUG
+    private let content: PanelContent
+    #endif
 
+    /// The panel for this launch: the facts, and the controls when it is on a simulated store.
+    public init(_ launch: StoreLaunch) {
+        #if DEBUG
+        let store = launch.store
+        content = PanelContent(store: store, simulated: launch.simulated) { await store.diagnose() }
+        #endif
+    }
+
+    #if DEBUG
+    /// For an app that wrote its own composition root over `SimulatedStoreFront`.
+    ///
     /// - Parameters:
     ///   - simulated: the simulated store the app is running on, if it is. Nil shows
     ///     the facts and no controls.
@@ -54,12 +79,47 @@ public struct PurchaseDebugPanel: View {
         simulated: SimulatedStoreFront? = nil,
         diagnostics: (any StoreDiagnosing)? = nil
     ) {
-        self.store = store
-        self.simulated = simulated
-        self.diagnostics = diagnostics ?? simulated
+        let diagnoser = diagnostics ?? simulated
+        if let diagnoser {
+            content = PanelContent(store: store, simulated: simulated) { await diagnoser.diagnose() }
+        } else {
+            content = PanelContent(store: store, simulated: simulated, diagnose: nil)
+        }
     }
+    #endif
 
     public var body: some View {
+        #if DEBUG
+        content
+        #else
+        EmptyView()
+        #endif
+    }
+}
+
+#if DEBUG
+
+private struct PanelContent: View {
+    private let store: any PurchaseStateProviding & PurchaseCommanding
+    private let simulated: SimulatedStoreFront?
+    private let diagnose: (@MainActor () async -> StoreDiagnosis?)?
+
+    @State private var remainingSeconds = 300.0
+    @State private var diagnosis: StoreDiagnosis?
+    @State private var asked = false
+    @State private var lastResult = ""
+
+    init(
+        store: any PurchaseStateProviding & PurchaseCommanding,
+        simulated: SimulatedStoreFront?,
+        diagnose: (@MainActor () async -> StoreDiagnosis?)?
+    ) {
+        self.store = store
+        self.simulated = simulated
+        self.diagnose = diagnose
+    }
+
+    var body: some View {
         Form {
             // Ticks, so that a trial can be watched running out. The standing is asked
             // about *this* second without being resolved again: its questions take the
@@ -72,7 +132,7 @@ public struct PurchaseDebugPanel: View {
                 behaviour(simulated)
             }
             actions
-            if diagnostics != nil { probe }
+            if diagnose != nil { probe }
         }
         .formStyle(.grouped)
     }
@@ -226,7 +286,13 @@ public struct PurchaseDebugPanel: View {
     private var probe: some View {
         Section("What this build receives") {
             Button("Ask the store") {
-                Task { diagnosis = await diagnostics?.diagnose() }
+                Task {
+                    diagnosis = await diagnose?()
+                    asked = true
+                }
+            }
+            if asked, diagnosis == nil {
+                row("Received", "this store cannot say")
             }
             if let diagnosis {
                 row("Asked for", list(diagnosis.requested))

@@ -3,7 +3,6 @@
 
 import Foundation
 import PurchaseTestKit
-import PurchaseTestSupport
 import Testing
 
 @Suite("Answer gate", .timeLimit(.minutes(1)))
