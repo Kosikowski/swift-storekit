@@ -34,7 +34,11 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     @ObservationIgnored private let purchaser: any ProductPurchasing
     @ObservationIgnored private let restorer: any PurchaseRestoring
     @ObservationIgnored private let observer: any TransactionObserving
-    @ObservationIgnored private let clock: any TimeProviding
+    /// The clock this store decides by. For whoever asks it a question that takes a date
+    /// — `standing.access(to:at:)` — and should be asking by the same clock: an app that
+    /// kept one of its own beside this had two, and only a test could tell them apart.
+    @ObservationIgnored public let clock: any TimeProviding
+    @ObservationIgnored private let diagnoser: (any StoreDiagnosing)?
     @ObservationIgnored private let logger: any PurchaseLogging
     @ObservationIgnored private let listingGrace: Duration
     @ObservationIgnored private let resolver = StandingResolver()
@@ -73,6 +77,10 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         self.clock = clock
         self.logger = logger
         self.listingGrace = listingGrace
+        // Whichever of the roles can say what this build receives. Usually they are all
+        // one object; asked in the order somebody debugging would think of them.
+        self.diagnoser = [catalogueLoader, ownership, purchaser, restorer, observer]
+            .lazy.compactMap { $0 as? any StoreDiagnosing }.first
     }
 
     /// The usual case: one object plays every role.
@@ -103,6 +111,14 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         // something a cancelled caller can cut short.
         if !standing.isKnown { await start() }
         return standing
+    }
+
+    /// What this build receives from the store, if the store behind this can say: the
+    /// App Store and the simulated one both can. Nil otherwise. Here so that an app which
+    /// made its store in one line does not have to keep the front as well, for the one
+    /// afternoon it needs to ask why Buy does nothing.
+    public func diagnose() async -> StoreDiagnosis? {
+        await diagnoser?.diagnose()
     }
 
     // MARK: - Commands
@@ -141,6 +157,15 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         }
         load = task
         await task.value
+    }
+
+    /// Prices, unless they are here already. What a paywall calls when it opens, and a
+    /// second scene when it appears: `loadProducts()` goes to the network every time it
+    /// is asked, which is right for a Retry button and wrong for everything else. A load
+    /// that failed is needed again; one under way is joined.
+    public func loadProductsIfNeeded() async {
+        if productLoad == .loaded { return }
+        await loadProducts()
     }
 
     private func loadProductsOnce() async {
@@ -275,8 +300,13 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         // account has just bought for itself — has not taken over from the hold, and
         // letting go on the identifier alone left the purchase vouched for by nobody.
         unlisted.settle(listedIn: listed.filter { resolver.counts($0, in: catalogue) }, at: now)
-        standing = resolver.standing(owned: listed + unlisted.held, catalogue: catalogue, asOf: now)
-        pendingApprovals.subtract(standing.ownedProducts.map(\.id))
+        // Published only when it says something new. An app reads again whenever it
+        // becomes active, and nearly every one of those reads finds what the last found;
+        // assigned regardless, each redrew every view that watches this, for nothing.
+        let resolved = resolver.standing(owned: listed + unlisted.held, catalogue: catalogue, asOf: now)
+        if !resolved.saysTheSame(as: standing) { standing = resolved }
+        let settled = pendingApprovals.intersection(standing.ownedProducts.map(\.id))
+        if !settled.isEmpty { pendingApprovals.subtract(settled) }
         logger.log(.standingResolved(owned: Set(standing.ownedProducts.map(\.id))))
         scheduleNextLook()
     }

@@ -26,6 +26,9 @@ public protocol PurchaseCommanding: AnyObject, Sendable {
     /// is then cancelled, the load carries on and is not reported as a failure.
     func loadProducts() async
 
+    /// The same, unless they are loaded already. For everything but a Retry button.
+    func loadProductsIfNeeded() async
+
     /// Buys `id`, and returns what came of it **to whoever asked**: owned, a trial now
     /// running or already used, pending someone's approval, cancelled, or completed and
     /// not counted for this account. A failure is thrown, typed, and says nothing about
@@ -37,6 +40,10 @@ public protocol PurchaseCommanding: AnyObject, Sendable {
     @discardableResult
     func purchase(_ id: ProductID, confirmation: PurchaseConfirmation) async throws(PurchaseError) -> PurchaseCompletion
 
+    /// Throws `alreadyInProgress` if a purchase **or a restore** is under way — read
+    /// `activity` to say which, or, better, say nothing: the button that was pressed
+    /// should have been disabled (`activity.isBusy`), and the person already knows.
+    ///
     /// For a Restore Purchases button only: on the App Store this asks for a password.
     /// A failure never takes away what was already known to be owned.
     @discardableResult

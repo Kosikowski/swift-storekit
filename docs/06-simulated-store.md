@@ -33,6 +33,11 @@ It remembers what was bought, the way the real store does for the account, and i
 All of it inside `#if DEBUG`, like everything else that names the simulated store.
 
 ```swift
+// Owning things and misbehaving from its first line, for a test that needs no more:
+let owner = SimulatedStoreFront(
+    catalogue: Shop.catalogue, owned: [OwnedProduct(id: Shop.pro, originalPurchaseDate: clock.now)],
+    clock: clock, behaviour: .init(purchase: .pending))
+
 let front = SimulatedStoreFront(catalogue: Shop.catalogue, clock: clock)
 
 front.seed(Shop.pro)                                // owned at launch

@@ -103,6 +103,23 @@ struct StandingTests {
     }
 }
 
+@Suite("Access, as a yes, a no, or not yet")
+struct ProductAccessTests {
+    private let owned = OwnedProduct(id: Shop.pro, originalPurchaseDate: Shop.epoch)
+    private let period = TrialPeriod(startedAt: Shop.epoch, endsAt: Shop.epoch.addingTimeInterval(60))
+
+    /// Three answers, because the third is the one that matters: a `Bool` has nowhere to
+    /// put "the store has not answered", and read as "no" it shows a paying customer the
+    /// paywall at every launch.
+    @Test("granted is true when owned or on trial, false when not, and NIL until the store has answered")
+    func isGranted() {
+        #expect(ProductAccess.owned(owned).isGranted == true)
+        #expect(ProductAccess.onTrial(period, via: Shop.trial).isGranted == true)
+        #expect(ProductAccess.none.isGranted == false)
+        #expect(ProductAccess.unknown.isGranted == nil)
+    }
+}
+
 @Suite("What counts")
 struct OwnershipRuleTests {
     private let resolver = StandingResolver()

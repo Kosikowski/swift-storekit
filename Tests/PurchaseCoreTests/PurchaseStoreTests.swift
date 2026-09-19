@@ -5,10 +5,12 @@
 #if DEBUG
 
 import Foundation
+import Observation
 import PurchaseCore
 import PurchaseDirectDistribution
 import PurchaseTestKit
 import PurchaseTestSupport
+import Synchronization
 import Testing
 
 /// Everything here runs against the simulated store and a clock that moves only when
@@ -111,6 +113,41 @@ struct PurchaseStoreTests {
         await first.value
         await waitUntil { resolved() == 3 }
         #expect(resolved() == 3)        // the pass that was under way, and one more
+    }
+
+    /// An app reads again whenever it becomes active, and whenever a settings pane opens.
+    /// Almost every one of those reads finds what the last one found, and republishing it
+    /// all the same redrew every view that watches the standing — every lock on a rail,
+    /// every gate — for nothing, each time.
+    @Test("a read that finds NOTHING NEW does not tell anyone; one that does, does")
+    func quietWhenNothingChanged() async {
+        front.seed(Shop.pro)
+        await store.start()
+        let told = Flag()
+        withObservationTracking { _ = store.standing; _ = store.pendingApprovals } onChange: { told.raise() }
+        clock.advance(by: .seconds(3_600))
+        await store.refresh()
+        #expect(!told.isRaised)
+
+        // The control: the same watch does hear a real change.
+        front.revoke(Shop.pro)
+        await waitUntil { told.isRaised }
+        #expect(told.isRaised)
+    }
+
+    /// Nothing the store holds has changed when a trial runs out; only the time has. That
+    /// is still news, and the one kind of nothing-new that must be told.
+    @Test("a trial ENDING is told, though what is held has not changed")
+    func toldWhenATrialEnds() async {
+        front.seedTrial(Shop.trial, remaining: .seconds(300))
+        await store.start()
+        let told = Flag()
+        withObservationTracking { _ = store.standing } onChange: { told.raise() }
+        await waitUntil { clock.sleeperCount == 1 }
+        clock.advance(by: .seconds(300))
+        await waitUntil { told.isRaised }
+        #expect(told.isRaised)
+        #expect(store.standing.access(to: Shop.pro) == .none)
     }
 
     // MARK: - Buying
@@ -496,6 +533,36 @@ struct PurchaseStoreTests {
         #expect(!logger.events.contains(.catalogueLoadedEmpty(requested: Shop.catalogue.identifiers)))
     }
 
+    /// A paywall asks for prices every time it opens, and a second scene asks again. Asked
+    /// for once they are here, that was a network request each time, for an answer in hand.
+    @Test("prices already loaded are not asked for again, unless they are asked for by name")
+    func loadsOnlyIfNeeded() async {
+        await store.loadProductsIfNeeded()
+        #expect(store.productLoad == .loaded)
+        let loaded = { self.logger.events.filter { $0 == .catalogueLoaded(Shop.catalogue.identifiers) }.count }
+        #expect(loaded() == 1)
+        await store.loadProductsIfNeeded()
+        #expect(loaded() == 1)
+        await store.loadProducts()              // by name: go and ask
+        #expect(loaded() == 2)
+
+        // A load that failed is needed again.
+        front.behaviour.catalogue = .fails(.network)
+        await store.loadProducts()
+        front.behaviour.catalogue = .loads
+        await store.loadProductsIfNeeded()
+        #expect(store.productLoad == .loaded)
+    }
+
+    @Test("the store passes on what its front can say about this build, and says when it cannot")
+    func diagnosis() async {
+        front.behaviour.catalogue = .loadsOnly([])
+        #expect(await store.diagnose()?.hints == [.storeSellsNothingToThisBuild])
+        // A front with nothing to say about the build it is in.
+        let mute = PurchaseStore(catalogue: Shop.catalogue, front: EverythingOwnedStoreFront(catalogue: Shop.catalogue))
+        #expect(await mute.diagnose() == nil)
+    }
+
     /// An ad-hoc build the App Store has never heard of, with no configuration file
     /// on the scheme: nothing loads, and to its developer Buy "does nothing".
     @Test("a store that sells this build NOTHING is logged as exactly that")
@@ -546,6 +613,13 @@ struct PurchaseStoreLifetimeTests {
         #expect(standing.trial(Shop.trial) == .notOffered)
         await #expect(throws: PurchaseError.purchaseNotAllowed) { try await store.purchase(Shop.pro) }
     }
+}
+
+/// Raised from an observation's `onChange`, which may be called from anywhere.
+private final class Flag: Sendable {
+    private let raised = Mutex(false)
+    var isRaised: Bool { raised.withLock { $0 } }
+    func raise() { raised.withLock { $0 = true } }
 }
 
 #endif

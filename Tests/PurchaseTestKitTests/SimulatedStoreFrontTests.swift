@@ -22,6 +22,16 @@ struct SimulatedStoreFrontTests {
         SimulatedStoreFront(catalogue: catalogue, clock: clock, behaviour: behaviour)
     }
 
+    @Test("a store can be made owning things, and misbehaving, in one line")
+    func madeInOneLine() async throws {
+        let owned = OwnedProduct(id: pro, originalPurchaseDate: clock.now)
+        let store = SimulatedStoreFront(
+            catalogue: catalogue, owned: [owned], clock: clock, behaviour: .init(purchase: .pending, restore: .cancelled))
+        #expect(await store.ownedProducts() == [owned])
+        #expect(try await store.purchase(trial, confirmation: .automatic) == .pending)
+        #expect(try await store.restorePurchases() == .cancelled)
+    }
+
     @Test("it lists a purchase ONE READ LATE, as the real store does")
     func listsLate() async throws {
         let store = store()

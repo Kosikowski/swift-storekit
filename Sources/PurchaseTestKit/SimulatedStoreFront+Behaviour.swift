@@ -58,7 +58,16 @@ extension SimulatedStoreFront {
         /// my purchase back" looks like to an app.
         public var restoreListsEarlierPurchases = true
 
-        public init() {}
+        /// The three scripts, for a store that misbehaves from its first line. The rest
+        /// are properties, and the defaults are the real store on a good day.
+        public init(
+            purchase: PurchaseScript = .succeeds, restore: RestoreScript = .succeeds,
+            catalogue: CatalogueScript = .loads
+        ) {
+            self.purchase = purchase
+            self.restore = restore
+            self.catalogue = catalogue
+        }
     }
 }
 

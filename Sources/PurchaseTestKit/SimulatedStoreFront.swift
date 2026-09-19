@@ -87,18 +87,22 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
     private let clock: any TimeProviding
     private let state: Mutex<State>
 
-    /// - Parameter products: what the store says it sells. Left out, plausible ones
-    ///   are made up from the catalogue: unlocks at 9.99, trials free.
+    /// - Parameters:
+    ///   - products: what the store says it sells. Left out, plausible ones are made up
+    ///     from the catalogue: unlocks at 9.99, trials free.
+    ///   - owned: owned and listed from the start, as `seed(_:)` would make them. Every
+    ///     app's tests wrote this initialiser for themselves.
     public init(
         catalogue: Catalogue,
         products: [StoreProduct]? = nil,
+        owned: [OwnedProduct] = [],
         clock: any TimeProviding = SystemClock(),
         behaviour: Behaviour = Behaviour()
     ) {
         self.catalogue = catalogue
         self.clock = clock
         self.state = Mutex(
-            State(behaviour: behaviour, products: products ?? Self.plausibleProducts(for: catalogue)))
+            State(behaviour: behaviour, products: products ?? Self.plausibleProducts(for: catalogue), listed: owned))
     }
 
     // MARK: - Arranging

@@ -47,7 +47,7 @@ private struct StartPurchaseStore<Store: PurchaseStateProviding & PurchaseComman
     func body(content: Content) -> some View {
         content.task {
             await store.start()
-            if loadsProducts { await store.loadProducts() }
+            if loadsProducts { await store.loadProductsIfNeeded() }
         }
     }
 }
