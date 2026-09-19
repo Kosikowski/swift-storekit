@@ -1,17 +1,33 @@
 {
   "identifier" : "5B0C0DE1",
-  "nonRenewingSubscriptions" : [ ],
-  "products" : [ ],
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "5B000900",
+      "localizations" : [
+        {
+          "description" : "A one-time unlock, for q12's ProductView",
+          "displayName" : "Unlock",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "probe.unlock",
+      "referenceName" : "Unlock",
+      "type" : "NonConsumable"
+    }
+  ],
   "settings" : {
     "_failTransactionsEnabled" : false,
     "_locale" : "en_US",
     "_storefront" : "USA",
-    "_storeKitErrors" : [ ]
+    "_storeKitErrors" : []
   },
   "subscriptionGroups" : [
     {
       "id" : "5B1F2A01",
-      "localizations" : [ ],
+      "localizations" : [],
       "name" : "Pro",
       "subscriptions" : [
         {
@@ -29,7 +45,11 @@
           "codeOffers" : [
             {
               "displayPrice" : "10.99",
-              "eligibility" : [ "new", "existing", "expired" ],
+              "eligibility" : [
+                "new",
+                "existing",
+                "expired"
+              ],
               "internalID" : "5B000102",
               "isStackable" : false,
               "numberOfPeriods" : 3,
@@ -50,7 +70,11 @@
             "subscriptionPeriod" : "P1M"
           },
           "localizations" : [
-            { "description" : "Everything, month by month.", "displayName" : "Pro Monthly", "locale" : "en_US" }
+            {
+              "description" : "Everything, month by month.",
+              "displayName" : "Pro Monthly",
+              "locale" : "en_US"
+            }
           ],
           "productID" : "probe.monthly",
           "recurringSubscriptionPeriod" : "P1M",
@@ -72,68 +96,83 @@
           ]
         },
         {
-          "adHocOffers" : [ ],
-          "codeOffers" : [ ],
+          "adHocOffers" : [],
+          "codeOffers" : [],
           "displayPrice" : "149.99",
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "5B000200",
           "introductoryOffer" : null,
           "localizations" : [
-            { "description" : "Everything, a year at a time.", "displayName" : "Pro Yearly", "locale" : "en_US" }
+            {
+              "description" : "Everything, a year at a time.",
+              "displayName" : "Pro Yearly",
+              "locale" : "en_US"
+            }
           ],
           "productID" : "probe.yearly",
           "recurringSubscriptionPeriod" : "P1Y",
           "referenceName" : "Pro Yearly",
           "subscriptionGroupID" : "5B1F2A01",
           "type" : "RecurringSubscription",
-          "winbackOffers" : [ ]
+          "winbackOffers" : []
         },
         {
-          "adHocOffers" : [ ],
-          "codeOffers" : [ ],
+          "adHocOffers" : [],
+          "codeOffers" : [],
           "displayPrice" : "25.99",
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "5B000300",
           "introductoryOffer" : null,
           "localizations" : [
-            { "description" : "Everything and more, month by month.", "displayName" : "Premium Monthly", "locale" : "en_US" }
+            {
+              "description" : "Everything and more, month by month.",
+              "displayName" : "Premium Monthly",
+              "locale" : "en_US"
+            }
           ],
           "productID" : "probe.premium",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Premium Monthly",
           "subscriptionGroupID" : "5B1F2A01",
           "type" : "RecurringSubscription",
-          "winbackOffers" : [ ]
+          "winbackOffers" : []
         }
       ]
     },
     {
       "id" : "5B1F2A02",
-      "localizations" : [ ],
+      "localizations" : [],
       "name" : "Plain",
       "subscriptions" : [
         {
-          "adHocOffers" : [ ],
-          "codeOffers" : [ ],
+          "adHocOffers" : [],
+          "codeOffers" : [],
           "displayPrice" : "4.99",
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "5B000400",
           "introductoryOffer" : null,
           "localizations" : [
-            { "description" : "A group with no introductory offer.", "displayName" : "Plain Monthly", "locale" : "en_US" }
+            {
+              "description" : "A group with no introductory offer.",
+              "displayName" : "Plain Monthly",
+              "locale" : "en_US"
+            }
           ],
           "productID" : "probe.plain",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Plain Monthly",
           "subscriptionGroupID" : "5B1F2A02",
           "type" : "RecurringSubscription",
-          "winbackOffers" : [ ]
+          "winbackOffers" : []
         }
       ]
     }
   ],
-  "version" : { "major" : 4, "minor" : 0 }
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
 }

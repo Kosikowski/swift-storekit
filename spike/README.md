@@ -94,6 +94,16 @@ and both streams, `Transaction.updates` and `Status.updates` — and asserts alm
     TEST_RUNNER_PROBE_PHASE=leave xcodebuild test … -only-testing:'HostTests/Probes/q04a_subscribeAndLeave()'
     sleep 35
     TEST_RUNNER_PROBE_PHASE=return xcodebuild test … -only-testing:'HostTests/Probes/q04b_comeBack()'
+    # q12, a purchase in Apple's own views, is a UI test: a person has to press the button.
+    xcodebuild test -project SubscriptionsSpike.xcodeproj -scheme HostUI \
+      -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' -only-testing:HostUITests
+
+q12 needs a UI test, and two things about UI tests had to be found out first. **An
+`SKTestSession` made in the UI-test runner governs the app under test**, on both platforms:
+it clears the transactions and switches the payment sheet off, so nothing needs
+confirming. And on the Mac the runner needs Automation Mode, which `automationmodetool`
+says this machine grants without a password; it takes the mouse for the length of the run.
+A static text's string is its `label` on iOS and its `value` on the Mac.
 
 Run on 19 September 2026: macOS 26.6.2 with Xcode 27.0, and the iOS 27.0 simulator. With
 Xcode 26.6: **not yet run** — the hosted runner is the only place it is installed.
@@ -108,10 +118,10 @@ Xcode 26.6: **not yet run** — the hosted runner is the only place it is instal
 | 6 | Grace period, and billing retry without one | Grace: `inGracePeriod`, `gracePeriodExpirationDate`, still listed. Retry: `inBillingRetryPeriod`, `billingError`, **not listed**, no transaction. Then `expired`. Only `Status.updates` says any of it | Grace: the same, listed. Retry: **a renewal transaction arrives on `updates` and is listed** while the status says `inBillingRetryPeriod`. After grace the status is `expired` with `isInBillingRetry` rather than `inBillingRetryPeriod` |
 | 7 | Upgrade, downgrade, crossgrade | Upgrade: immediate, a new transaction for the higher level with the same `originalID`; the old one `isUpgraded`, in `Transaction.all` and **not listed**. **Downgrade and a crossgrade to a different duration: `purchase()` returns `.success` with the transaction already held**, unchanged; only `autoRenewPreference` names the product to come | The same |
 | 8 | A cancelled task reads | `currentEntitlements`: nothing. **`status(for:)`: an empty array, not an error** — "never subscribed". `isEligibleForIntroOffer(for:)`: unaffected | The same |
-| 9 | `isEligibleForIntroOffer(for:)` | **Keeps its first answer for the life of the process.** True before a purchase, still true after the purchase used the offer, and after `clearTransactions()`. Asked first after other purchases, false throughout, while a purchase got the introductory price. A plain `purchase()` applies the offer | The same |
-| 10 | Win-back offers | Eligible the moment it lapses: `eligibleWinBackOfferIDs` has the offer. Bought with `.winBackOffer(_:)`: a new transaction with `offer.type == .winBack` at 10.99 | Eligible as soon as it lapses. **Buying again after a lapse returns the old, expired transaction** and makes no purchase, with the offer or without, in both runs |
+| 9 | `isEligibleForIntroOffer(for:)` | **Keeps its first answer for the life of the process.** True before a purchase, still true after the purchase used the offer, and after `clearTransactions()`. Asked first after other purchases, false throughout, while a purchase got the introductory price. A plain `purchase()` applies the offer | The same, in both runs. Later, in the hosted suite, it once said false straight after the purchase: not to be relied on either way |
+| 10 | Win-back offers | Eligible the moment it lapses: `eligibleWinBackOfferIDs` has the offer. Bought with `.winBackOffer(_:)`: a new transaction with `offer.type == .winBack` at 10.99. Later, in the hosted suite, a purchase made the moment the lapse was read handed back the old transaction, as iOS does ([D51](../docs/10-decisions.md#d51-a-subscription-handed-back-already-over-was-not-bought)) | Eligible as soon as it lapses. **Buying again after a lapse returns the old, expired transaction** and makes no purchase, with the offer or without, in both runs |
 | 11 | Signed offers in Xcode's environment | A promotional JWS signed with a key Xcode does not know: `StoreKitError.unknown`. The introductory override so signed: **the purchase goes through at the full price, silently** | Offers to a current subscriber return the transaction already held, whatever the signature |
-| 12 | A purchase through `SubscriptionStoreView` | **Not asked**: it needs a person, or a UI test, to press the button | Not asked |
+| 12 | A purchase through Apple's own views | **Heard.** A subscription in `SubscriptionStoreView` arrives on `Transaction.updates` 0.4–1.4 s after the view completes, and on `Status.updates`; an unlock in `ProductView`, on `Transaction.updates` 0.6 s before it is listed. The view finishes it. A completion handler, if the app sets one, is handed the verified transaction | **An unlock in `ProductView` is announced nowhere**: listed, finished by the view, and nothing on either stream. A subscription in `SubscriptionStoreView` arrives on `Status.updates` at once, and on `Transaction.updates` in two runs of six — both with a completion handler, and two others with one did not. Finished by the view |
 | 13 | An offer code redeemed outside the app | Not reachable: `buyProduct` throws `StoreKitError.unknown` here, as it does for everything | Arrives on `updates` at once, listed, `offer.type == .code` with the code's name |
 | 14 | `expireSubscription`, `forceRenewalOfSubscription` | Both work | `forceRenewal` works; `expireSubscription` had no effect within 3 s |
 | 15 | Names | StoreKit's top-level names in the 27 SDK are 24; of the plan's names, none clashes. `SubscriptionInfo`, `SubscriptionStatus`, `SubscriptionPeriod`, `SubscriptionRenewalInfo` and `SubscriptionRenewalState` do | The same |
@@ -124,6 +134,12 @@ stays subscribed. Buying a product already subscribed returns the transaction he
 `resolveIssueForTransaction` took the renewal's identifier on iOS and refused the
 purchase's on macOS (`SKTestErrorDomain` 6), where retry made no renewal transaction to
 take.
+
+q12, run twice per platform and variant. It is why `PurchaseStore.takePurchase(_:of:)`
+exists: an app that sells an unlock in `ProductView` or `StoreView` on iOS must hand the
+view's result to the store, or the store hears of the purchase only at its next read
+([D45](../docs/10-decisions.md#d45-a-purchase-made-in-apples-own-views-is-handed-to-the-store)).
+`Demo/UITests` holds it to the real thing.
 
 Consequences, carried into [the plan](../docs/14-subscriptions-plan.md#what-phase-0-found):
 the status decides and the listing does not, since iOS lists a subscription in billing

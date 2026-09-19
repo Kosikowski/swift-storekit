@@ -44,7 +44,32 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Host.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Host"
         BUNDLE_LOADER: "$(TEST_HOST)"
+  # q12: Apple's SubscriptionStoreView, pressed as a person presses it.
+  HostUITests:
+    type: bundle.ui-testing
+    supportedDestinations: [macOS, iOS]
+    sources:
+      - path: UITests
+      - path: Tests/Subscriptions.storekit
+        buildPhase: resources
+    dependencies:
+      - target: Host
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: spike.storekit.subscriptions.host.uitests
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: NO
+        TEST_TARGET_NAME: Host
 schemes:
+  HostUI:
+    build:
+      targets:
+        Host: all
+        HostUITests: [test]
+    run:
+      storeKitConfiguration: Tests/Subscriptions.storekit
+    test:
+      targets: [HostUITests]
   Host:
     build:
       targets:
