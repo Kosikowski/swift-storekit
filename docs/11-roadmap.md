@@ -4,10 +4,10 @@ What the package does not do, and why not yet.
 
 | Not here | Why | If you need it now |
 |---|---|---|
-| **Subscription offers** beyond the introductory one: win-back, promotional, codes, introductory eligibility | Auto-renewable subscriptions themselves are [here](15-subscriptions.md). Offers are [phase 2 of the plan](14-subscriptions-plan.md#phase-2-offers). | StoreKit's `SubscriptionStoreView` shows and applies them unaided. |
 | **Consumables** | Need a balance the app must keep, and delivery before finishing. | — |
 | **Non-renewing subscriptions** | Expiry is the app's to compute; close to the trial model, and a candidate: phase 3 of [the plan](14-subscriptions-plan.md#phase-3-on-demand). | — |
-| **Offer-code redemption** | The updates listener already receives a redeemed transaction. A redemption button would use `presentOfferCodeRedeemSheet(from:options:)`, which is SDK 27 only. Phase 2 of [the plan](14-subscriptions-plan.md#phase-2-offers). | SwiftUI's `offerCodeRedemption` modifier. |
+| **An offer-code redemption button** | A redeemed code is taken already: from the updates stream, or from the 27 SDK's sheet with `takeRedemption(_:)` ([offers](16-offers.md#offer-codes)). A button would present the sheet, and nothing more; SwiftUI has the modifier. | SwiftUI's `offerCodeRedemption` modifier. |
+| **Retention offers**, and the `Message` API | Retention offers are shown by the system and need only their transactions recognised, which they are, as `unrecognised` until StoreKit names them. `Message` is iOS only. Phase 3 of [the plan](14-subscriptions-plan.md#phase-3-on-demand). | — |
 | **Promoted in-app purchases** (`PurchaseIntent`) | Not supported by the Mac App Store; iOS only. | Iterate `PurchaseIntent.intents` and call `purchase(_:)`. |
 | **Paid-to-free grandfathering** (`AppTransaction`) | `originalAppVersion` means different things on macOS and iOS and is always "1.0" in the sandbox; it deserves its own port and its own tests. | `AppTransaction.shared`, with care. |
 | **In-app refund requests** | SwiftUI's `refundRequestSheet` needs nothing from this package. | Use it directly. |

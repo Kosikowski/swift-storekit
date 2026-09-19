@@ -78,7 +78,9 @@ Whether an adopted transaction *counts* for this account — a family-shared tri
 | `StoreKitError.invalidPresentationContext` (SDK 27) | `invalidConfirmation`. Matched by name so that the adapter compiles against the 26 SDK; a test that only exists where the case can be spelt pins the name. |
 | `Product.PurchaseError.productUnavailable` | `productUnavailable` |
 | `Product.PurchaseError.purchaseNotAllowed` | `purchaseNotAllowed` |
-| Offer errors | `unsupported` |
+| `Product.PurchaseError.ineligibleForOffer` | `offerRefused(.notEligible)` |
+| `Product.PurchaseError.invalidOfferSignature` | `offerRefused(.invalidSignature)` — the app's server, and apart from the rest for that reason |
+| `Product.PurchaseError.invalidOfferIdentifier`, `.invalidOfferPrice`, `.missingOfferParameters` | `offerRefused(.unknownOffer)`, `(.invalidPrice)`, `(.missingParameters)` |
 | Transaction does not verify | `unverified` — never a cancellation: the person may have been charged |
 | Transaction already revoked | `revoked` |
 | A `Product.PurchaseResult` case added since | `unknown(typeName: "Product.PurchaseResult")` — never a cancellation |

@@ -249,6 +249,19 @@ Both buttons:
 
 Always show `StoreProduct.displayPrice`. The currency, the rounding and the tax treatment are the store's to decide, so never format a price from a number of your own `[Apple]`.
 
+### Apple's own views
+
+An app that sells through Apple's `ProductView`, `StoreView` or `SubscriptionStoreView` instead of these buttons **hands each purchase to the store from the view's completion**:
+
+```swift
+ProductView(id: Shop.pro.rawValue)
+    .onInAppPurchaseCompletion { product, result in
+        _ = try? await store.takePurchase(result, of: product)   // import PurchaseStoreKit
+    }
+```
+
+Measured in the iOS simulator, an unlock bought in `ProductView` is announced nowhere: nothing arrives on `Transaction.updates`, and the view finishes the transaction itself `[ran]`. Without that line the store hears of the purchase only at its next read, and "Free" stays on screen. `takePurchase` judges the view's result as a purchase made here is judged. It finishes the transaction if it is verified and in the catalogue, believes it at once, and throws `unverified` without finishing it. It returns the same `PurchaseCompletion`. ([D45](10-decisions.md#d45-a-purchase-made-in-apples-own-views-is-handed-to-the-store))
+
 ## Word every outcome
 
 The completion closure receives `Result<PurchaseCompletion, PurchaseError>`. Ways of *ending* are values; things that went wrong are errors. The split matters because a cancellation is something the person chose and wants no words about, while a failure happened to them and needs saying.
@@ -261,6 +274,7 @@ The completion closure receives `Result<PurchaseCompletion, PurchaseError>`. Way
 | `.notCounted(OwnedProduct)` | The store completed it and it gives this account nothing, such as a trial that arrived through Family Sharing | A sentence. Rare |
 | `.subscribed(HeldSubscription)` | A subscription, now held: bought, upgraded to, or already held | Nothing, or close the paywall |
 | `.planChangeScheduled(to:at:)` | A downgrade, or a change to another duration, that takes effect at the renewal. **Nothing has changed yet**: StoreKit reports it as a success with the subscription already held | When the change happens: "From … you'll be on …" |
+| `.offerNotApplied(HeldSubscription)` | A subscription, now held, bought with an offer that **was not applied**: at the regular price ([offers](16-offers.md#when-an-offer-is-not-applied)) | That the offer could not be applied. Never the offer's price |
 | `.pending` | Ask to Buy: someone else has to approve it | **"Waiting for approval."** Not a failure, and not silence. The product is in `pendingApprovals` until it is settled |
 | `.cancelled` | The person backed out | Nothing |
 
@@ -277,7 +291,9 @@ The completion closure receives `Result<PurchaseCompletion, PurchaseError>`. Way
 | `.alreadyInProgress` | A purchase or restore is already under way from somewhere else | That one is under way |
 | `.system` | The system failed in a way that is nobody's fault here | Try again |
 | `.invalidConfirmation` | The window or scene the payment sheet was to appear over is not usable | Try again; log it, because it is a bug in the anchor you passed |
-| `.unsupported` | Something this package does not sell, such as a subscription offer | A general failure; log it |
+| `.offerRefused(OfferRefusal)` | The store refused the offer asked for, and nothing was bought. The reason is kept: `.notEligible`, `.invalidSignature`, `.unknownOffer`, `.invalidPrice`, `.missingParameters` | That the offer is not available; the regular price, if that is what the paywall offers next. A bad signature is your server's: log it |
+| `.offerNotSigned` | The offer needed a signature from your `OfferSigning`, and none came. The purchase was not attempted | Try again in a moment; log it |
+| `.unsupported` | Something this package does not do | A general failure; log it |
 | `.unknown(typeName:)` | Not recognised. Carries the error's *type name* and nothing else | A general failure; log the type name |
 
 ```swift
@@ -286,6 +302,8 @@ enum Wording {
         switch result {
         case .success(.owned), .success(.trialRunning), .success(.subscribed), .success(.cancelled):
             nil
+        case .success(.offerNotApplied):
+            "You're subscribed, but the offer couldn't be applied, so this was at the regular price."
         case let .success(.planChangeScheduled(_, at)):
             "Your plan changes at your next renewal\(at.map { ", on \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "")."
 
@@ -315,6 +333,8 @@ enum Wording {
             "The App Store could not be reached. Try again in a moment."
         case .alreadyInProgress:
             "A purchase is already under way."
+        case .offerRefused, .offerNotSigned:
+            "That offer isn't available just now. Nothing has been charged."
         case .system, .invalidConfirmation, .unsupported, .unknown:
             "Something went wrong, and nothing has been unlocked. Try again."
         }

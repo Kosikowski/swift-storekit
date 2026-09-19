@@ -41,6 +41,7 @@ Measured on macOS 26.6 and in the iOS 27.0 simulator, with Xcode 27.0. **[ran]**
 | This package's logic | `SimulatedStoreFront` + `ManualClock` | `make test` |
 | The StoreKit adapter's decisions | a fake gateway | `make test` |
 | The StoreKit adapter against StoreKit's own transactions and errors | real StoreKit, `Demo.storekit` | `make integration`, `make integration-ios` (hosted by the Demo app) |
+| A purchase made in Apple's `ProductView` or `SubscriptionStoreView` reaching your store | real StoreKit, with an `SKTestSession` made in the UI-test runner, which governs the app under test `[ran]` | XCUITest; `make ui-tests` has the package's |
 | Your `.storekit` file against your catalogue | `StoreKitConfiguration` — no StoreKit | `swift test` |
 | Family Sharing, real products, real signatures, servers | Sandbox, then TestFlight | by hand |
 | **Where the payment sheet appears** — `PurchaseAction`, a window, a view controller | nothing automated: the hosted tests buy with `.automatic`, and no test here reaches `PurchaseButton`'s own path | by hand, with two windows open |

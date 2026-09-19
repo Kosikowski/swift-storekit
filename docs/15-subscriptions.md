@@ -1,6 +1,6 @@
 # Subscriptions
 
-Auto-renewable subscriptions: declaring them, reading where a subscriber stands, buying and changing plan, sending people to Apple's page to manage them, and testing all of it in no time. Offers beyond the introductory one — win-back, promotional, codes — are [phase 2 of the plan](14-subscriptions-plan.md#phase-2-offers) and not here yet.
+Auto-renewable subscriptions: declaring them, reading where a subscriber stands, buying and changing plan, sending people to Apple's page to manage them, and testing all of it in no time. Offers — the introductory one, win-back, promotional, codes — have [a guide of their own](16-offers.md).
 
 **The package reports store facts and performs store actions; the app owns product policy.** A subscription's state, its dates, whether it will renew and to what, are facts, and they are here. What a membership unlocks, what a lapse locks, and every word the person reads are the app's.
 
@@ -125,6 +125,22 @@ A downgrade comes back from StoreKit as a plain success **with the plan already 
 
 An upgrade is immediate: a new transaction for the higher level, and the one left behind is marked upgraded and not counted `[ran]`.
 
+**Apple's `SubscriptionStoreView`.** A subscription bought in it reaches the store without help, on the status updates in the iOS simulator and on both streams on the Mac `[ran]`. Hand the view's result over anyway, as for every Apple view: the purchase is then held at once, and a downgrade comes back as `.planChangeScheduled` ([getting started](02-getting-started.md#apples-own-views)):
+
+```swift
+SubscriptionStoreView(groupID: Shop.membership.rawValue)
+    .onInAppPurchaseCompletion { product, result in
+        _ = try? await store.takePurchase(result, of: product)
+    }
+```
+
+**An account of the app's own.** An app with a server that ties purchases to its own accounts passes a UUID, and Apple returns it on the transaction and in its server notifications `[Apple]`. The package hands it to StoreKit untouched and decides nothing by it:
+
+```swift
+try await store.purchase(Shop.monthly, options: PurchaseOptions(appAccountToken: account.id))
+PurchaseButton(Shop.monthly, options: PurchaseOptions(appAccountToken: account.id)) { result = $0 } label: { … }
+```
+
 ## Managing
 
 App Review expects an easy route to Apple's own page for the subscription, and it is where people cancel:
@@ -172,5 +188,4 @@ Against real StoreKit, `SKTestSession.timeRate` renews every ten seconds, and `s
 
 ## Not yet
 
-- **Offers**: win-back, promotional with a signer the app supplies, introductory eligibility, codes — [phase 2](14-subscriptions-plan.md#phase-2-offers). The offer a period was bought with is already reported, and an introductory offer already applies.
 - **Non-renewing subscriptions, the 12-month commitment, Bundles and Suites** — [phase 3](14-subscriptions-plan.md#phase-3-on-demand).

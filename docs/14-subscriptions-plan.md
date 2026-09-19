@@ -1,6 +1,6 @@
 # Plan: subscriptions and offers
 
-**Status, 19 September 2026: phases 0 and 1 done.** Real StoreKit measured, the design below corrected by it ([what it found](#what-phase-0-found)), and auto-renewable subscriptions built on it — [the guide](15-subscriptions.md), and decisions [D35](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule) to [D44](10-decisions.md#d44-no-public-name-storekit-has-at-the-top-level). Offers, phase 2, are next. The research is [Subscriptions and offers in StoreKit](13-subscriptions-and-offers.md); this is what to build from it, in what order, and what to measure before any of it.
+**Status, 19 September 2026: phases 0, 1 and 2 done.** Real StoreKit measured, the design below corrected by it ([what it found](#what-phase-0-found)), auto-renewable subscriptions built on it ([the guide](15-subscriptions.md)), and their offers ([the guide](16-offers.md)). The decisions are [D35](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule) to [D51](10-decisions.md#d51-a-subscription-handed-back-already-over-was-not-bought). Nothing is released yet: 1 and 2 go out together, as 0.3.0, once the hosted lane has given the Xcode 26.6 column and the sandbox rows have been run by hand. The research is [Subscriptions and offers in StoreKit](13-subscriptions-and-offers.md); this is what to build from it, in what order, and what to measure before any of it.
 
 Evidence tags as in the research. Names in code sketches are placeholders, to be settled in phase 1; the shapes are the proposal.
 
@@ -61,7 +61,7 @@ A survey of eleven libraries and Apple's three samples, read at their current so
 
 ## What phase 0 found
 
-Every question was put to real StoreKit on 19 September 2026, on macOS 26.6 with Xcode 27.0 and in the iOS 27.0 simulator, each probe run twice on iOS. The answers are in [`spike/README.md`](../spike/README.md#subscriptions--what-real-storekit-does-with-auto-renewable-subscriptions). Seven of them change the design, and the sections below are written as corrected:
+Every question was put to real StoreKit on 19 September 2026, on macOS 26.6 with Xcode 27.0 and in the iOS 27.0 simulator, each probe run twice on iOS. The answers are in [`spike/README.md`](../spike/README.md#subscriptions--what-real-storekit-does-with-auto-renewable-subscriptions). Eight of them change the design, and the sections below are written as corrected:
 
 1. **The listing cannot decide access.** In the iOS simulator a subscription in billing retry *is* listed, with a renewal transaction of its own `[ran]`, and at a renewal both platforms briefly list nothing `[ran]`. So the status decides, and the listing stands in only when no status can be read. [Access](#access-follows-apples-rule-and-nothing-else).
 2. **At the end of every period, StoreKit says for a moment that the subscription has ended.** The status reads `expired` for up to 0.7 s on the Mac; on iOS it also says it will not renew and is eligible for a win-back offer, which is indistinguishable from a real lapse except that it does not last `[ran]`. A lapse at a period's end is therefore believed only when a second look still finds it. [The clock](#the-clock-decides-when-to-look-and-the-store-decides-what-is-true).
@@ -70,10 +70,11 @@ Every question was put to real StoreKit on 19 September 2026, on macOS 26.6 with
 5. **Refunding an old period revokes that transaction only**; the subscription carries on `[ran]`. A withdrawal must name the transaction, not the product.
 6. **`isEligibleForIntroOffer(for:)` keeps its first answer for the life of the process** `[ran]`, before and after the offer is used. Eligibility is also read from the group's own transactions. [Offers](#offers-phase-2).
 7. **A status read from a cancelled task answers with an empty array** — "never subscribed" — as `currentEntitlements` answers with nothing `[ran]`. Status reads go in a task nobody cancels, as ownership reads do ([D2](10-decisions.md#d2-ownership-is-never-read-in-a-task-something-else-can-cancel)).
+8. **A purchase made in Apple's own views does not reliably reach a store that listens.** In the iOS simulator an unlock bought in `ProductView` is announced nowhere, and a subscription bought in `SubscriptionStoreView` only on `Status.updates` `[ran]`, measured later with a UI test. The view's completion is handed the transaction, and the app hands it to the store: `takePurchase(_:of:)`, [D45](10-decisions.md#d45-a-purchase-made-in-apples-own-views-is-handed-to-the-store).
 
 And five confirm it: a subscription purchase is listed late on the Mac and at once on iOS, as a non-consumable's is; a renewal arrives on `updates` before the listing has it, as an approved Ask to Buy does; an upgrade is immediate and the transaction left behind is `isUpgraded` and not listed; the grace period is listed and entitled; win-back offers are eligible on lapse and can be bought with `.winBackOffer(_:)` — on the Mac. **In the iOS 27 simulator, buying again after a lapse returns the old, expired transaction**, with or without an offer, so win-back purchases are tested on the Mac only.
 
-Still open: a purchase made through `SubscriptionStoreView` (row 12, which needs a UI test); everything with Xcode 26.6, which only the hosted runner has; and the two sandbox rows, by hand.
+Still open: everything with Xcode 26.6, which only the hosted runner has; and the sandbox rows, by hand.
 
 ## The design
 
@@ -288,7 +289,7 @@ Every row of the research marked `[check]` that the design leans on, measured in
 
 **Done when** every row has an answer per OS and tool, or a written reason it could not be had, and the design above has been corrected by what was found.
 
-**Done**, for macOS 26.6 with Xcode 27.0 and the iOS 27.0 simulator: the probes are [`spike/subscriptions`](../spike/subscriptions), the answers in [`spike/README.md`](../spike/README.md#subscriptions--what-real-storekit-does-with-auto-renewable-subscriptions), and what they changed is [above](#what-phase-0-found). Left: row 12, which needs a UI test; row 16, by hand in the sandbox; and the Xcode 26.6 column, which the hosted runner will give when phase 1 turns the habits into tests in `Demo/Tests`.
+**Done**, for macOS 26.6 with Xcode 27.0 and the iOS 27.0 simulator: the probes are [`spike/subscriptions`](../spike/subscriptions), the answers in [`spike/README.md`](../spike/README.md#subscriptions--what-real-storekit-does-with-auto-renewable-subscriptions), and what they changed is [above](#what-phase-0-found). Left: row 16, by hand in the sandbox; and the Xcode 26.6 column, which the hosted runner will give when phase 1 turns the habits into tests in `Demo/Tests`. Row 12 was answered with a UI test in `spike/subscriptions`, and is finding 8 above.
 
 ### Phase 1: auto-renewable subscriptions
 
@@ -302,7 +303,7 @@ Every row of the research marked `[check]` that the design leans on, measured in
 - The simulated store's subscriptions and habits; scenarios; the debug panel; the `.storekit` checks.
 - Documentation: a subscriptions guide beside [trials](04-trials.md); the checklist; [App Store Connect](09-app-store-connect.md) for groups, levels, the grace period (turn it on) and Family Sharing; the roadmap and README.
 
-**Done**, with one measurement fewer than planned: the Xcode 26.6 column comes from the nightly hosted lane. What was learnt building it is in [D35–D44](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule), among them a store that spun while doubting a lapse, and a test that could not see a lock-out one read long.
+**Done**, with one measurement fewer than planned: the Xcode 26.6 column comes from the nightly hosted lane. What was learnt building it is in [D35–D45](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule), among them a store that spun while doubting a lapse, and a test that could not see a lock-out one read long. The last of it: `appAccountToken` on every purchase, through `PurchaseOptions`; `PurchaseAPITests`, which fails the build on a name StoreKit also has (D44); row 12, asked with a UI test, and the handover from Apple's views that it called for (D45); and the access rule under mutation.
 
 **Done when** an app can sell a monthly and a yearly subscription in one group and, against the simulated store and a manual clock, a test can walk it through subscribe, renew, grace, billing retry, recovery, lapse, refund, upgrade and downgrade, with every rule in Core proven to bite ([D14](10-decisions.md#d14-every-regression-test-is-proven-to-bite)); and the hosted suite holds each measured habit on both platforms. Released as **0.3.0**, a minor bump: the API moves ([README](../README.md#using-it)).
 
@@ -313,7 +314,9 @@ Every row of the research marked `[check]` that the design leans on, measured in
 - The simulated store's offers; scenarios; the panel.
 - Documentation: the offers guide, with the returning-subscriber example worked through end to end, App Store Connect setup, and a server-side signing example that points at Apple's library and holds no key.
 
-**Done when** a test can take a person through an introductory offer, a lapse, and a win-back offer bought in the app, and a promotional offer signed by a fake signer, refused by a rejecting one, and never attempted for someone who never subscribed. Released as **0.4.0**.
+**Done when** a test can take a person through an introductory offer, a lapse, and a win-back offer bought in the app, and a promotional offer signed by a fake signer, refused by a rejecting one, and never attempted for someone who never subscribed. ~~Released as 0.4.0~~: released with phase 1, as 0.3.0.
+
+**Done.** `PurchaseStoreOfferTests` takes a person through each of those against the simulated store, and every rule in it was watched to fail against its mutant. `Demo/Tests` reads the terms from real StoreKit and holds the introductory answer StoreKit keeps. On the Mac it also buys a win-back offer and shows an override StoreKit could not check going through at the full price, which is what `.offerNotApplied` is for. What building it found is in [D46–D49](10-decisions.md#d46-introductory-eligibility-has-four-states-and-a-used-offer-is-known-from-what-was-seen) and [D51](10-decisions.md#d51-a-subscription-handed-back-already-over-was-not-bought). Among them, the Mac handed back a lapsed transaction for a purchase made the moment the lapse was read, and the store had called that "subscribed". The status's memory of an offer used did not survive an upgrade, so the store remembers too. Apple's library requires a transaction for the override's signature, so the signer is given one. A promotional offer waiting for the renewal is applied, not missing. Not measured: a promotional offer signed with a real key, which Xcode's environment cannot check. That is for the sandbox, by hand. Open: `gracePeriod`, a phase-1 hosted test, failed in two of five full Mac runs after phase 2 and never alone. It now reports what it saw when it fails.
 
 ### Phase 3: on demand
 
@@ -337,7 +340,7 @@ Unchanged in kind, larger in amount:
 - **The store against the simulated store and a manual clock**: a year of monthly renewals in one test; expiry looked for at the instant; a lapse with no event; a renewal arriving before the listing.
 - **The hosted suite** against real StoreKit, with `timeRate` set to renew in seconds, one product per test where the environment leaks, and each habit held to the fake per OS.
 - **An API test that imports StoreKit and the package together, without `@testable`**, so that a name clash or a public type nobody can construct fails the build.
-- **Mutation**, as in [D31](10-decisions.md#d31-mutation-found-four-guarantees-with-no-test-and-d14-now-means-it): does the suite notice the access rule changing?
+- **Mutation**, as in [D31](10-decisions.md#d31-mutation-found-four-guarantees-with-no-test-and-d14-now-means-it): does the suite notice the access rule changing? **Done**: thirteen mutants, one at a time. Each of them made billing retry, an unrecognised state or no grace period entitled, ended access at `periodEnds`, ignored or reversed the level, dropped the preference for the account's own or the longer status, let the first status or the listing decide, ignored Family Sharing, believed a lapse at once, or doubted billing retry. Every one fails at least one test `[ran]`.
 
 ## Decisions to take
 
@@ -349,24 +352,29 @@ Proposed; each becomes a numbered decision in [the log](10-decisions.md) when ph
 | P2 | **The status decides; the listing stands in only when no status can be read.** A failed read takes nothing away; access never waits for a status read | D8, D9; rows 1, 6 `[ran]` — changed: the listing was to grant alone |
 | P3 | The clock decides when to look; the store decides what is true. **A lapse at a period's end is believed only when it lasts** (`renewalGrace`). Every activation reads | Rows 1, 3, 4, 5 `[ran]` |
 | P4 | The group and the level are restated in the catalogue and checked against the `.storekit` file | D8; D18 |
-| P5 | The package never signs. The app supplies a signer, and a purchase never proceeds without its signature | `[Apple]`; others' failures |
+| P5 | The package never signs. The app supplies a signer, and a purchase never proceeds without its signature | `[Apple]`; others' failures — built: D48 |
 | P6 | Every StoreKit open set crosses with an `unrecognised` case | D21; the 27 SDK |
-| P7 | Offer terms come from the product. Introductory eligibility has four states, and `unknown` shows the regular price | Others' failures; row 9 |
-| P8 | No paywall and no wrapper of `SubscriptionStoreView`; a purchase made through Apple's views must still reach the store | The one rule; row 12 |
+| P7 | Offer terms come from the product. Introductory eligibility has four states, and `unknown` shows the regular price | Others' failures; row 9 — built: D46, D49 |
+| P8 | No paywall and no wrapper of `SubscriptionStoreView`; a purchase made through Apple's views must still reach the store | The one rule; row 12 `[ran]` — changed: on iOS it does not by itself, and the app hands the view's result over (D45) |
 | P9 | Where macOS has no sheet, a URL | `[Apple]` |
 | P10 | No public name StoreKit has at the top level | Others' failures; row 15 `[ran]` |
 | P11 | A plan change is read by comparing the product asked for with the product returned | Row 7 `[ran]` |
 | P12 | What is held is chosen by date, never by arrival; a withdrawal names a transaction | Rows 4, 5 `[ran]` |
-| P13 | Introductory eligibility is also read from the group's own transactions, and an offer that was not applied is said | Rows 9, 11 `[ran]` |
+| P13 | Introductory eligibility is also read from the group's own transactions, and an offer that was not applied is said | Rows 9, 11 `[ran]` — built: D46, D47 |
 
 ## Questions for you
 
-1. **Which subscriptions first?** One group with monthly and yearly is the common case and the proposal's target; several levels, or several groups, change how much of the level machinery phase 1 must prove.
-2. **Is there, or will there be, a server?** Without one, phase 2 is introductory, win-back and codes; promotional offers and the override need somewhere to sign.
-3. **Billing retry.** The proposal does not grant access in it, which is Apple's rule and the strict reading. Some apps keep access for a few days while Apple retries. That stays the app's to do; is that the right default?
-4. **Seats.** From 22 October, organisations can buy seats of a StoreKit 2 subscription unless it is switched off in App Store Connect, and those arrive as `.assigned`. Count them, as the package does for unlocks?
-5. **Non-renewing subscriptions**: phase 3, or sooner?
-6. **The package's name and promise.** The README says "one-time purchases and trials"; phase 1 changes that, and 0.3.0 is where it would.
+Settled by phase 1:
+
+1. **Which subscriptions first?** Several levels in a group, and several groups: the level machinery is built and proven (D39).
+2. **Billing retry** is not access. That is Apple's rule, and leniency is the app's to write (D35).
+3. **Seats**, `.assigned`, count, as they do for unlocks ([subscriptions](15-subscriptions.md#declare-them)).
+4. **The promise.** The README says subscriptions.
+
+Still open:
+
+5. **Is there, or will there be, a server?** Settled by phase 2 either way: promotional offers and the override are built, behind a signer the app supplies, and an app without a server uses introductory, win-back and codes and never supplies one.
+6. **Non-renewing subscriptions**: phase 3, or sooner?
 
 ## Risks
 

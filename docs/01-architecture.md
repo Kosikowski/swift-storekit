@@ -53,8 +53,8 @@ Core is one target, so that an app writes one `import`. Its layers are named in 
 
 | Layer | May not mention | Contents |
 |---|---|---|
-| **Domain** | `@MainActor`, Observation, the store, the role protocols | `ProductID`, `Catalogue`, `CatalogueEntry`, `TrialTerms`, `TrialPeriod`, `TrialStatus`, `SubscriptionGroupID`, `SubscriptionTerms`, `HeldSubscription`, `Renewal`, `AppliedOffer`, `OfferID`, `SubscriptionStanding`, `Ownership`, `OwnedProduct`, `StoreProduct`, `ProductAccess`, `Standing`, `StandingResolver`, `TransactionUpdate`, `PurchaseOutcome`, `PurchaseCompletion`, `RestoreOutcome`, `PurchaseError`, `PurchaseConfirmation`, `PurchaseEvent`, `StoreDiagnosis`, and the `package`-level `Duration.timeInterval` |
-| **Port** | `@MainActor`, Observation, the store | `ProductCatalogueLoading`, `OwnershipReading`, `ProductPurchasing`, `PurchaseRestoring`, `TransactionObserving`, `SubscriptionStatusReading`, `StoreFront`, `StoreDiagnosing`, `TimeProviding`, `PurchaseLogging` |
+| **Domain** | `@MainActor`, Observation, the store, the role protocols | `ProductID`, `Catalogue`, `CatalogueEntry`, `TrialTerms`, `TrialPeriod`, `TrialStatus`, `SubscriptionGroupID`, `SubscriptionTerms`, `HeldSubscription`, `Renewal`, `AppliedOffer`, `OfferKind`, `OfferPaymentMode`, `OfferID`, `OfferTerms`, `BillingPeriod`, `IntroductoryEligibility`, `WinBackOffer`, `SubscriptionStanding`, `Ownership`, `OwnedProduct`, `StoreProduct`, `ProductAccess`, `Standing`, `StandingResolver`, `TransactionUpdate`, `PurchaseOutcome`, `PurchaseCompletion`, `PurchaseOptions`, `RestoreOutcome`, `PurchaseError`, `PurchaseConfirmation`, `PurchaseEvent`, `StoreDiagnosis`, and the `package`-level `Duration.timeInterval` |
+| **Port** | `@MainActor`, Observation, the store | `ProductCatalogueLoading`, `OwnershipReading`, `ProductPurchasing`, `PurchaseRestoring`, `TransactionObserving`, `SubscriptionStatusReading`, `IntroductoryEligibilityReading`, `OfferSigning` (and its `OfferSignatureRequest`), `StoreFront`, `StoreDiagnosing`, `TimeProviding`, `PurchaseLogging` |
 | **Application** | — | `PurchaseStore`, `PurchaseStateProviding`, `PurchaseCommanding`, `UnlistedPurchases`, `PurchaseActivity`, `ProductLoadState`, `SystemClock`, `SilentPurchaseLogger` |
 
 Every domain value is `Sendable` and `Hashable`. Nothing in the domain reads a clock: every question that depends on time takes the date as a parameter, which is what makes a trial's expiry testable without waiting for it.
@@ -71,6 +71,8 @@ A store is five small roles, because their consumers differ. `PurchaseStore`'s d
 | `PurchaseRestoring` | For a Restore button only: on the App Store it asks for a password. |
 | `TransactionObserving` | Yields the transaction's facts, not a bare signal — and a subscription's status when it changes; registered by the time it returns. |
 | `SubscriptionStatusReading` | Optional. Every status for each group asked; a group that could not be read is left out, never answered empty; never throws. Asked from a task nobody cancels ([D41](10-decisions.md#d41-subscription-statuses-are-read-in-a-task-nobody-cancels)). |
+| `IntroductoryEligibilityReading` | Optional. Per group, whether this person may have an introductory offer; a group that could not be asked is left out; never throws. StoreKit's answer is not enough on its own ([D46](10-decisions.md#d46-introductory-eligibility-has-four-states-and-a-used-offer-is-known-from-what-was-seen)). |
+| `OfferSigning` | **The app's.** A compact JWS for a promotional offer or the override, from the app's server; a throw means nothing is bought ([D48](10-decisions.md#d48-the-package-never-signs-a-signer-the-app-supplies-is-asked-only-when-it-must-be)). |
 | `TimeProviding` | `now`, and `sleep(until:)` with an absolute deadline. |
 | `PurchaseLogging` | Receives events that are safe to write down as they are. |
 | `StoreDiagnosing` | Reports what this build actually receives from the store. |

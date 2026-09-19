@@ -56,7 +56,18 @@ Under Monetization, Subscriptions: create a **subscription group**, and the subs
 
 **Turn on the billing grace period** (Monetization, Subscriptions, Billing Grace Period): 3, 16 or 28 days, for all renewals or paid-to-paid only `[Apple]`. With it, a person whose payment fails keeps access while Apple retries, and the package grants it ([D35](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule)); without it, they are in billing retry at once, which is not access. It can be turned on for the sandbox alone first, and changes take up to 24 hours `[Apple]`.
 
-Offers — introductory, promotional, win-back, codes — are set on each subscription. What each does and who decides who gets it is in [the research](13-subscriptions-and-offers.md#offers); the package applies an introductory offer through a plain purchase, and the rest are [phase 2](14-subscriptions-plan.md#phase-2-offers).
+### Offers
+
+Offers are set on each subscription, under its Subscription Prices. What each does and who decides who gets it is in [the research](13-subscriptions-and-offers.md#offers), and how the app uses them is in [the offers guide](16-offers.md).
+
+| Offer | In App Store Connect | In the app |
+|---|---|---|
+| Introductory | Payment mode, duration, periods and price, per storefront. One current and one future per storefront, and it cannot be edited, only replaced `[Apple]` | Nothing to pass: a plain purchase applies it |
+| Win-back | Price and periods, and **who may have it**: how long they paid, how long ago they lapsed, how long before they may have one again `[Apple]` | `winBackOffers(in:)`, bought with `.winBack(id)` |
+| Promotional | An offer identifier, price and periods; up to 10 active `[Apple]` | `.promotional(id)`, signed by your server |
+| Offer codes | Codes, or a custom code, and who may redeem them `[Apple]` | Nothing: the redemption arrives as a transaction |
+
+**For promotional offers and the introductory override, create an In-App Purchase key** (Users and Access, Integrations, In-App Purchase) and keep it on your server. Apple's App Store Server Library signs with it. It is not the App Store Connect API key `[Apple]`. Put the offers in the `.storekit` file too, so that the simulated store and Xcode's environment sell them, and check the identifiers your code names against it: `expectNoProblems(against:offers:)`.
 
 App Review asks a subscription paywall for the plan's name, length and full renewal price, with the amount billed the most prominent price; links to the terms and the privacy policy; a way to restore; and an easy route to Apple's page to manage it `[Apple]` — `ManageSubscriptionsButton` ([subscriptions](15-subscriptions.md#managing)).
 

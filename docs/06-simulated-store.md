@@ -131,8 +131,12 @@ Clauses are joined by `;`.
 | `lapsed=` holding, … | Expired. The age is how long ago it lapsed |
 | `period=`age | How long a subscription's period is. A month by default |
 | `renewal=` `renews` \| `fails` \| `fails:`age | What the next renewal comes to; `fails:16d` with a grace period that long |
+| `intro=` `eligible` \| `used` | A week-free introductory offer on every subscription without one, and whether the account may have it |
+| `winback=` offer, … | Win-back offers with these identifiers on every subscription, eligible once it lapses — `lapsed=` included |
+| `promo=` offer, … | Promotional offers with these identifiers on every subscription |
+| `signatures=` `accepted` \| `rejected` | What the store makes of the app's signer |
 
-A **holding** is `product[@age][/purchased|family|assigned]`. The product is a full identifier or the unique last component of one, so `trial` means `Shop.trial`, whatever comes before its last dot. The age is how long *ago* it was bought: `13d23h55m`, `90s`. It becomes a date only against the clock of the store it is applied to, so the same text means the same thing tomorrow.
+An **offer** is an identifier: letters, digits, `.`, `-` and `_`. A **holding** is `product[@age][/purchased|family|assigned]`. The product is a full identifier or the unique last component of one, so `trial` means `Shop.trial`, whatever comes before its last dot. The age is how long *ago* it was bought: `13d23h55m`, `90s`. It becomes a date only against the clock of the store it is applied to, so the same text means the same thing tomorrow.
 
 Errors: `productUnavailable`, `purchaseNotAllowed`, `notAvailableInStorefront`, `network`, `system`, `unverified`, `revoked`, `unsupported`.
 
@@ -176,6 +180,18 @@ The simulated store runs subscriptions **by its own clock**. Each read first doe
 | A status read from a cancelled task is empty | yes **[ran]** | yes **[ran]** | `canaryCancelledStatusRead` | The same (`answersNothingWhenCancelled`) |
 
 Things that happen by themselves, each announced as the real store announces it: `deliverSubscription(_:ownership:)` (started on another device, or shared by a family member), `renewNow`, `cancelAutoRenew`, `resumeAutoRenew`, `raisePrice(_:needsConsent:)`, `recoverBilling`, `lapse`, and `revoke` for a refund. `seedSubscription(_:)` arranges one at launch, and `changeSubscription(_:)` replaces a status and announces it, for a test that wants exactly the status the real store was seen to say.
+
+### Offers
+
+Products with offers sell them: pass them in `products:`, or build the store from the app's `.storekit` file, which is read with its offers. A plain purchase applies the introductory offer once per group. A lapse makes the product's win-back offers eligible at once, as Xcode's environment does. A promotional offer or the override is refused with StoreKit's reasons: `missingParameters` with no signature, `invalidSignature` when `behaviour.acceptsOfferSignatures` is off, and `notEligible` for someone who never subscribed. One bought by a current subscriber waits for the renewal. `lastPurchaseOptions` says what the last purchase asked for, the signature sent included.
+
+| Habit of the real store | macOS 26.6 | iOS 27.0 simulator | Held to it by | In the simulated one |
+|---|---|---|---|---|
+| Introductory eligibility keeps its first answer for the process | yes **[ran]** | yes **[ran]** | `introductoryUsed` (offers) | **Yes, by default** (`keepsFirstEligibilityAnswer`) |
+| A lapse makes win-back offers eligible at once | yes **[ran]** | yes **[ran]** | `winBack` (offers, the Mac) | Yes |
+| Buying again after a lapse returns the old transaction, and buys nothing | once, right after a lapse; two seconds later it bought **[ran]** | yes, with or without an offer **[ran]** | phase 0, q10; D51 | Only if told to (`handsBackTheLapsedTransaction`) |
+
+`useIntroductoryOffer(in:)` says the account has used a group's offer elsewhere, and `productsOnSale` puts an offer on sale, or takes one off, while the store runs. Scenarios add plausible offers to every subscription: `intro=eligible` or `intro=used` (a week free), `winback=` and `promo=` with identifiers (three months at a discount), and `signatures=rejected`.
 
 ## The debug panel
 

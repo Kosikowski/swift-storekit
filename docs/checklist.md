@@ -86,7 +86,7 @@ Each item says how it is known:
 - [ ] **`Transaction.updates` is listened to from launch, for the app's whole life.** It carries Ask to Buy approvals, purchases on other devices and refunds. It does not carry purchases made with `purchase()` in this process. [Apple] The listener starts with `start()`, which `.purchaseStore(_:)` calls.
     - **The stream carries the transaction's facts, not only a product ID**: `TransactionUpdate.granted(OwnedProduct)` or `.withdrawn(ProductID)`. An update for a grant arrives *before* the listing has it: when an approved Ask to Buy arrives, the listing at that instant is still empty, and has the product about half a second later. A listener that re-reads the listing on the update finds nothing, and has no reason ever to look again. A refund's update does not lag: the listing is already empty when it arrives. So a grant is held exactly as a purchase is, and a withdrawal drops the hold at once. [ran]
     - Verified transactions for catalogue products are finished. Unverified ones are not, because the App Store offers them again. [Apple] Transactions for products the catalogue does not list are left alone, for whoever owns them. ([the adapter](08-storekit-adapter.md))
-- [ ] **The outcomes are told apart by type.** `PurchaseCompletion` has `.owned`, `.trialRunning`, `.trialUsed`, `.notCounted`, `.subscribed`, `.planChangeScheduled`, `.pending` and `.cancelled`; what went wrong is a thrown `PurchaseError`. An unverified purchase is `PurchaseError.unverified` and is never a cancellation. A cancellation that arrives *thrown*, as `StoreKitError.userCancelled`, is still a cancellation. [review]
+- [ ] **The outcomes are told apart by type.** `PurchaseCompletion` has `.owned`, `.trialRunning`, `.trialUsed`, `.notCounted`, `.subscribed`, `.offerNotApplied`, `.planChangeScheduled`, `.pending` and `.cancelled`; what went wrong is a thrown `PurchaseError`. An unverified purchase is `PurchaseError.unverified` and is never a cancellation. A cancellation that arrives *thrown*, as `StoreKitError.userCancelled`, is still a cancellation. [review]
 - [ ] **Errors carry no text.** `PurchaseError` is typed, and an unrecognised error crosses as the name of its type, because some StoreKit errors echo App Store account identifiers in `localizedDescription`. [review]
 - [ ] **Buying an already-owned non-consumable returns the original transaction.** For a used trial the purchase returns `PurchaseCompletion.trialUsed(TrialPeriod)`, and `TrialStatus.used(TrialPeriod)` says when it ended. [ran]
 - [ ] **Restore is `AppStore.sync()` followed by a fresh read.** `restorePurchases()` and `RestorePurchasesButton`. A restore that fails reads again and never downgrades. [Apple]
@@ -235,10 +235,31 @@ Nothing in this section is the package's.
 - [ ] **Turn on the billing grace period in App Store Connect**, and say what a person in it should do: their payment failed, and they keep access until it ends. [Apple] ([App Store Connect](09-app-store-connect.md#subscriptions))
 - [ ] **Decide whether billing retry keeps access.** The package says no, as Apple does; leniency is yours to write. ([subscriptions](15-subscriptions.md#access-is-apples-rule))
 - [ ] **Call `refresh()` when the app becomes active.** A cancellation made elsewhere, and an expiry, send nothing. [ran]
+- [ ] **Hand every purchase made in Apple's own views to the store** — `ProductView`, `StoreView`, `SubscriptionStoreView` — with `store.takePurchase(result, of: product)` in `.onInAppPurchaseCompletion`. In the iOS simulator an unlock bought in `ProductView` is announced nowhere. [ran] ([D45](10-decisions.md#d45-a-purchase-made-in-apples-own-views-is-handed-to-the-store))
 - [ ] **Offer Apple's page for managing the subscription** — `ManageSubscriptionsButton`, a link on macOS, where there is no sheet. [Apple]
 - [ ] **Word the paywall as App Review asks**: the plan, its length, the full renewal price as the most prominent price, and links to the terms and privacy policy. [Apple]
 - [ ] **Try Family Sharing and a renewal while the app is closed in the sandbox**, by hand: Xcode's environment can make neither. [Apple]
 
-## 11. The shape of the library
+## 11. Subscription offers
+
+### Handled by the package
+
+- [ ] **An offer's terms are the store's.** `StoreProduct.subscription` carries each offer's price, periods and payment mode as StoreKit states them for the storefront. [ran] ([offers](16-offers.md#terms-come-from-the-product))
+- [ ] **Introductory eligibility has four states, and "unknown" shows the regular price.** StoreKit's own answer keeps its first value for the life of the process; the group's transactions, and what the store has seen, say when the offer is used. [ran] ([D46](10-decisions.md#d46-introductory-eligibility-has-four-states-and-a-used-offer-is-known-from-what-was-seen))
+- [ ] **Win-back offers are Apple's to allow**: the eligible offers on the account's own status, in Apple's order, with their terms. [ran] ([offers](16-offers.md#win-back-offers))
+- [ ] **A promotional offer is never attempted without a signature**, and never asked of the signer for someone who has never subscribed in the group. [review] ([D48](10-decisions.md#d48-the-package-never-signs-a-signer-the-app-supplies-is-asked-only-when-it-must-be))
+- [ ] **An offer that was not applied is said**, as `.offerNotApplied`: StoreKit let an override through at the full price and said nothing. [ran] ([D47](10-decisions.md#d47-an-offer-that-was-not-applied-is-said))
+- [ ] **A redeemed offer code reaches the store**, from the updates stream, or from the 27 SDK's sheet through `takeRedemption(_:)`. [ran]
+
+### Your app's responsibility
+
+- [ ] **Show an offer's terms from the store, never from constants**, and the regular price whenever the introductory offer is `unknown`. [Apple]
+- [ ] **Word the offer as App Review asks**: what is charged and for how long, then the full renewal price. [Apple]
+- [ ] **Keep the In-App Purchase key on your server**, and sign there with Apple's App Store Server Library; implement `OfferSigning` to ask it. [Apple] ([offers](16-offers.md#promotional-offers-and-a-server-that-signs))
+- [ ] **Decide who gets which promotional offer.** That is policy, and it is yours.
+- [ ] **Check the offers your code names against the `.storekit` file**: `expectNoProblems(against:offers:)`. [ran]
+- [ ] **Try a promotional offer in the sandbox, by hand**, signed by your server: Xcode's environment cannot check a real key's signature. [ran]
+
+## 12. The shape of the library
 
 The package's targets, layers, protocols and the reasons behind them are in [architecture](01-architecture.md) and [decisions](10-decisions.md). To move an app that already has hand-written StoreKit code onto it, see [migrating an existing app](12-migrating-an-existing-app.md).
