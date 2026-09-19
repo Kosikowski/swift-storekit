@@ -1,6 +1,6 @@
 # Plan: subscriptions and offers
 
-**Status: proposed, 19 September 2026. Nothing here is built.** The research is [Subscriptions and offers in StoreKit](13-subscriptions-and-offers.md); this is what to build from it, in what order, and what to measure before any of it.
+**Status: phase 0 done, 19 September 2026: real StoreKit measured, and the design below corrected by it ([what it found](#what-phase-0-found)). Nothing else is built.** The research is [Subscriptions and offers in StoreKit](13-subscriptions-and-offers.md); this is what to build from it, in what order, and what to measure before any of it.
 
 Evidence tags as in the research. Names in code sketches are placeholders, to be settled in phase 1; the shapes are the proposal.
 
@@ -59,6 +59,22 @@ A survey of eleven libraries and Apple's three samples, read at their current so
 
 **What to take:** per-group statuses, and the highest level across all of them; state, renewal intent, offer phase and ownership as separate facts rather than one enum; the date access ends named apart from the date the period ends; four-state introductory eligibility that shows the regular price when unknown; win-back offers as the eligible IDs from the account's *own* status, in Apple's order; promotional offers only through a signature the app supplies; listening to status changes as well as transactions; and tests of the pure rules with explicit dates, a simulated store, and a hosted lane with a fast renewal rate.
 
+## What phase 0 found
+
+Every question was put to real StoreKit on 19 September 2026, on macOS 26.6 with Xcode 27.0 and in the iOS 27.0 simulator, each probe run twice on iOS. The answers are in [`spike/README.md`](../spike/README.md#subscriptions--what-real-storekit-does-with-auto-renewable-subscriptions). Seven of them change the design, and the sections below are written as corrected:
+
+1. **The listing cannot decide access.** In the iOS simulator a subscription in billing retry *is* listed, with a renewal transaction of its own `[ran]`, and at a renewal both platforms briefly list nothing `[ran]`. So the status decides, and the listing stands in only when no status can be read. [Access](#access-follows-apples-rule-and-nothing-else).
+2. **At the end of every period, StoreKit says for a moment that the subscription has ended.** The status reads `expired` for up to 0.7 s on the Mac; on iOS it also says it will not renew and is eligible for a win-back offer, which is indistinguishable from a real lapse except that it does not last `[ran]`. A lapse at a period's end is therefore believed only when a second look still finds it. [The clock](#the-clock-decides-when-to-look-and-the-store-decides-what-is-true).
+3. **A downgrade, and a crossgrade to another duration, come back from `purchase()` as `.success` with the transaction already held** `[ran]`. Taken at its word, that is "bought the monthly plan" handed back with the premium one. The package compares the product it was asked for with the one returned. [Buying](#buying-and-changing-plan).
+4. **Renewals missed while nothing ran arrive at the next launch newest first**, older ones and sometimes the original purchase after them `[ran]`. Whatever arrives last is the oldest. Arrivals are ordered by date, never by order. [Transactions](#transactions-what-is-finished-and-what-counts).
+5. **Refunding an old period revokes that transaction only**; the subscription carries on `[ran]`. A withdrawal must name the transaction, not the product.
+6. **`isEligibleForIntroOffer(for:)` keeps its first answer for the life of the process** `[ran]`, before and after the offer is used. Eligibility is also read from the group's own transactions. [Offers](#offers-phase-2).
+7. **A status read from a cancelled task answers with an empty array** — "never subscribed" — as `currentEntitlements` answers with nothing `[ran]`. Status reads go in a task nobody cancels, as ownership reads do ([D2](10-decisions.md#d2-ownership-is-never-read-in-a-task-something-else-can-cancel)).
+
+And five confirm it: a subscription purchase is listed late on the Mac and at once on iOS, as a non-consumable's is; a renewal arrives on `updates` before the listing has it, as an approved Ask to Buy does; an upgrade is immediate and the transaction left behind is `isUpgraded` and not listed; the grace period is listed and entitled; win-back offers are eligible on lapse and can be bought with `.winBackOffer(_:)` — on the Mac. **In the iOS 27 simulator, buying again after a lapse returns the old, expired transaction**, with or without an offer, so win-back purchases are tested on the Mac only.
+
+Still open: a purchase made through `SubscriptionStoreView` (row 12, which needs a UI test); everything with Xcode 26.6, which only the hosted runner has; and the two sandbox rows, by hand.
+
 ## The design
 
 ### The catalogue
@@ -78,7 +94,7 @@ enum Shop {
 }
 ```
 
-**Why restate them.** The group's identifier is what `status(for:)` takes, and it is static: asking needs no product loaded, so what a person may use still waits for no network ([D8](10-decisions.md#d8-not-answered-yet-is-a-state-and-ownership-does-not-wait-for-prices)). The level is needed to choose between statuses — the person's own and a family member's — without prices either. Both are restated for the reason Family Sharing is: a transaction does not carry them reliably and prices must not be waited for. The [`.storekit` check](#checking-the-storekit-file) keeps the restatement honest. Which way App Store Connect numbers levels is `[check]` ("1 is the highest" is the working assumption).
+**Why restate them.** The group's identifier is what `status(for:)` takes, and it is static: asking needs no product loaded, so what a person may use still waits for no network ([D8](10-decisions.md#d8-not-answered-yet-is-a-state-and-ownership-does-not-wait-for-prices)). The level is needed to choose between statuses — the person's own and a family member's — without prices either. Both are restated for the reason Family Sharing is: a transaction does not carry them reliably and prices must not be waited for. The [`.storekit` check](#checking-the-storekit-file) keeps the restatement honest. Level 1 is the highest: moving from level 2 to level 1 was an upgrade `[ran]`.
 
 `Catalogue.problems(in:)` gains: a subscription with no group; two groups sharing a product; a level below 1; a trial that names a subscription (a trial stands in for an unlock, and a subscription has its own introductory offer). Family Sharing is declared as it is for an unlock, honoured by default.
 
@@ -140,20 +156,20 @@ public enum SubscriptionStanding: Hashable, Sendable {
 
 **Subscribed and in a grace period give access; billing retry, expired and revoked do not.** That is Apple's entitlement rule `[Apple]`, and a grace period is a contractual obligation to serve `[Apple]`. Billing retry is reported as a state, not granted: an app that wants to be more lenient, as SKDemo is, reads the state and decides so itself. That is policy, and it is written down in the app where it can be seen.
 
-Two sources say what is held, and they are combined the way the package combines its sources already:
+Two sources say what is held:
 
-- **`currentEntitlements`**, which lists the subscribed and the ones in a grace period, and is what is read today;
-- **`status(for:)`** per group, which adds everything else: renewal, lapse, retry, offers.
+- **`status(for:)`** per group, which says the state — subscribed, grace, retry, expired, revoked — and everything else: renewal, lapse, offers;
+- **`currentEntitlements`**, which is meant to list the subscribed and the ones in a grace period, and is what is read today.
 
-**Either is enough to grant; a lapse needs both.** A verified status in an entitled state grants even when the listing omits it, which has been reported `[check]`. A subscription stops giving access when the listing no longer has it and no status read says it is entitled. A status read that fails changes nothing ([D9](10-decisions.md#d9-nothing-downgrades-on-a-failure)): access comes from the listing, and `renewal` is nil. **Access never waits for a status read**, as it never waits for prices.
+**The status decides; the listing stands in only when no status can be read.** Measured, the listing cannot decide: the iOS simulator lists a subscription in billing retry, with a renewal transaction of its own, and at a renewal both platforms list nothing for a moment `[ran]`. So a verified status in an entitled state grants, and one in any other state does not, whatever the listing says. A status read that fails for a group changes nothing ([D9](10-decisions.md#d9-nothing-downgrades-on-a-failure)): that group's access comes from the listing, and `renewal` is nil. **Access never waits for a status read**, as it never waits for prices, and a held purchase covers the half second in which the Mac has neither a status nor a listing for it `[ran]`.
 
 ### The clock decides when to look, and the store decides what is true
 
 A trial ends by the clock, because nothing in the store changes when it does ([D12](10-decisions.md#d12-a-trial-is-a-free-non-consumable-dated-by-the-app-store)). **A subscription's end is the store's to say**: at `periodEnds` it may have renewed, gone into grace, or lapsed, and only the store knows which. So the clock schedules a look, and the listing and the status decide:
 
 - `Standing.nextExpiry` includes the soonest `periodEnds`, or the end of the grace period, of anything held. The store reads again then, as it does for a trial.
-- If the period has ended and the store still lists the subscription with nothing newer — the renewal not synced yet — access holds and the store looks again on a widening interval, up to a limit, and whenever the app becomes active. **What the listing does in that minute is phase 0's first question.**
-- **Every activation reads again.** Cancellations and renewals made while the app was closed may never arrive as events `[check]`. The package already recommends `refresh()` on activation; for subscriptions it is part of the contract.
+- **A lapse at a period's end is believed only when it lasts.** At every renewal StoreKit says, for a moment, that the subscription has ended: `expired` for up to 0.7 s on the Mac, and on iOS also "will not renew" and "eligible for a win-back offer", with nothing in the values to tell it from a real lapse `[ran]`. So a subscription that was entitled and set to renew keeps its access across `periodEnds` while the store looks again, on a short widening interval, for up to `renewalGrace` (proposed: the same 30 seconds as `listingGrace`); a renewal ends the wait, and so does a lapse still said after it. The renewal itself usually arrives on `updates` first, and is held as a grant is ([D4](10-decisions.md#d4-the-updates-stream-carries-facts-not-a-signal)).
+- **Every activation reads again.** A cancellation switched on elsewhere reached the iOS simulator only at the next renewal `[ran]`, and nothing is announced while the app is closed. The package already recommends `refresh()` on activation; for subscriptions it is part of the contract.
 
 `access(to:at:)` keeps its signature. For a subscription it answers what the store last said; the dates are in the `HeldSubscription` for an app that wants to show "renews on" or "ends on".
 
@@ -165,7 +181,9 @@ try await store.purchase(Shop.monthly, offer: .winBack(offerID))        // phase
 try await store.purchase(Shop.monthly, offer: .promotional(offerID))    // phase 2: the store asks the app's signer
 ```
 
-`PurchaseCompletion` gains `.subscribed(HeldSubscription)` and `.planChangeScheduled(to: ProductID, at: Date)`, because a downgrade takes effect at the renewal and must not be reported as done `[Apple]`. An upgrade is `.subscribed` at the new level at once. What `purchase()` returns for each of the three — and whether the transaction that was upgraded away from stays listed — is measured in phase 0. A purchase in a group where the person already holds the same product is `.subscribed` with what they hold.
+`PurchaseCompletion` gains `.subscribed(HeldSubscription)` and `.planChangeScheduled(to: ProductID, at: Date)`, because a downgrade takes effect at the renewal and must not be reported as done `[Apple]`. **Which one is decided by comparing the product asked for with the product `purchase()` returned**: a downgrade, and a crossgrade to another duration, come back as `.success` with the transaction already held, unchanged `[ran]`, and only the renewal info names what is coming. An upgrade is a new transaction at the new level at once `[ran]`, and is `.subscribed`. So is buying the product already held, which returns the transaction held `[ran]`.
+
+On the Mac a purchase made here is also announced on `updates`, half a second later `[ran]` — unlike a non-consumable's, and unlike iOS. The hold is by product, so hearing it twice costs nothing, as it costs nothing for an unfinished transaction ([D29](10-decisions.md#d29-what-was-left-unfinished-is-asked-for-not-waited-for)).
 
 `appAccountToken` becomes an option on every purchase, for apps with a server of their own, passed through untouched.
 
@@ -186,7 +204,11 @@ try await store.purchase(Shop.monthly, offer: .promotional(offerID))    // phase
 | Revoked: refund, end of Family Sharing, end of a seat | Yes | No |
 | Unverified, or not in the catalogue | **No**, as now | No |
 
-`TransactionTriage` gains a verdict for the upgraded-away-from. `TransactionUpdate.granted` carries the subscription's dates, so a renewal arriving on its own is believed at once, as an approved Ask to Buy is ([D4](10-decisions.md#d4-the-updates-stream-carries-facts-not-a-signal)). The adapter also listens to `Status.updates`, and a status change carries its facts too.
+`TransactionTriage` gains a verdict for the upgraded-away-from. `TransactionUpdate.granted` carries the subscription's dates, so a renewal arriving on its own is believed at once, as an approved Ask to Buy is ([D4](10-decisions.md#d4-the-updates-stream-carries-facts-not-a-signal)); **one whose period has already ended is never held**. Renewals missed while nothing ran arrive at the next launch newest first, the oldest last `[ran]`, so what is held is chosen by date and never by arrival.
+
+**A withdrawal names a transaction.** Refunding the first period of a subscription that has renewed revokes that transaction and leaves the subscription subscribed `[ran]`. `.withdrawn(ProductID)` would drop the hold on the renewal; for a subscription it carries the transaction's identifier, and only a hold on that transaction is dropped. The listing and the status, read again at once, say the rest.
+
+The adapter also listens to `Status.updates`, which reported every change measured on the Mac but a refund of a past period, and on iOS nothing for auto-renew switched off until the next renewal `[ran]`. A status change carries its facts too, and is a reason to read again, not a replacement for reading.
 
 ### Ports and the adapter
 
@@ -208,13 +230,15 @@ In `PurchaseStoreKit`, `LiveStoreKitGateway` still only fetches, forwards and co
 
 | Offer | What the package reports | What the app does |
 |---|---|---|
-| **Introductory** | Per group: `eligible`, `ineligible`, `noOffer` (the product has none) or `unknown`. Asked again whenever the standing changes. **`unknown` means show the regular price**, and the payment sheet has the last word | Shows the terms; buys with a plain `purchase()` |
+| **Introductory** | Per group: `eligible`, `ineligible`, `noOffer` (the product has none) or `unknown`. **Ineligible as soon as any transaction in the group was bought with an introductory offer**, whatever StoreKit says, because `isEligibleForIntroOffer(for:)` keeps its first answer for the life of the process `[ran]`. **`unknown` means show the regular price**, and the payment sheet has the last word | Shows the terms; buys with a plain `purchase()`, which applies the offer `[ran]` |
 | **Win-back** | The offers Apple says this person may have now: the eligible IDs from the account's **own** status, matched to the product's win-back offers, in Apple's order `[Apple]` | Features one; buys with `.winBack(id)`. Apple also shows them outside the app, and redemptions there arrive as transactions |
 | **Promotional** | The product's promotional offers; whether this person has ever subscribed in the group, since promotional offers are only for current and former subscribers `[Apple]`; a purchase for someone who never has is refused before the signer is asked | Decides who gets which; implements `OfferSigning` against its server |
 | **Introductory override** | The same signer, for the introductory eligibility JWS `[Apple]` | The same |
 | **Offer code** | Redemptions are transactions like any other and arrive through the listener, which is on from the first command. With the 27 SDK the redemption sheet also returns the transaction, and it is taken as a purchase's would be | Presents Apple's sheet: a custom code field is not allowed `[Apple]` |
 
 `PurchaseError` gains an offer refused, keeping StoreKit's reasons apart — invalid signature, not eligible, unknown offer, missing parameters — and a signer that failed, which never becomes a purchase.
+
+**An offer that was not applied is said.** In Xcode's environment an introductory override signed with a key it does not know went through at the full price, with no error `[ran]`. So a purchase made with an offer is checked against the offer its transaction carries, and one that went through without it completes as `.subscribed` with `offer` nil and a completion that says the offer was not applied — never as though it had been.
 
 **The returning-subscriber discount**, concretely: configure win-back offers on the subscription in App Store Connect; the package reports `renewal.winBackOffers` for someone who has lapsed long enough, and the app shows the first with its terms from the product and buys it. Apple does the rest, including for people who never open the app. For a rule of the app's own — lapsed less than a month, say — a promotional offer with a signer.
 
@@ -263,6 +287,8 @@ Every row of the research marked `[check]` that the design leans on, measured in
 | 16 | Family Sharing, and a renewal while the app is closed on a real device: **by hand, in the sandbox**, on a Mac and an iPhone | Xcode's environment cannot do either `[Apple]` |
 
 **Done when** every row has an answer per OS and tool, or a written reason it could not be had, and the design above has been corrected by what was found.
+
+**Done**, for macOS 26.6 with Xcode 27.0 and the iOS 27.0 simulator: the probes are [`spike/subscriptions`](../spike/subscriptions), the answers in [`spike/README.md`](../spike/README.md#subscriptions--what-real-storekit-does-with-auto-renewable-subscriptions), and what they changed is [above](#what-phase-0-found). Left: row 12, which needs a UI test; row 16, by hand in the sandbox; and the Xcode 26.6 column, which the hosted runner will give when phase 1 turns the habits into tests in `Demo/Tests`.
 
 ### Phase 1: auto-renewable subscriptions
 
@@ -313,20 +339,23 @@ Unchanged in kind, larger in amount:
 
 ## Decisions to take
 
-Proposed; each becomes a numbered decision when phase 0 has measured what it rests on.
+Proposed; each becomes a numbered decision in [the log](10-decisions.md) when phase 1 builds it, with the measurement it rests on.
 
 | | Proposal | Rests on |
 |---|---|---|
 | P1 | Access is Apple's entitlement rule: subscribed and grace count; billing retry, expired and revoked are reported and never granted | `[Apple]`; phase 0 row 6 |
-| P2 | Either source grants; a lapse needs both; a failed read takes nothing away; access never waits for a status read | D8, D9; rows 1, 6 |
-| P3 | The clock decides when to look; the store decides what is true. Every activation reads | Rows 1, 3, 4, 5 |
+| P2 | **The status decides; the listing stands in only when no status can be read.** A failed read takes nothing away; access never waits for a status read | D8, D9; rows 1, 6 `[ran]` — changed: the listing was to grant alone |
+| P3 | The clock decides when to look; the store decides what is true. **A lapse at a period's end is believed only when it lasts** (`renewalGrace`). Every activation reads | Rows 1, 3, 4, 5 `[ran]` |
 | P4 | The group and the level are restated in the catalogue and checked against the `.storekit` file | D8; D18 |
 | P5 | The package never signs. The app supplies a signer, and a purchase never proceeds without its signature | `[Apple]`; others' failures |
 | P6 | Every StoreKit open set crosses with an `unrecognised` case | D21; the 27 SDK |
 | P7 | Offer terms come from the product. Introductory eligibility has four states, and `unknown` shows the regular price | Others' failures; row 9 |
 | P8 | No paywall and no wrapper of `SubscriptionStoreView`; a purchase made through Apple's views must still reach the store | The one rule; row 12 |
 | P9 | Where macOS has no sheet, a URL | `[Apple]` |
-| P10 | No public name StoreKit has at the top level | Others' failures; row 15 |
+| P10 | No public name StoreKit has at the top level | Others' failures; row 15 `[ran]` |
+| P11 | A plan change is read by comparing the product asked for with the product returned | Row 7 `[ran]` |
+| P12 | What is held is chosen by date, never by arrival; a withdrawal names a transaction | Rows 4, 5 `[ran]` |
+| P13 | Introductory eligibility is also read from the group's own transactions, and an offer that was not applied is said | Rows 9, 11 `[ran]` |
 
 ## Questions for you
 

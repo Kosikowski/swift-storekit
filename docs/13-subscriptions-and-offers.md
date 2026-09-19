@@ -2,10 +2,11 @@
 
 What the App Store does for auto-renewable subscriptions and their offers, what StoreKit tells an app on the device, and what only a server hears. This is the research behind [the plan](14-subscriptions-plan.md). **None of it is implemented by the package yet.**
 
-Evidence tags are the ones used elsewhere, with one difference: nothing here has been run yet, so there is no `[ran]`.
+Evidence tags are the ones used elsewhere:
 
+- `[ran]` measured against real StoreKit by [phase 0 of the plan](14-subscriptions-plan.md#phase-0-measure-first), in Xcode's test environment on macOS 26.6 with Xcode 27.0 and in the iOS 27.0 simulator, on 19 September 2026. The probes and the full answers are in [`spike/`](../spike/README.md#subscriptions--what-real-storekit-does-with-auto-renewable-subscriptions). Xcode's environment is not production; where the two may differ, it says so.
 - `[Apple]` Apple's documentation, App Store Connect Help, a WWDC session, release notes, or the Xcode 27.0 SDK interfaces, read on 19 September 2026.
-- `[check]` reported by a third party, or two of Apple's own sources disagree. To be measured before the package relies on it; [phase 0 of the plan](14-subscriptions-plan.md#phase-0-measure-first) lists each one.
+- `[check]` reported by a third party, or two of Apple's own sources disagree, and not yet measured here.
 
 The package's rule still decides what belongs where: **the package reports store facts and performs store actions; the app owns product policy.** Most of this document is store facts. The places where it is policy are called out.
 
@@ -48,7 +49,7 @@ A non-renewing subscription is closer to this package's trial than to an auto-re
 
 **Subscription groups.** Every auto-renewable subscription is in a group, and a person can hold one subscription per group at a time. Buying another product in the same group is an upgrade, downgrade or crossgrade, never a second subscription. A group holds up to 100 subscriptions, and Apple recommends one group for most apps `[Apple]`. Guideline 3.1.2(b) says a person must not be able to subscribe to several variations of the same thing by accident, which is what one group prevents `[Apple]`.
 
-**Levels** rank the subscriptions in a group and decide which way a change goes: to a higher level is an upgrade, to a lower one a downgrade, at the same level a crossgrade `[Apple]`. StoreKit reports `SubscriptionInfo.groupLevel` and `groupDisplayName` `[Apple]`. Which way the numbers run is `[check]`.
+**Levels** rank the subscriptions in a group and decide which way a change goes: to a higher level is an upgrade, to a lower one a downgrade, at the same level a crossgrade `[Apple]`. StoreKit reports `SubscriptionInfo.groupLevel` and `groupDisplayName` `[Apple]`. **Level 1 is the highest**: moving from level 2 to level 1 was an upgrade, at once, with the transaction left behind marked `isUpgraded` `[ran]`.
 
 **Durations**: 1 week, 1, 2, 3 or 6 months, 1 year `[Apple]`. `Product.SubscriptionPeriod` has a `unit` and a `value` `[Apple]`.
 
@@ -66,7 +67,8 @@ For auto-renewables it lists **the latest transaction for each subscription whos
 
 - Expired, in billing retry without a grace period, revoked and refunded subscriptions are **not** listed `[Apple]`.
 - A subscription shared by a family member is listed `[check]` (Apple engineer, forums).
-- A subscription the person upgraded *away from* can still be listed. Apple's advice is to ignore transactions whose `isUpgraded` is true `[Apple]`.
+- A subscription the person upgraded *away from* can still be listed, and Apple's advice is to ignore transactions whose `isUpgraded` is true `[Apple]`. In Xcode's environment it was not listed, on either platform `[ran]`.
+- **It is not only the entitled.** In the iOS simulator a subscription in billing retry was listed, with a renewal transaction of its own, and at a renewal both platforms listed nothing for a moment `[ran]`. The status, below, says what the listing cannot.
 - `currentEntitlements(for:)` (iOS and macOS 18.4 / 15.4) replaced the singular `currentEntitlement(for:)`. The WWDC25 session gave the reason as a person holding a product both by purchase and through Family Sharing; the reference page says a regular product yields no more than one transaction `[check]`. Either way, read zero or more.
 - Before iOS and macOS 26.5 it could be empty for a paying subscriber whose calendar was not Gregorian `[Apple]` (fixed in 26.5, and within this package's deployment range).
 
@@ -78,7 +80,9 @@ For auto-renewables it lists **the latest transaction for each subscription whos
 - `transaction`, the latest transaction in the group, as a `VerificationResult`;
 - `renewalInfo`, a `VerificationResult<RenewalInfo>`.
 
-`Status.updates` emits "when a subscription's status changes" and `Status.all` streams every group's statuses; neither is documented further `[Apple]`. `Status.all` could return a stale status until 26.2 `[Apple]`. Whether `updates` fires when auto-renew is switched off outside the app is `[check]`.
+`Status.updates` emits "when a subscription's status changes" and `Status.all` streams every group's statuses; neither is documented further `[Apple]`. `Status.all` could return a stale status until 26.2 `[Apple]`. Measured, `Status.updates` reported a purchase, a renewal, auto-renew switched off and on, grace, billing retry, a lapse and a plan change waiting for the renewal; not the refund of a past period, which came on `Transaction.updates`; and in the iOS simulator nothing for auto-renew switched off until the next renewal `[ran]`.
+
+**A status read from a cancelled task answers with an empty array**, which reads as "never subscribed" `[ran]`, as `currentEntitlements` answers a cancelled task with nothing ([D2](10-decisions.md#d2-ownership-is-never-read-in-a-task-something-else-can-cancel)).
 
 `Transaction.subscriptionStatus` is a trap: the SDK returns one `Status?`, chosen from the unverified payload with `try?`, while its documentation describes an array `[Apple]`.
 
@@ -130,16 +134,16 @@ For auto-renewables it lists **the latest transaction for each subscription whos
 
 | Event | What the device sees | How it arrives |
 |---|---|---|
-| Subscribed here | A transaction, `reason == .purchase`, maybe with an `offer` | `purchase()` returns it; not also on `updates` (measured for non-consumables, [D28](10-decisions.md#d28-the-simulated-stores-habits-are-per-os-and-each-is-held-to-the-real-thing)) |
-| Renewed | A new transaction: `reason == .renewal`, same `originalID`, new `expirationDate`. It must be finished `[Apple]` | `updates`. Renewals while the app was closed "should" be emitted at the next launch (Apple engineer); some reports say late or missing, mostly in Xcode testing and AppKit apps `[check]`. When the device first sees it is `[check]` |
-| Auto-renew switched off | `willAutoRenew == false`, `autoRenewPreference == nil`. Access continues to `expirationDate` `[Apple]` | Only by reading the status. `Status.updates` `[check]` |
+| Subscribed here | A transaction, `reason == .purchase`, maybe with an `offer`. Listed 0.6 s late on the Mac, at once on iOS `[ran]` | `purchase()` returns it. **On the Mac it is also announced on `updates`**, unlike a non-consumable's; not on iOS `[ran]` |
+| Renewed | A new transaction: `reason == .renewal`, same `originalID`, new `expirationDate`. It must be finished `[Apple]` | `updates`, before the listing has it `[ran]`. **For a moment at the period's end, the status says `expired`** and the listing may be empty `[ran]` — see the traps. Renewals made while nothing ran arrive at the next launch, **newest first** `[ran]` |
+| Auto-renew switched off | `willAutoRenew == false`, `autoRenewPreference == nil`. Access continues to `expirationDate` `[Apple]` | `Status.updates` on the Mac; in the iOS simulator, not until the next renewal `[ran]` |
 | Lapsed | State `expired`, `expirationReason` set, gone from `currentEntitlements` | Status only; no transaction `[Apple]` |
-| Renewal failed, grace period | State `inGracePeriod`, `isInBillingRetry`, `gracePeriodExpirationDate`; still listed | Status. The developer turns grace on in App Store Connect: 3, 16 or 28 days (3 or 6 for weekly), for all renewals or paid-to-paid only; changes take up to 24 hours `[Apple]` |
-| Renewal failed, no grace | State `inBillingRetryPeriod`, `expirationReason == .billingError`; not listed | Status. On iOS 16.4+ the App Store shows its own billing-issue sheet `[Apple]` |
-| Refunded, or sharing ended | `revocationDate` on the transaction; state `revoked`; not listed | `updates` |
+| Renewal failed, grace period | State `inGracePeriod`, `isInBillingRetry`, `gracePeriodExpirationDate`; still listed `[ran]` | Status. The developer turns grace on in App Store Connect: 3, 16 or 28 days (3 or 6 for weekly), for all renewals or paid-to-paid only; changes take up to 24 hours `[Apple]` |
+| Renewal failed, no grace | State `inBillingRetryPeriod`, `expirationReason == .billingError`; not listed on the Mac, **listed with a renewal transaction in the iOS simulator** `[ran]` | Status. On iOS 16.4+ the App Store shows its own billing-issue sheet `[Apple]` |
+| Refunded, or sharing ended | `revocationDate` on the transaction; state `revoked`; not listed. **Refunding a past period revokes that transaction only**, and the subscription carries on `[ran]` | `updates` |
 | Upgraded | Immediate. A new transaction for the higher level; the old one `isUpgraded` `[Apple]` | `purchase()` if made here; `updates` otherwise. Xcode testing did not report upgrades on `updates` before 27 `[Apple]` |
-| Downgraded | **At the next renewal.** Until then `currentProductID` is unchanged and `autoRenewPreference` names the lower product `[Apple]` | Status; the downgrade itself arrives as the renewal |
-| Crossgraded | Same duration: immediately. Different duration: at the next renewal `[Apple]` | As upgrade or downgrade |
+| Downgraded | **At the next renewal.** Until then `currentProductID` is unchanged and `autoRenewPreference` names the lower product `[Apple]`. **`purchase()` returns `.success` with the transaction already held** `[ran]` | Status; the downgrade itself arrives as the renewal |
+| Crossgraded | Same duration: immediately. Different duration: at the next renewal `[Apple]`, and `purchase()` returns the transaction held, as for a downgrade `[ran]` | As upgrade or downgrade |
 | Price increase | `priceIncreaseStatus`, `renewalPrice`. Consent is required above about 50% *and* about US$5 a period (US$50 a year), or for a second increase within a year, or where the law requires it; otherwise people are only told `[Apple]` | Status. On iOS the App Store shows the consent sheet; the `Message` API can delay it. **Not available on macOS** `[Apple]` |
 | Ask to Buy | `purchase()` returns pending; on approval the transaction arrives `[Apple]` | `updates` |
 | Offer code or win-back redeemed in the App Store | A transaction with `offer.type` `.code` or `.winBack` | `updates`. From iOS and macOS 27 the in-app code sheet also returns the transaction `[Apple]` |
@@ -155,11 +159,11 @@ For auto-renewables it lists **the latest transaction for each subscription whos
 | **Offer code** | Developer chooses who gets codes; Apple enforces | No | Subscriptions iOS 14.2 / macOS 15 | **The system sheet only**; a custom entry field is not allowed | `.code` |
 | **Retention offer** (new, autumn 2026) | Apple, or the developer through the real-time Retention Messaging API | No; yes for the real-time API | Shown by the system in the cancellation flow | The system | No named `OfferType` case yet; a raw value StoreKit does not name `[check]` |
 
-**Introductory.** Free trial, pay as you go, or pay up front `[Apple]`. `periodCount` is the number of discounted periods for pay as you go and 1 otherwise. One current and one future offer per storefront; it cannot be edited, only deleted and made again `[Apple]`. `isEligibleForIntroOffer(for:)` is per group, and **can be true when no introductory offer exists** `[Apple]`. It has been reported stale after a sandbox reset `[check]`; the payment sheet is the last word. Whether a family member who received a shared introductory offer can have their own is `[check]`. South Korea requires extra consent when an offer converts to the full price, which the App Store handles `[Apple]`.
+**Introductory.** Free trial, pay as you go, or pay up front `[Apple]`. `periodCount` is the number of discounted periods for pay as you go and 1 otherwise. One current and one future offer per storefront; it cannot be edited, only deleted and made again `[Apple]`. `isEligibleForIntroOffer(for:)` is per group, and **can be true when no introductory offer exists** `[Apple]`. Measured, **it keeps its first answer for the life of the process**: true before a purchase and still true after the purchase used the offer, while a plain `purchase()` applied the offer each time `[ran]`. The group's own transactions say more, and the payment sheet is the last word. Whether a family member who received a shared introductory offer can have their own is `[check]`. South Korea requires extra consent when an offer converts to the full price, which the App Store handles `[Apple]`.
 
 **Promotional.** Up to 10 active per subscription; all storefronts; only the price can be edited later `[Apple]`. The ECDSA signature options are **deprecated in iOS and macOS 26**. The replacement signs a JWS with an In-App Purchase key (not the App Store Connect API key), and `promotionalOffer(_:compactJWS:)` **returns an array** of purchase options to add to the set `[Apple]`. A bad signature fails the purchase with `invalidOfferSignature`. Apple's App Store Server Library signs them, in Swift among others `[Apple]`. A promotional offer normally takes effect at the next billing event, immediately for an upgrade or crossgrade of the same duration; only one is active at a time `[Apple]`.
 
-**Win-back.** Criteria: minimum paid duration, time since the subscription lapsed (a range within 1–24 months), and an optional wait between offers. It must be for the product the person most recently lapsed from; a person in a grace period or billing retry is not eligible, and access through Family Sharing does not count. Up to 350 per subscription, five running per storefront `[Apple]`. With *streamlined purchasing* on (the default) a redemption in the App Store completes outside the app and arrives on `updates`; off, the app receives a `PurchaseIntent` `[Apple]`. The `Message` API that lets an app delay Apple's win-back sheet is **not available on macOS**, and whether the Mac shows the sheet by itself is `[check]`.
+**Win-back.** Criteria: minimum paid duration, time since the subscription lapsed (a range within 1–24 months), and an optional wait between offers. It must be for the product the person most recently lapsed from; a person in a grace period or billing retry is not eligible, and access through Family Sharing does not count. Up to 350 per subscription, five running per storefront `[Apple]`. With *streamlined purchasing* on (the default) a redemption in the App Store completes outside the app and arrives on `updates`; off, the app receives a `PurchaseIntent` `[Apple]`. The `Message` API that lets an app delay Apple's win-back sheet is **not available on macOS**, and whether the Mac shows the sheet by itself is `[check]`. In Xcode's environment a win-back offer is eligible the moment the subscription lapses, and on the Mac can be bought with `.winBackOffer(_:)`; in the iOS 27 simulator, buying again after a lapse returns the old transaction and buys nothing `[ran]`.
 
 **Offer codes.** One-time-use codes (batches of 500–25,000) or custom codes; eligibility per offer: new, existing, expired subscribers. Since WWDC25 codes also exist for consumables, non-consumables and non-renewing subscriptions, from iOS 16.3 / macOS 15 `[Apple]`. Redemption is the system's sheet. **It changed in 27**: `offerCodeRedemption(isPresented:onCompletion:)` and `presentOfferCodeRedeemSheet(from:)` are deprecated, and the replacements take `RedeemOption`s and return the `VerificationResult<Transaction>`. `RedeemOption` has no public values in the 27.0 SDK `[Apple]`. Before 27 the redeemed transaction reaches the app only through `updates`.
 
@@ -222,7 +226,7 @@ This is paywall wording, so it is the app's, but it is what the package's facts 
 
 Everything in [testing](05-testing.md) still holds: `SKTestSession` works only in a test bundle hosted by an app ([D1](10-decisions.md#d1-real-storekit-is-tested-from-a-host-app)), and there is one shared test environment, so tests that change it run one at a time `[Apple]`.
 
-- **The `.storekit` file** defines groups, levels, durations, Family Sharing and every kind of offer, including win-back eligibility and, from Xcode 26.5, offers per billing plan `[Apple]`. Promotional offers are signed in Xcode with the file's own "Subscription Offers Key", not the production key `[Apple]`; whether Xcode checks the newer JWS form is `[check]`.
+- **The `.storekit` file** defines groups, levels, durations, Family Sharing and every kind of offer, including win-back eligibility and, from Xcode 26.5, offers per billing plan `[Apple]`; a hand-written version 4.0 file with all four kinds loads `[ran]`. Promotional offers are signed in Xcode with the file's own "Subscription Offers Key", not the production key `[Apple]`. Signed with a key Xcode does not know, a promotional offer failed with `StoreKitError.unknown` and an introductory override **went through at the full price, silently** `[ran]`.
 - **`SKTestSession`** has `timeRate` (a month renews every 30 seconds, down to a renewal every 2 seconds); `expireSubscription(productIdentifier:)`, `forceRenewalOfSubscription(productIdentifier:)`, `refundTransaction(identifier:)`; `shouldEnterBillingRetryOnRenewal` and `billingGracePeriodIsEnabled`; `disableAutoRenewForTransaction` and `enableAutoRenewForTransaction`; the price-increase consent calls; and, for `buyProduct(identifier:options:)`, the test-only options `.promotionalOffer(id:)` (no signature needed), `.codeOffer(referenceName:)` and `.purchaseDate(_:renewalBehavior:)` `[Apple]`. It cannot simulate a notify-only price increase, Family Sharing, seats, or a chosen grace length. There is no call to reset introductory eligibility; `clearTransactions()` clears the history.
 - **Sandbox** renews a month every 5 minutes and a year every hour by default, up to 12 renewals; billing failures are switched on in iOS Settings, for the whole sandbox account; introductory eligibility is reset from the sandbox account's settings `[Apple]`.
 - **Recently fixed in Apple's tools**, and so present in some tools this package supports `[Apple]`: billing-retry status updates wrong in Xcode testing (fixed in 26); win-back purchases broken in Xcode testing (26.2); `SKTestSession` ignoring the configuration in unit tests (26.5) and unable to connect in the Simulator (iOS 26.6); `purchaseDate(_:renewalBehavior:)` ignoring the renewal behaviour, and upgrades not reported on `updates` (27). The package's CI builds with Xcode 26.6.
@@ -230,20 +234,23 @@ Everything in [testing](05-testing.md) still holds: `SKTestSession` works only i
 ## Traps
 
 1. **In a grace period `expirationDate` is already in the past** and the person is still entitled. A check of `expirationDate > now` locks out a paying customer. Decide by state `[Apple]`.
-2. **An upgraded-away-from transaction can still be listed.** Ignore `isUpgraded` and take the highest level `[Apple]`.
-3. **A downgrade is not immediate.** Nothing changes until the renewal; `autoRenewPreference` only says what is coming `[Apple]`.
-4. **More than one status per group**: the person's own `expired` beside a family member's `subscribed` `[Apple]`.
-5. **The status types are open sets**, and Apple adds to them `[Apple]`.
-6. **An expiry sends nothing.** Look again at the expiry, and whenever the app becomes active `[Apple]`.
-7. **Every renewal is a transaction to finish** `[Apple]`.
-8. **`AppStore.sync()` asks for a password.** Never automatically `[Apple]`.
-9. **Non-renewing subscriptions never leave `currentEntitlements`**: the app computes their end `[Apple]`.
-10. **`isEligibleForIntroOffer` can be true with no introductory offer**, and may be stale. Show terms from the product, and let the payment sheet decide `[Apple]`.
-11. **Prices are in units on the device and milliunits on the server**, and `renewalPrice` already includes the offer `[Apple]`.
-12. **On a 12-month commitment, `RenewalInfo.willAutoRenew` stays true after the person cancels**; the commitment's own `willAutoRenew` says so. No grace period, and billing retry lasts 90 days `[Apple]`.
-13. **From 27, seats appear in the queries by default**, as `.assigned`. Count them or turn selling to organisations off `[Apple]`.
-14. **macOS has no manage sheet, no `Message` API and no `SubscriptionOfferView`** `[Apple]`.
-15. **Xcode's test environment is not production** for renewals, upgrades and dialogs, and many of its faults were fixed only in 26.5, 26.6 or 27 `[Apple]`. Anything the package rests on is measured against it and in the sandbox, on the OS versions it supports.
+2. **At the end of every period StoreKit says, for a moment, that the subscription has ended**: `expired` for up to 0.7 s on the Mac; on iOS also "will not renew" and "eligible for a win-back offer", and the listing empty. An app that locks on the first `expired` locks a paying customer at every renewal. Believe a lapse when it lasts `[ran]`.
+3. **A downgrade comes back from `purchase()` as a success, with the transaction already held.** Compare the product returned with the product asked for `[ran]`.
+4. **Renewals missed while the app was closed arrive newest first.** The last to arrive is the oldest `[ran]`.
+5. **An upgraded-away-from transaction can still be listed.** Ignore `isUpgraded` and take the highest level `[Apple]`.
+6. **A downgrade is not immediate.** Nothing changes until the renewal; `autoRenewPreference` only says what is coming `[Apple]`.
+7. **More than one status per group**: the person's own `expired` beside a family member's `subscribed` `[Apple]`.
+8. **The status types are open sets**, and Apple adds to them `[Apple]`.
+9. **An expiry sends nothing.** Look again at the expiry, and whenever the app becomes active `[Apple]`.
+10. **Every renewal is a transaction to finish** `[Apple]`.
+11. **`AppStore.sync()` asks for a password.** Never automatically `[Apple]`.
+12. **Non-renewing subscriptions never leave `currentEntitlements`**: the app computes their end `[Apple]`.
+13. **`isEligibleForIntroOffer` can be true with no introductory offer**, and may be stale. Show terms from the product, and let the payment sheet decide `[Apple]`.
+14. **Prices are in units on the device and milliunits on the server**, and `renewalPrice` already includes the offer `[Apple]`.
+15. **On a 12-month commitment, `RenewalInfo.willAutoRenew` stays true after the person cancels**; the commitment's own `willAutoRenew` says so. No grace period, and billing retry lasts 90 days `[Apple]`.
+16. **From 27, seats appear in the queries by default**, as `.assigned`. Count them or turn selling to organisations off `[Apple]`.
+17. **macOS has no manage sheet, no `Message` API and no `SubscriptionOfferView`** `[Apple]`.
+18. **Xcode's test environment is not production** for renewals, upgrades and dialogs, and many of its faults were fixed only in 26.5, 26.6 or 27 `[Apple]`. Anything the package rests on is measured against it and in the sandbox, on the OS versions it supports.
 
 ## Sources
 

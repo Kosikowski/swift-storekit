@@ -76,3 +76,59 @@ verification failure was never reached. One question per clean environment.
 
 An app's own `SWIFT_ACTIVE_COMPILATION_CONDITIONS` never reach a package target. A
 configuration that needs the simulated store must have a name beginning with `Debug`.
+
+## `subscriptions/` — what real StoreKit does with auto-renewable subscriptions
+
+Phase 0 of [the plan](../docs/14-subscriptions-plan.md#phase-0-measure-first): every
+behaviour the subscription design leans on, asked of real StoreKit before anything is built
+on it. A group with two plans at one level and one above them, the monthly plan carrying
+the offers of the example that started this (introductory 10.99 × 2, then 15.99;
+promotional, win-back and code offers of 10.99 × 3), and a second group with no
+introductory offer. Each probe prints a timeline — the listing, the group's statuses,
+and both streams, `Transaction.updates` and `Status.updates` — and asserts almost nothing.
+
+    cd spike/subscriptions && xcodegen generate
+    xcodebuild test -project SubscriptionsSpike.xcodeproj -scheme Host -destination 'platform=macOS' \
+      -only-testing:HostTests/Probes
+    # q04, a renewal while nothing runs, is two processes:
+    TEST_RUNNER_PROBE_PHASE=leave xcodebuild test … -only-testing:'HostTests/Probes/q04a_subscribeAndLeave()'
+    sleep 35
+    TEST_RUNNER_PROBE_PHASE=return xcodebuild test … -only-testing:'HostTests/Probes/q04b_comeBack()'
+
+Run on 19 September 2026: macOS 26.6.2 with Xcode 27.0, and the iOS 27.0 simulator. With
+Xcode 26.6: **not yet run** — the hosted runner is the only place it is installed.
+
+| # | Question | macOS 26.6, Xcode 27.0 | iOS 27.0 simulator |
+|---|---|---|---|
+| 1 | At a period's end, with a renewal due, what do the listing and the status say? | **For a moment, that it has ended.** The status says `expired` — `willAutoRenew` still true, no expiration reason — for up to 0.7 s; once of three renewals the listing was empty too. Then the renewal arrives and both say subscribed | **The same, and worse to read**: the status says `expired`, `willAutoRenew` **false**, win-back eligible, no reason, and the listing is empty, for 0.03–0.3 s. Nothing in the values tells it from a real lapse; only that it does not last |
+| 2 | Is a subscription purchase listed late? | **Yes**: empty straight after `purchase()`, listed 0.6 s later. The status is empty for as long | No: listed at once. (The first probe of the first run hung for three minutes on a cold simulator, and not again) |
+| 3 | Does a renewal while the app runs arrive on `updates`, before the listing has it? | **Yes, on `updates`, 0.1–0.9 s before the listing** has it | Yes; the listing has it within 0.25 s |
+| 4 | Renewals made while nothing ran | Every one is handed over on `updates` at the next launch, **newest first**, and the original purchase with them though it was finished. `Transaction.unfinished` was empty | The same, newest first, the latest renewal handed over twice; `unfinished` held the latest; the finished purchase was not handed over again |
+| 5 | What does `Status.updates` report? | Purchase, renewal, auto-renew off and on, grace, billing retry, lapse, a plan change waiting for the renewal. Not a refund of a past period, which comes on `Transaction.updates` | The same for purchase, renewal, grace, retry and lapse. Auto-renew switched off or on through `SKTestSession` shows **nothing until the next renewal** |
+| 6 | Grace period, and billing retry without one | Grace: `inGracePeriod`, `gracePeriodExpirationDate`, still listed. Retry: `inBillingRetryPeriod`, `billingError`, **not listed**, no transaction. Then `expired`. Only `Status.updates` says any of it | Grace: the same, listed. Retry: **a renewal transaction arrives on `updates` and is listed** while the status says `inBillingRetryPeriod`. After grace the status is `expired` with `isInBillingRetry` rather than `inBillingRetryPeriod` |
+| 7 | Upgrade, downgrade, crossgrade | Upgrade: immediate, a new transaction for the higher level with the same `originalID`; the old one `isUpgraded`, in `Transaction.all` and **not listed**. **Downgrade and a crossgrade to a different duration: `purchase()` returns `.success` with the transaction already held**, unchanged; only `autoRenewPreference` names the product to come | The same |
+| 8 | A cancelled task reads | `currentEntitlements`: nothing. **`status(for:)`: an empty array, not an error** — "never subscribed". `isEligibleForIntroOffer(for:)`: unaffected | The same |
+| 9 | `isEligibleForIntroOffer(for:)` | **Keeps its first answer for the life of the process.** True before a purchase, still true after the purchase used the offer, and after `clearTransactions()`. Asked first after other purchases, false throughout, while a purchase got the introductory price. A plain `purchase()` applies the offer | The same |
+| 10 | Win-back offers | Eligible the moment it lapses: `eligibleWinBackOfferIDs` has the offer. Bought with `.winBackOffer(_:)`: a new transaction with `offer.type == .winBack` at 10.99 | Eligible as soon as it lapses. **Buying again after a lapse returns the old, expired transaction** and makes no purchase, with the offer or without, in both runs |
+| 11 | Signed offers in Xcode's environment | A promotional JWS signed with a key Xcode does not know: `StoreKitError.unknown`. The introductory override so signed: **the purchase goes through at the full price, silently** | Offers to a current subscriber return the transaction already held, whatever the signature |
+| 12 | A purchase through `SubscriptionStoreView` | **Not asked**: it needs a person, or a UI test, to press the button | Not asked |
+| 13 | An offer code redeemed outside the app | Not reachable: `buyProduct` throws `StoreKitError.unknown` here, as it does for everything | Arrives on `updates` at once, listed, `offer.type == .code` with the code's name |
+| 14 | `expireSubscription`, `forceRenewalOfSubscription` | Both work | `forceRenewal` works; `expireSubscription` had no effect within 3 s |
+| 15 | Names | StoreKit's top-level names in the 27 SDK are 24; of the plan's names, none clashes. `SubscriptionInfo`, `SubscriptionStatus`, `SubscriptionPeriod`, `SubscriptionRenewalInfo` and `SubscriptionRenewalState` do | The same |
+| 16 | Family Sharing; a renewal while a real device's app is closed | Sandbox only: not run | |
+
+Also seen: **a purchase made here is announced on `updates` on macOS** (0.5 s later, once
+finished) — which a non-consumable's is not — and not on iOS. Refunding the first period of
+a subscription that has renewed revokes that transaction and nothing else: the subscription
+stays subscribed. Buying a product already subscribed returns the transaction held.
+`resolveIssueForTransaction` took the renewal's identifier on iOS and refused the
+purchase's on macOS (`SKTestErrorDomain` 6), where retry made no renewal transaction to
+take.
+
+Consequences, carried into [the plan](../docs/14-subscriptions-plan.md#what-phase-0-found):
+the status decides and the listing does not, since iOS lists a subscription in billing
+retry; a lapse at a period's end is believed only when it lasts; a plan change is read by
+comparing what `purchase()` returned with what was asked for; missed renewals are ordered by
+date, never by arrival; a withdrawal names a transaction, not a product; status reads go in
+a task nobody cancels; introductory eligibility is also read from the group's own
+transactions; and win-back purchases can only be tested on the Mac.
