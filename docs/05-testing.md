@@ -47,7 +47,7 @@ Measured on macOS 26.6 and in the iOS 27.0 simulator, with Xcode 27.0. **[ran]**
 
 ## Guard every test that names the simulated store
 
-**A test imports `PurchaseTestKit`, and an app never does.** It is to this package what StoreKitTest is to StoreKit: the simulated store, a manual clock, the waits and the `.storekit` check, behind one import, linked into test targets only (`swift package release-check --app` fails a release app that carries it).
+**A test imports `PurchaseTestKit`, and an app cannot.** It is to this package what StoreKitTest is to StoreKit: the simulated store, a manual clock, the waits and the `.storekit` check, behind one import, for test targets. Its checks report through Swift Testing, which only a test target can link, so an app that links the test kit does not build — Debug or Release, used or not — and the linker names it: `Undefined symbols … in PurchaseTestKit.o`. **[ran]** ([decisions](10-decisions.md#d34-the-test-kit-reports-through-swift-testing-so-no-app-can-link-it)) To try the app by hand on a simulated store, launch a debug build with a [scenario](06-simulated-store.md#scenarios) or open the [debug panel](06-simulated-store.md#the-debug-panel): both reach the simulator without the test kit.
 
 Part of it exists only in DEBUG builds: `SimulatedStoreFront`, `AnswerGate` and `Scenario`, which are the simulator's ([release safety](07-release-safety.md)). So **a test that names them builds in debug**. Most test bundles only ever build in debug, and need do nothing about that. Where tests are also built for release — `swift test -c release`, a test plan whose configuration is Release — guard the tests that name the simulator, or the failure is a wall of "cannot find 'SimulatedStoreFront' in scope":
 
@@ -167,8 +167,10 @@ A renamed identifier fails silently: the product never loads, and the Buy button
 
 ```swift
 let file = try StoreKitConfiguration(contentsOf: url)
-#expect(file.problems(against: Shop.catalogue) == [])
+file.expectNoProblems(against: Shop.catalogue)
 ```
+
+Each problem is a failure of its own, as a sentence that says what to fix, at the line that asked. (`problems(against:)` is the same check as a value, for a test that wants to assert something else about it.)
 
 It checks that the file sells exactly the catalogue's identifiers, that each is a non-consumable, that a trial is free and not family-shareable, and that an unlock's Family Sharing matches the catalogue's stance. **Check the catalogue the app uses, not a copy of it**: `Demo/Tests` imports the app (`@testable import Demo`) and checks `Shop.catalogue`, so a product renamed in one place fails a test.
 

@@ -1,6 +1,7 @@
 import Foundation
 import PurchaseCore
 import PurchaseTestKit
+import Synchronization
 import Testing
 
 private let pro: ProductID = "com.example.pro"
@@ -232,6 +233,35 @@ struct StoreKitConfigurationTests {
     func descriptions(problem: StoreKitConfigurationProblem) {
         #expect(problem.description.contains("com.example.pro"))
         #expect(problem.description.hasSuffix(".") || problem.description.hasSuffix("?"))
+    }
+
+    // MARK: - As a test says it
+
+    @Test("a sound file records nothing", arguments: ["v4", "v6"])
+    func expectsNothing(name: String) throws {
+        try fixture(name).expectNoProblems(against: catalogue)
+    }
+
+    @Test("a broken file records ONE ISSUE PER PROBLEM, each in words, each at the line that asked")
+    func expectsEachProblem() throws {
+        let file = try configuration(products: """
+            {"productID": "com.example.trial", "type": "Consumable", "displayPrice": "1"},
+            {"productID": "com.example.aardvark", "type": "NonConsumable"}
+            """)
+        let recorded = Mutex<[(comment: String, line: Int?)]>([])
+
+        let asked = #line + 2
+        withKnownIssue {
+            file.expectNoProblems(against: catalogue)
+        } matching: { issue in
+            recorded.withLock { $0.append((issue.comments.map(\.rawValue).joined(), issue.sourceLocation?.line)) }
+            return true
+        }
+
+        let issues = recorded.withLock { $0 }
+        #expect(issues.map(\.comment) == file.problems(against: catalogue).map(\.description))
+        #expect(issues.count == 4, "missing pro, the trial not a non-consumable and not free, aardvark")
+        #expect(issues.allSatisfy { $0.line == asked })
     }
 
     // MARK: - Serving

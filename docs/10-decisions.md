@@ -226,3 +226,18 @@ What was weighed and not done:
 The release check follows. `--app` still fails a release app in which any symbol mentions the simulator, and now also one that carries `PurchaseTestKit` — which asks more than "is it harmless": it asks whether somebody linked the test kit into an app. `--debug-app` must find both, the test kit in the hosted test bundle, or the check is searching for a misspelling (D27 has the history). **[ran]**
 
 The cost is that `StoreLaunch.make` is a root this package wrote, and a root is where an app says what it is. It takes the live store as a closure for an app whose live store is not the App Store's — a developer-ID build in which everything is owned — and an app with a screenshots configuration, or any other idea of when to simulate, [writes its own](07-release-safety.md#writing-the-root-yourself) in a dozen lines, with the `#if` and the import that come with naming the simulator. That is the old way, and it is still there; it is no longer the only way.
+
+## D34. The test kit reports through Swift Testing, so no app can link it
+
+D33 kept the test kit out of apps with a check that reads a built app. That finds it after the fact, and only in the builds somebody checks. The question asked next was whether it could be a compiler *warning* in a debug build and an *error* in a release one. Not as asked. A package's module is compiled once per configuration, for every target that links it, and nothing tells it which those are: a `#warning` in the test kit would be in every test build, and `#if !DEBUG #error` would fail every test run built for release — this package's own `make release-tests` among them. Nor does an app need a warning's latitude in debug. Everything an app does with the simulator by hand — a scenario, the debug panel, a preview — it does without the test kit (D33).
+
+What does work is stronger. Swift Testing is on the search path of a test target and of nothing else, so a module that calls into it cannot be linked into an app. The build stops in the linker — `Undefined symbols … referenced from: … in PurchaseTestKit.o` — in Debug and in Release, for arm64 and x86_64, whether or not the app uses anything of it, because Xcode links a package target whole. **[ran]** Nothing that should build is touched: the test kit's own suite runs in both configurations, the package builds for iOS devices, and the Demo's hosted tests build with it. **[ran]**
+
+So the test kit calls Swift Testing, for a reason of its own. `StoreKitConfiguration.expectNoProblems(against:)` records each way the `.storekit` file disagrees with the catalogue as a failure of its own, as a sentence, at the line that asked — where `#expect(file.problems(against:) == [])` printed an array of enum cases on one line. A use and not a trick; and not one to be refactored away quietly, because `make demo` builds an app that links the test kit and requires the build to fail, over the test kit.
+
+The costs, stated:
+
+- **The failure is the linker's, not a sentence of this package's.** It names the test kit and Swift Testing, and [testing](05-testing.md#guard-every-test-that-names-the-simulated-store) quotes it, so a search finds the reason.
+- **It can be got past on purpose.** An app that puts Swift Testing on its own search paths may link. That is what `release-check --app` is still for.
+- **Not measured: a product Xcode builds as a dynamic framework**, which it may do when one product is shared between an app and its extension. **[check]**
+

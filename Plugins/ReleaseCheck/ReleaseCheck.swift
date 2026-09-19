@@ -77,8 +77,8 @@ struct ReleaseCheck: CommandPlugin {
     /// is what said so.)
     private static let control = "14PurchaseLaunch"
 
-    /// What tests import. Not guarded, because it grants nothing — and so not an app's
-    /// to link, because linked it ships.
+    /// What tests import. Not guarded, because it grants nothing. An app that links it
+    /// does not build (D34); this is for whatever gets past that.
     private static let testsOnly = "15PurchaseTestKit"
 
     /// In a built app, additionally: what a scenario is called on a command line and in

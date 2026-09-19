@@ -46,7 +46,7 @@ Selling a non-consumable looks like sixty lines of StoreKit, and every app that 
 | `PurchaseCore`, `PurchaseStoreKit`, `PurchaseUI` | the app | Everything |
 | `PurchaseLaunch` | the app | The App Store, always. In a debug build a `-PurchaseScenario` argument chooses a simulated store instead; in release that branch does not exist |
 | `PurchaseDebugUI` | the app | A view that draws nothing |
-| `PurchaseTestKit` | **test targets, and never an app** — it is to this package what StoreKitTest is to StoreKit | Everything that grants nothing (the clock, the waits, the `.storekit` check); the simulated store only in debug |
+| `PurchaseTestKit` | **test targets, and never an app** — it is to this package what StoreKitTest is to StoreKit, and an app that links it does not build | Everything that grants nothing (the clock, the waits, the `.storekit` check); the simulated store only in debug |
 | `PurchaseSimulator` | nobody, usually: it is reached through the two above | **Nothing at all.** Behind `#if DEBUG` from first line to last, and `swift package release-check` proves it, of the package and of a built app |
 | `PurchaseDirectDistribution` | a build sold outside the App Store | `EverythingOwnedStoreFront`, and nothing an App Store build should carry |
 

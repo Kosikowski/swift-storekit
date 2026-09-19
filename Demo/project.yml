@@ -98,7 +98,25 @@ targets:
         # Signed ad hoc, the Mac's runner will not load a hardened test bundle.
         ENABLE_HARDENED_RUNTIME: NO
         TEST_TARGET_NAME: Demo
+  # An app that links the test kit, which must not build (D34). `make demo` builds it and
+  # requires the build to fail, in the linker, over PurchaseTestKit.
+  LinksTheTestKit:
+    type: application
+    platform: macOS
+    sources:
+      - path: LinksTheTestKit
+    dependencies:
+      - package: swift-storekit
+        product: PurchaseTestKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.purchasedemo.linksthetestkit
+        CODE_SIGN_IDENTITY: "-"
 schemes:
+  LinksTheTestKit:
+    build:
+      targets:
+        LinksTheTestKit: all
   DemoUI:
     build:
       targets:
