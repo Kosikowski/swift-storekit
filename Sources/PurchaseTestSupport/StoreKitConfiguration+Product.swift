@@ -1,6 +1,6 @@
 //
 //  StoreKitConfiguration+Product.swift
-//  PurchaseTestKit
+//  PurchaseTestSupport
 //
 //  One product as a `.storekit` file describes it.
 //
@@ -46,7 +46,7 @@ extension StoreKitConfiguration {
         /// - Parameters:
         ///   - section: where the entry was found, for the error alone.
         ///   - index: its place there, likewise.
-        init(json: [String: Any], section: String, index: Int) throws(PurchaseTestKitError) {
+        init(json: [String: Any], section: String, index: Int) throws(StoreKitConfigurationError) {
             guard let identifier = json["productID"] as? String, !identifier.isEmpty else {
                 throw .productWithoutIdentifier(section: section, index: index)
             }

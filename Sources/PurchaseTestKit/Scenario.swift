@@ -73,6 +73,10 @@ public struct Scenario: Hashable, Sendable {
     /// before a reinstall. Buying one, or a restore, brings it here with its age.
     public var earlier: [Holding]
 
+    /// Listed by the store with a signature that does not check out: a customer who
+    /// paid, and whom the app must show as owning nothing.
+    public var unverified: [ProductID]
+
     public var behaviour: SimulatedStoreFront.Behaviour
 
     /// The store has not yet said what is owned — how every launch begins, held
@@ -94,6 +98,7 @@ public struct Scenario: Hashable, Sendable {
     public init(
         owns: [Holding] = [],
         earlier: [Holding] = [],
+        unverified: [ProductID] = [],
         behaviour: SimulatedStoreFront.Behaviour = SimulatedStoreFront.Behaviour(),
         holdsOwnership: Bool = false,
         holdsCatalogue: Bool = false,
@@ -102,6 +107,7 @@ public struct Scenario: Hashable, Sendable {
     ) {
         self.owns = owns
         self.earlier = earlier
+        self.unverified = unverified
         self.behaviour = behaviour
         self.holdsOwnership = holdsOwnership
         self.holdsCatalogue = holdsCatalogue

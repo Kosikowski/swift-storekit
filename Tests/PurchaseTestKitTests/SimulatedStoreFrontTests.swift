@@ -7,6 +7,7 @@
 import Foundation
 import PurchaseCore
 import PurchaseTestKit
+import PurchaseTestSupport
 import Testing
 
 private let pro: ProductID = "com.example.pro"
@@ -40,6 +41,18 @@ struct SimulatedStoreFrontTests {
         }
         #expect(await cancelled.value.isEmpty)
         #expect(await store.ownedProducts().map(\.id) == [pro])
+    }
+
+    /// The products' twin of the test above, and measured the same way: 0 of 2.
+    @Test("a cancelled task asking WHAT IS FOR SALE is answered with an empty list, not an error")
+    func cancelledCatalogueRead() async throws {
+        let store = store()
+        let cancelled = Task { () -> [StoreProduct] in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await store.products()
+        }
+        #expect(try await cancelled.value.isEmpty)
+        #expect(try await store.products().count == 2)
     }
 
     @Test("buying what is already owned hands back the original, original date and all")
@@ -85,6 +98,89 @@ struct SimulatedStoreFrontTests {
         #expect(store.snapshot.unlisted == [expected])
         #expect(store.snapshot.earlier.isEmpty)
         #expect(store.snapshot.pending.isEmpty)
+    }
+
+    /// Nothing arrives when the real store's Ask to Buy is declined, so nothing does here.
+    @Test("a DECLINED Ask to Buy clears the store's pending and announces nothing at all")
+    func decline() async throws {
+        let store = store(.init())
+        store.behaviour.purchase = .pending
+        var updates = store.transactionUpdates().makeAsyncIterator()
+        #expect(try await store.purchase(pro, confirmation: .automatic) == .pending)
+        #expect(store.declinePending(pro))
+        #expect(!store.declinePending(pro))
+        #expect(store.snapshot.pending.isEmpty)
+        #expect(store.snapshot.unlisted.isEmpty && store.snapshot.listed.isEmpty)
+        // The next thing the listener hears is whatever happens next, not the decline.
+        store.deliver(trial)
+        #expect(await updates.next()?.productID == trial)
+    }
+
+    @Test("each product can end its purchase differently: the trial goes through, the unlock waits")
+    func perProductScripts() async throws {
+        let store = store()
+        store.behaviour.purchases = [pro: .pending]
+        #expect(try await store.purchase(pro, confirmation: .automatic) == .pending)
+        guard case .purchased = try await store.purchase(trial, confirmation: .automatic) else {
+            Issue.record("the trial should have gone through")
+            return
+        }
+    }
+
+    /// A customer who paid and whose purchase does not verify: the app must see someone
+    /// who owns nothing, and the diagnosis must say why.
+    @Test("a listing whose signature DOES NOT CHECK OUT is owned by nobody, and diagnosed")
+    func unverifiedListing() async {
+        let store = store()
+        store.seedUnverified(pro)
+        #expect(await store.ownedProducts().isEmpty)
+        let diagnosis = await store.diagnose()
+        #expect(diagnosis.unverifiedEntitlements == 1)
+        #expect(diagnosis.hints == [.unverifiedEntitlementsPresent(1)])
+        store.reset()
+        #expect(await store.diagnose().unverifiedEntitlements == 0)
+    }
+
+    /// The lag is counted in reads so that a test of it is deterministic; the real one
+    /// is a matter of time, and passes whether or not anybody looks.
+    @Test("the listing can catch up WITHOUT being read")
+    func catchesUpUnread() async throws {
+        let store = store()
+        store.behaviour.listsPurchasesAfterReads = 5
+        _ = try await store.purchase(pro, confirmation: .automatic)
+        store.listUnlisted()
+        #expect(store.snapshot.unlisted.isEmpty)
+        #expect(await store.ownedProducts().map(\.id) == [pro])
+    }
+
+    @Test("a trial delivered with five minutes left is announced, dated to end then")
+    func deliverTrial() async {
+        let store = store()
+        var updates = store.transactionUpdates().makeAsyncIterator()
+        store.deliverTrial(trial, remaining: .seconds(300))
+        guard case let .granted(owned)? = await updates.next() else {
+            Issue.record("expected a grant")
+            return
+        }
+        let period = catalogue.entry(for: trial)?.trialTerms?.period(startingAt: owned.originalPurchaseDate)
+        #expect(period?.endsAt == clock.now.addingTimeInterval(300))
+    }
+
+    @Test("reset forgets every purchase, keeps the listeners and keeps the behaviour")
+    func reset() async throws {
+        let store = store()
+        store.behaviour.listsPurchasesAfterReads = 0
+        store.seed(pro)
+        store.seedEarlierPurchase(trial, age: .seconds(60))
+        let listening = store.transactionUpdates()
+        store.behaviour.purchase = .pending
+        _ = try await store.purchase(trial, confirmation: .automatic)
+        store.reset()
+        let snapshot = store.snapshot
+        #expect(snapshot.listed.isEmpty && snapshot.unlisted.isEmpty && snapshot.earlier.isEmpty && snapshot.pending.isEmpty)
+        #expect(store.behaviour.purchase == .pending)
+        #expect(store.listenerCount == 1)
+        withExtendedLifetime(listening) {}
     }
 
     @Test("a restore brings earlier purchases here")

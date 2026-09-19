@@ -1,6 +1,7 @@
 import Foundation
 import PurchaseCore
 import PurchaseTestKit
+import PurchaseTestSupport
 import Testing
 
 private let pro: ProductID = "com.example.pro"
@@ -107,10 +108,10 @@ struct StoreKitConfigurationTests {
 
     @Test("data that is not JSON is .notJSON")
     func garbage() {
-        #expect(throws: PurchaseTestKitError.notJSON) {
+        #expect(throws: StoreKitConfigurationError.notJSON) {
             try StoreKitConfiguration(data: Data("// not a configuration".utf8))
         }
-        #expect(throws: PurchaseTestKitError.notJSON) { try StoreKitConfiguration(data: Data()) }
+        #expect(throws: StoreKitConfigurationError.notJSON) { try StoreKitConfiguration(data: Data()) }
     }
 
     @Test("JSON that is not a configuration is .notAStoreKitConfiguration", arguments: [
@@ -120,14 +121,14 @@ struct StoreKitConfigurationTests {
         #"{"version": {"minor": 0}}"#,
     ])
     func notAConfiguration(json: String) {
-        #expect(throws: PurchaseTestKitError.notAStoreKitConfiguration) {
+        #expect(throws: StoreKitConfigurationError.notAStoreKitConfiguration) {
             try StoreKitConfiguration(data: Data(json.utf8))
         }
     }
 
     @Test("an entry WITHOUT AN IDENTIFIER is an error naming where it is, not a product skipped")
     func noIdentifier() {
-        #expect(throws: PurchaseTestKitError.productWithoutIdentifier(section: "products", index: 1)) {
+        #expect(throws: StoreKitConfigurationError.productWithoutIdentifier(section: "products", index: 1)) {
             try configuration(products: #"{"productID": "a"}, {"type": "NonConsumable"}"#)
         }
     }
@@ -135,7 +136,7 @@ struct StoreKitConfigurationTests {
     @Test("a file that is not there is .unreadableFile, with its path")
     func noFile() {
         let url = URL(fileURLWithPath: "/nowhere/App.storekit")
-        #expect(throws: PurchaseTestKitError.unreadableFile(path: "/nowhere/App.storekit")) {
+        #expect(throws: StoreKitConfigurationError.unreadableFile(path: "/nowhere/App.storekit")) {
             try StoreKitConfiguration(contentsOf: url)
         }
     }

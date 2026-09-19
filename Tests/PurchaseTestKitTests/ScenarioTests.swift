@@ -3,6 +3,7 @@
 import Foundation
 import PurchaseCore
 import PurchaseTestKit
+import PurchaseTestSupport
 import Testing
 
 private let pro: ProductID = "com.example.pro"
@@ -96,6 +97,34 @@ struct ScenarioTests {
     func purchaseAndRestoreHeld() throws {
         #expect(try parse("purchase=held") == Scenario(holdsPurchase: true))
         #expect(try parse("restore=held") == Scenario(holdsRestore: true))
+    }
+
+    @Test("purchase= takes one outcome for everything, or one per product")
+    func purchasePerProduct() throws {
+        var behaviour = SimulatedStoreFront.Behaviour()
+        behaviour.purchases = [pro: .pending, trial: .fails(.network)]
+        #expect(try parse("purchase=pro:pending, trial:fails:network") == Scenario(behaviour: behaviour))
+        #expect(throws: PurchaseTestKitError.invalidScenario(clause: "purchase=pro:pending,maybe", reason: .unknownValue("maybe"))) {
+            try parse("purchase=pro:pending,maybe")
+        }
+        #expect(throws: PurchaseTestKitError.invalidScenario(clause: "purchase=trail:pending", reason: .unknownProduct("trail"))) {
+            try parse("purchase=trail:pending")
+        }
+        #expect(throws: PurchaseTestKitError.invalidScenario(clause: "purchase=pro:pending,pro:succeeds", reason: .repeatedProduct(pro))) {
+            try parse("purchase=pro:pending,pro:succeeds")
+        }
+    }
+
+    @Test("unverified= lists products whose signatures do not check out")
+    func unverified() async throws {
+        #expect(try parse("unverified=pro") == Scenario(unverified: [pro]))
+        #expect(throws: PurchaseTestKitError.invalidScenario(clause: "unverified=pro,,trial", reason: .unknownProduct(""))) {
+            try parse("unverified=pro,,trial")
+        }
+        let store = store()
+        store.apply(try parse("unverified=pro"))
+        #expect(store.snapshot.unverified == [pro])
+        #expect(await store.ownedProducts().isEmpty)
     }
 
     @Test("ownership= answers or is held")

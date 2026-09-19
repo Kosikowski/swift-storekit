@@ -1,6 +1,6 @@
 //
 //  StoreKitConfigurationProblem.swift
-//  PurchaseTestKit
+//  PurchaseTestSupport
 //
 //  One way a `.storekit` file disagrees with the app's catalogue.
 //

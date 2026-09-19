@@ -38,10 +38,12 @@ targets: [
 | `PurchaseCore` | the app | All the logic. Imports Foundation and Observation only. |
 | `PurchaseStoreKit` | the app | `AppStoreFront`: the App Store behind Core's protocols. |
 | `PurchaseUI` | the app | Two environment entries, `.purchaseStore(_:)`, `PurchaseButton`, `RestorePurchasesButton`. No paywall. |
-| `PurchaseTestKit` | tests, and debug builds | `SimulatedStoreFront`, `Scenario`, `ManualClock`, `AnswerGate`, `StoreKitConfiguration`, `waitUntil`. |
-| `PurchaseDebugUI` | debug builds | `PurchaseDebugPanel`, which drives a simulated store in a running app. |
+| `PurchaseTestKit` | the app, and tests | `SimulatedStoreFront`, `AnswerGate`, `Scenario`. **DEBUG only, the whole module**: in a release build it is empty. |
+| `PurchaseDebugUI` | the app | `PurchaseDebugPanel`, which drives a simulated store in a running app. DEBUG only, likewise. |
+| `PurchaseTestSupport` | **test targets only** | `ManualClock`, `waitUntil`, `RecordingPurchaseLogger`, `StoreKitConfiguration`. In every configuration, which is why the app should not link it. |
+| `PurchaseDirectDistribution` | a build sold outside the App Store | `EverythingOwnedStoreFront`. |
 
-`SimulatedStoreFront`, `Scenario` and `PurchaseDebugPanel` exist only in `DEBUG` builds: a store that hands out purchases for nothing must be absent from a shipped binary, not disabled in it. The app target may still link both products in every configuration, as the demo app does, provided its own `import` and use of them sit inside `#if DEBUG`. Read [release safety](07-release-safety.md) before adding a custom build configuration: Xcode gives a package target `DEBUG` by the configuration's *name* `[ran]`.
+`SimulatedStoreFront`, `Scenario` and `PurchaseDebugPanel` exist only in `DEBUG` builds: a store that hands out purchases for nothing must be absent from a shipped binary, not disabled in it. The app target may still link both products in every configuration, as the demo app does, provided its own `import` and use of them sit inside `#if DEBUG`. Read [release safety](07-release-safety.md) before adding a custom build configuration: Xcode gives a package target `DEBUG` by the configuration's *name* `[ran]`. **If your everyday configuration is called `Development` or `Staging`, the package is built for release in it**, the two modules are empty, and the first you hear of it is "cannot find 'SimulatedStoreFront' in scope" in your composition root: the name has to begin with `Debug`.
 
 ## Declare the catalogue once
 
@@ -70,6 +72,9 @@ One place in the app decides which store this build runs on.
 ```swift
 import PurchaseCore
 import PurchaseStoreKit
+#if DEVELOPER_ID
+import PurchaseDirectDistribution
+#endif
 
 @MainActor
 enum Purchases {

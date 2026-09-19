@@ -67,8 +67,10 @@ targets:
         product: PurchaseCore
       - package: swift-storekit
         product: PurchaseStoreKit
+      # What a test needs and an app does not. The app links PurchaseTestKit, which is
+      # nothing at all in Release; this, the tests link, and the app never carries.
       - package: swift-storekit
-        product: PurchaseTestKit
+        product: PurchaseTestSupport
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.purchasedemo.tests

@@ -1,7 +1,13 @@
 # The offline suite is green with the network cable unplugged: the store is simulated
 # and the clock is manual, so there is no rig to stand up and nothing to reach.
 #
+# This runs with whatever Xcode the hosted image has — 26.6 at the time of writing —
+# and everything measured in docs/ was measured with Xcode 27. That is deliberate and
+# useful (it is what proves the package builds with the older SDK), and it means a
+# green run here says nothing about StoreKit's behaviour.
+#
 # What is NOT run here is the hosted suite against real StoreKit (`make integration`).
+# It has a lane of its own, nightly and not blocking: integration.yml.
 # StoreKit's test environment is reported to be unreliable under command-line xcodebuild
 # on hosted runners — not checked here — and a lane that fails for reasons of its own
 # teaches people to ignore it.
@@ -48,12 +54,19 @@ jobs:
 
       # A filter that matches nothing passes, and so does a release run in which a
       # `#if DEBUG` has been drawn too wide: everything compiles, and nothing is left to
-      # run. This makes sure something ran, in both. Built already, so it costs seconds.
-      - name: The suite is not empty
+      # run. So each target has a floor, in each configuration, close enough under what
+      # it runs today that a whole suite going missing is noticed — one floor across
+      # the lot would not have noticed all of PurchaseCoreTests vanishing. Built
+      # already, so this costs seconds. When a floor is in the way, raise it.
+      - name: No suite has gone missing
         run: |
           count() { grep -o -E 'Test run with [0-9]+ tests' | grep -o -E '[0-9]+' | paste -sd+ - | bc; }
-          debug=$(swift test 2>&1 | count)
-          release=$(swift test -c release -Xswiftc -enable-testing 2>&1 | count)
-          echo "tests run: $debug in debug, $release in release"
-          test "$debug" -ge 100
-          test "$release" -ge 60
+          floor() { # target, debug floor, release floor
+            debug=$(swift test --filter "$1" 2>&1 | count)
+            release=$(swift test -c release -Xswiftc -enable-testing --filter "$1" 2>&1 | count)
+            echo "$1: $debug in debug (floor $2), $release in release (floor $3)"
+            test "${debug:-0}" -ge "$2" && test "${release:-0}" -ge "$3"
+          }
+          floor PurchaseCoreTests 60 22
+          floor PurchaseTestKitTests 95 27
+          floor PurchaseStoreKitTests 27 27

@@ -35,6 +35,16 @@ Generated with XcodeGen; the `.storekit` file is a resource of the test bundle.
 | Does a simulated *verification* failure reach the app as an unverified transaction? | **Yes**, on both: `purchase()` returns `.success(.unverified)`, and `currentEntitlements` lists it unverified. |
 | Is a simulated error disarmed by passing `nil`, as documented (route F)? | **macOS 26.6: not for `.purchase`** — nil leaves every later purchase throwing `StoreKitError.unknown`. Fine for `.loadProducts` and `.verification`. **iOS 27.0: yes.** `resetToDefaultState()` clears it everywhere. |
 | Does the test environment's state end with the process? | **No.** An error armed in one run was still armed in the next. Reset at the start of every test. |
+| What does a **cancelled** task get from `Product.products(for:)`? | **An empty list, not an error: 0 of 2**, on both, with 2 before and 2 after. It reads as a store that sells this build nothing. |
+| Is a purchase listed the moment `purchase()` returns? | **macOS 26.6: no**, about a second later. **iOS 27.0: yes, at once.** |
+| Does an approved Ask to Buy arrive before the listing has it? | **macOS 26.6: yes. iOS 27.0: no** — listed by the time it arrives. |
+| Is a refund gone from the listing by the time it is announced? | **Yes**, on both. |
+| Does a purchase made on this device also come through `Transaction.updates`? | **No**, on both: nothing in three seconds, the purchase having been finished at once. |
+| Ask to Buy **declined**: what arrives? | **macOS 26.6: nothing**, and the purchase stays pending. **iOS 27.0: the purchase**, as if approved — a fault of that simulator. |
+| An **interrupted purchase** (`interruptedPurchasesEnabled`, then `resolveIssueForTransaction`)? | **macOS 26.6:** `pending`, then it arrives through the updates and unlocks. **iOS 27.0:** `purchase()` throws `StoreKitError.unknown`. |
+| A restore under `disableDialogs`; and with `.appStoreSync` armed? | `AppStore.sync()` completes; armed with a network error it throws it (macOS 26.6 as armed). |
+| Is a purchase left **unfinished** handed to a listener that starts afterwards? | **Not pinned.** macOS 26.6: `Transaction.unfinished` is empty at once, has the purchase after half a second, and is **empty again a second later**, nobody having finished it; a listener started afterwards hears nothing in three seconds. A live listener *did* hear something when a second purchase was left unfinished. Too inconsistent to build a test on. |
+| Does `xcodebuild test` always exit? | **No.** Seen once to finish an iOS simulator run, every test green, and never return. Run it under a timeout. |
 | Does the session attach in an older simulator? | **Not in iOS 26.5 under Xcode 27.0**: no products load and purchases throw `notEntitled`, the same symptoms as a package test target. Cause not established. |
 
 Consequences: real-StoreKit tests live in a host app (`Demo/`), not in the package; a trial

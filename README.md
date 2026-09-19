@@ -20,16 +20,26 @@ Selling a non-consumable looks like sixty lines of StoreKit, and every app that 
 ## Layout
 
 ```
-┌──────────────────┐  ┌────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│ PurchaseStoreKit │  │ PurchaseUI │  │ PurchaseTestKit │◄─│ PurchaseDebugUI │
-│  the App Store   │  │  SwiftUI   │  │ simulated store │  │   debug panel   │
-└────────┬─────────┘  └─────┬──────┘  └────────┬────────┘  └─────────────────┘
-         └──────────────────┼──────────────────┘
-                   ┌────────▼────────┐
-                   │  PurchaseCore   │   Foundation and Observation only.
-                   │  all the logic  │   No StoreKit, no SwiftUI.
-                   └─────────────────┘
+  what ships in the app                 DEBUG builds only                    tests only
+┌──────────────────┐ ┌────────────┐  ┌─────────────────┐ ┌─────────────────┐  ┌─────────────────────┐
+│ PurchaseStoreKit │ │ PurchaseUI │  │ PurchaseTestKit │◄│ PurchaseDebugUI │  │ PurchaseTestSupport │
+│  the App Store   │ │  SwiftUI   │  │ simulated store │ │   debug panel   │  │ manual clock, waits,│
+└────────┬─────────┘ └─────┬──────┘  └────────┬────────┘ └─────────────────┘  │ the .storekit check │
+         │                 │                  │      ▲                        └──────────┬──────────┘
+         │                 │                  │      └───────────────────────────────────┤
+         └─────────────────┼──────────────────┴──────────────────────────────────────────┘
+                  ┌────────▼────────┐
+                  │  PurchaseCore   │   Foundation and Observation only.
+                  │  all the logic  │   No StoreKit, no SwiftUI.
+                  └─────────────────┘
 ```
+
+| Product | Link it into | In a release build |
+|---|---|---|
+| `PurchaseCore`, `PurchaseStoreKit`, `PurchaseUI` | the app | Everything |
+| `PurchaseTestKit`, `PurchaseDebugUI` | the app, for a simulated store, scenarios, previews and the debug panel | **Nothing at all**: both modules are behind `#if DEBUG` from first line to last, and `swift package release-check` proves it, of the package and of a built app |
+| `PurchaseTestSupport` | test targets only | Everything — it grants nothing — which is why it is not the app's to link |
+| `PurchaseDirectDistribution` | a build sold outside the App Store | `EverythingOwnedStoreFront`, and nothing an App Store build should carry |
 
 Everything that decides anything is in `PurchaseCore` and runs under plain `swift test`, offline. That is not tidiness: `SKTestSession` does not work in a package test target at all.
 
@@ -100,7 +110,7 @@ make ui-tests         # the Demo launched with scenarios, as a screenshot run la
 make stress           # the suite ten times, for races
 ```
 
-Test your own app against `SimulatedStoreFront` and a `ManualClock`: a trial with five minutes left runs out in no time at all. Launch it for a UI test already owning something with `-PurchaseScenario "owns=pro"`. Anything that names the simulated store goes inside `#if DEBUG`, because that is the only place it exists. See [testing](docs/05-testing.md) and [the simulated store](docs/06-simulated-store.md).
+Test your own app against `SimulatedStoreFront` (`PurchaseTestKit`) and a `ManualClock` (`PurchaseTestSupport`): a trial with five minutes left runs out in no time at all. Launch it for a UI test already owning something with `-PurchaseScenario "owns=pro"`. Anything that names the simulated store goes inside `#if DEBUG`, because that is the only place it exists. See [testing](docs/05-testing.md) and [the simulated store](docs/06-simulated-store.md).
 
 ## Documentation
 

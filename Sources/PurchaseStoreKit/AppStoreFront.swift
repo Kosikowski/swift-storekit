@@ -32,16 +32,27 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
 
     // MARK: - ProductCatalogueLoading
 
+    /// **In a task nobody cancels.** StoreKit answers a *cancelled* request for
+    /// products with an empty list — not an error: measured, 0 of 2, on the Mac and on
+    /// iOS — and an empty list reads as "the store sells this build nothing". It is
+    /// the products' twin of what a cancelled task reads from the listing, and SwiftUI
+    /// cancels `.task` whenever a view goes away. `PurchaseStore` already asks from a
+    /// task of its own; this is for whoever asks the front directly.
     public func products() async throws(PurchaseError) -> [StoreProduct] {
-        do {
-            let products = try await gateway.products(for: catalogue.identifiers)
-            return products.filter { catalogue.contains($0.id) }
-        } catch {
-            switch StoreKitErrorMapping.verdict(for: error) {
-            case .cancelled: throw .system
-            case let .failure(failure): throw failure
+        let result = await Task { [catalogue, gateway] () -> Result<[StoreProduct], PurchaseError> in
+            do {
+                let products = try await gateway.products(for: catalogue.identifiers)
+                return .success(products.filter { catalogue.contains($0.id) })
+            } catch {
+                switch StoreKitErrorMapping.verdict(for: error) {
+                // Nobody backed out of anything: a request that was cancelled under
+                // us is a request that failed, and must never pass for an answer.
+                case .cancelled: return .failure(.system)
+                case let .failure(failure): return .failure(failure)
+                }
             }
-        }
+        }.value
+        return try result.get()
     }
 
     // MARK: - OwnershipReading
@@ -133,16 +144,25 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
     /// Every transaction that arrives on its own, finished where it should be and
     /// announced with its facts.
     ///
-    /// The store hands over anything left unfinished as soon as something listens, so
-    /// a purchase approved or made while the app was not running is not left hanging.
+    /// **What was left unfinished is asked for, not waited for.** Apple says the updates
+    /// sequence hands over unfinished transactions once, as the app launches `[Apple]`.
+    /// This listener starts with the first command and not with the process, and a
+    /// listener started a moment after an unfinished purchase was handed nothing in six
+    /// seconds while `Transaction.unfinished` still held it `[ran]`. So the backlog is
+    /// read once, after subscribing, and a purchase approved or made while the app was
+    /// not running is not left hanging on when the app happened to call `start()`. One
+    /// that turns up both ways is finished twice and announced twice, which costs
+    /// nothing.
+    ///
     /// A grant is announced with its dates because it arrives *before* the listing has
     /// it; a withdrawal, because a refund is exactly what a listener holding an
     /// unlisted purchase needs to hear about.
     public func transactionUpdates() -> AsyncStream<TransactionUpdate> {
+        // Subscribed first, so nothing falls between the backlog and the stream.
         let source = gateway.updates()
         let (stream, continuation) = AsyncStream<TransactionUpdate>.makeStream()
-        let task = Task { [catalogue, logger] in
-            for await snapshot in source {
+        let task = Task { [catalogue, logger, gateway] in
+            func take(_ snapshot: TransactionSnapshot) async {
                 switch TransactionTriage.verdict(for: snapshot, catalogue: catalogue) {
                 case let .adopt(product):
                     await snapshot.finish()
@@ -156,6 +176,8 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
                     logger.log(.foreignTransactionIgnored(snapshot.productID))
                 }
             }
+            for snapshot in await gateway.unfinished() { await take(snapshot) }
+            for await snapshot in source { await take(snapshot) }
             continuation.finish()
         }
         continuation.onTermination = { _ in task.cancel() }
@@ -164,7 +186,15 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
 
     // MARK: - StoreDiagnosing
 
+    /// In a task nobody cancels, like every other read here: asked from a cancelled
+    /// task, StoreKit returns no products and no entitlements, and this would diagnose
+    /// "the store sells nothing to this build" — and advise attaching a `.storekit`
+    /// file — for no better reason than that a view went away.
     public func diagnose() async -> StoreDiagnosis {
+        await Task { await diagnoseNow() }.value
+    }
+
+    private func diagnoseNow() async -> StoreDiagnosis {
         // A store that could not be *asked* is not a store that sells nothing, and the
         // advice for the two is opposite: check the network, or fix the scheme.
         var received: [StoreProduct] = []

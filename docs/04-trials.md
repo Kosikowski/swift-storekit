@@ -163,6 +163,7 @@ Instant, offline, and under plain `swift test`. (`YourApp` is your app's module,
 import Foundation
 import PurchaseCore
 import PurchaseTestKit
+import PurchaseTestSupport
 import Testing
 @testable import YourApp
 

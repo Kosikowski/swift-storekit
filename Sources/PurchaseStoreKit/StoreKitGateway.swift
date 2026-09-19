@@ -23,6 +23,9 @@ protocol StoreKitGateway: Sendable {
 
     func sync() async throws
 
+    /// Everything not yet finished, verified or not, catalogue or not.
+    func unfinished() async -> [TransactionSnapshot]
+
     /// Transactions arriving on their own, verified or not, catalogue or not.
     func updates() -> AsyncStream<TransactionSnapshot>
 }

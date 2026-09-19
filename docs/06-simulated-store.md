@@ -10,15 +10,23 @@ The samples use the `Shop` that [getting started](02-getting-started.md#declare-
 
 It remembers what was bought, the way the real store does for the account, and it keeps the real store's bad habits on purpose. A politer fake hides the bugs those habits cause; two of the rows below are here because an earlier, politer version hid exactly that bug.
 
-| Habit of the real store **[ran]** | In the simulated one |
-|---|---|
-| A purchase is listed about a second after `purchase()` returns | Listed **one read late** (`listsPurchasesAfterReads`, default 1) |
-| A grant that arrives on its own is announced before it is listed | `deliver` announces at once and lists one read late |
-| A refund does not lag | `revoke` is gone from the very next read |
-| A cancelled task is told it owns nothing | The same (`answersNothingWhenCancelled`) |
-| Buying what is owned hands back the original transaction, original date and all | The same, which is what makes a trial one trial. An approved Ask to Buy is that same purchase arriving later, so it comes with the original date too |
-| The payment sheet stays up for as long as the person takes | `purchaseGate`, and `restoreGate` for the password prompt |
-| The account may own things this device has not heard of | `seedEarlierPurchase`; they turn up when bought again, or on restore |
+| Habit of the real store | macOS 26.6 | iOS 27.0 simulator | Held to it by | In the simulated one |
+|---|---|---|---|---|
+| A purchase is listed *after* `purchase()` returns | about a second after **[ran]** | **at once** **[ran]** | `habitListingLag` | Listed **one read late** (`listsPurchasesAfterReads`, default 1). Set it to 0 for a store as prompt as iOS 27's; leave it, to find the bug the Mac will find for you |
+| A grant that arrives on its own is announced before it is listed | yes **[ran]** | listed by the time it arrives **[ran]** | `habitGrantBeforeListing` | `deliver` announces at once and lists one read late |
+| A refund does not lag | gone from the listing when announced **[ran]** | the same **[ran]** | `habitRefundDoesNotLag` | `revoke` is gone from the very next read |
+| A cancelled task is told it owns nothing | 0 of 1 **[ran]** | the same **[ran]** | the `CANARY` of that name | The same (`answersNothingWhenCancelled`) |
+| A cancelled request for *products* is answered with an empty list, not an error | 0 of 2 **[ran]** | the same **[ran]** | `cancelledCatalogueRead` | The same |
+| A purchase made here is not also announced | nothing in three seconds **[ran]** | the same **[ran]** | `habitSameDevicePurchaseIsNotAnnounced` | `purchase()` announces nothing |
+| A declined Ask to Buy sends nothing at all | nothing; it stays pending **[ran]** | delivered *as a purchase* — a fault of that simulator **[ran]** | `habitDeclinedAskToBuy` | `declinePending` clears the store's side and announces nothing |
+| An interrupted purchase is pending, and goes through later by itself | yes **[ran]** | `purchase()` throws — a fault of that simulator **[ran]** | `interruptedPurchase` | The same shape as Ask to Buy: `.pending`, then `approvePending` |
+| Buying what is owned hands back the original transaction, original date and all | yes **[ran]** | yes **[ran]** | `trialTwice` | The same, which is what makes a trial one trial. An approved Ask to Buy is that same purchase arriving later, so it comes with the original date too |
+| The payment sheet stays up for as long as the person takes | **[Apple]** | | — | `purchaseGate`, and `restoreGate` for the password prompt |
+| The account may own things this device has not heard of, and a restore brings them | **[Apple]** | | — not reachable in Xcode's environment, which has one device | `seedEarlierPurchase`; they turn up when bought again, or on restore |
+| A purchase can arrive as a family member's | **[Apple]**, sandbox only | | — | `seed(_:age:ownership: .familyShared)`: your word for it |
+| A grant can be announced and never listed | reported, not seen **[check]** | | — | `announceWithoutListing` |
+
+"Held to it by" is a test in `Demo/Tests` that *measures* the habit against real StoreKit and compares it with what is written down, per OS; when one fails, StoreKit has changed, and this table and perhaps the fake change with it. The habits differ between the two columns today. **Test against the awkward one**: an app that is right when the listing lags is right when it does not.
 
 ## Arranging it
 
@@ -40,6 +48,8 @@ Things that happen by themselves, announced on the updates stream so a running a
 front.deliver(Shop.pro)                  // bought on another device
 front.deliverTrial(Shop.trial, remaining: .seconds(300))
 front.approvePending(Shop.pro)           // a parent approves; false, and nothing granted, if it was not pending
+front.declinePending(Shop.pro)           // …or declines: nothing is announced, as with the real store
+front.listUnlisted()                     // the listing catches up by itself, with nobody reading it
 front.revoke(Shop.pro)                   // a refund
 front.announceWithoutListing(owned)               // announced, and never listed
 ```
@@ -48,6 +58,7 @@ How it misbehaves, changeable at any time:
 
 ```swift
 front.behaviour.purchase = .pending               // .succeeds | .cancelled | .fails(.unverified)
+front.behaviour.purchases = [Shop.pro: .pending]  // …or per product: the trial goes through, the unlock waits
 front.behaviour.restore = .fails(.network)        // .succeeds | .cancelled
 front.behaviour.catalogue = .loadsOnly([])        // a build the store sells nothing to
 front.behaviour.listsPurchasesAfterReads = 5      // a slower listing
@@ -64,9 +75,17 @@ front.restoreGate.close()       // the store is asking for a password
 
 `purchaseGate` holds the state a person looks at for longest, and the one in which a second tap, a closed window or a Buy button that was never disabled does its damage: while it is shut `activity` is `.purchasing`, and a second purchase is refused with `alreadyInProgress`. What the purchase comes to is decided when the gate opens, so a test can have the person back out — `front.behaviour.purchase = .cancelled`, then `front.purchaseGate.open()`.
 
-To serve your app's real names and prices, build it from your `.storekit` file:
+A customer who paid, and whose purchase does not verify — the support case an app most needs to have thought about. The store lists it, nobody owns it, and `diagnose()` says why:
 
 ```swift
+front.seedUnverified(Shop.pro)
+```
+
+To serve your app's real names and prices, build it from your `.storekit` file. The reader is in `PurchaseTestSupport`, so this is for a test target, or for an app that accepts carrying the file reader — which grants nothing — in its release build:
+
+```swift
+import PurchaseTestSupport
+
 let file = try StoreKitConfiguration(contentsOf: url)
 let front = SimulatedStoreFront(catalogue: Shop.catalogue, configuration: file)
 ```
@@ -95,7 +114,9 @@ Clauses are joined by `;`.
 |---|---|
 | `owns=` holding, … | Listed from launch |
 | `earlier=` holding, … | Owned by the account, unknown to this device |
+| `unverified=` product, … | Listed, with a signature that does not check out: owned by nobody |
 | `purchase=` `succeeds` \| `pending` \| `cancelled` \| `held` \| `fails:`error | How the next purchases end. `held` closes the purchase gate: the payment sheet is up |
+| `purchase=` product`:`outcome, … | The same, per product: `purchase=pro:pending,trial:succeeds` |
 | `restore=` `succeeds` \| `cancelled` \| `held` \| `fails:`error | How a restore ends. `held` closes the restore gate |
 | `catalogue=` `loads` \| `empty` \| `held` \| `fails:`error | `held` closes the catalogue gate |
 | `ownership=` `answers` \| `held` | `held` closes the ownership gate |
@@ -113,6 +134,8 @@ Errors: `productUnavailable`, `purchaseNotAllowed`, `notAvailableInStorefront`, 
 | A trial used on another device | `earlier=trial@20d` |
 | Ask to Buy | `purchase=pending` |
 | A purchase that does not verify | `purchase=fails:unverified` |
+| Someone who paid, and whose purchase does not verify | `unverified=pro` |
+| The trial goes through and the unlock waits for approval | `purchase=pro:pending,trial:succeeds` |
 | The store not having answered | `ownership=held` |
 | A purchase under way, the sheet still up | `purchase=held`, then press Buy |
 | An owner, offline | `owns=pro; catalogue=fails:network` |

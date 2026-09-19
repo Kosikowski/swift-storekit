@@ -55,6 +55,7 @@ Each item says how it is known:
 ### Handled by the package
 
 - [ ] **`Transaction.currentEntitlements` is the single source of truth.** The package keeps no entitlement of its own and stores nothing. It answers from StoreKit's cache when offline. [Apple]
+- [ ] **Products are never asked for in a task something else can cancel, either.** A cancelled `Product.products(for:)` is answered with an *empty list*, not an error: 0 of 2. It reads as a store that sells this build nothing. `PurchaseStore.loadProducts()`, `AppStoreFront.products()` and `diagnose()` all ask from a task of their own. [ran] ([decisions](10-decisions.md))
 - [ ] **Ownership is never read in a task something else can cancel.** A cancelled task reads *nothing* from `currentEntitlements`: 0 of 1 entitlements. Nothing at all is indistinguishable from owning nothing, and SwiftUI cancels `.task` whenever a view goes away, so a paying customer who closes a sheet at the wrong moment is told they own nothing. `PurchaseStore` reads in a task of its own, single-flight, and a cancelled caller waits for it like anyone else. [ran] ([decisions](10-decisions.md))
 - [ ] **A transaction counts only if it is `.verified`, its `revocationDate` is nil, and** (for anything whose meaning depends on who bought it, such as a trial) **`ownershipType == .purchased`.** Family-shared transactions carry the organiser's `originalPurchaseDate`. `TransactionTriage` decides the first two and `StandingResolver.counts(_:in:)` the third. [review] ([the adapter](08-storekit-adapter.md))
 - [ ] **A trial is dated by its own transaction's `originalPurchaseDate`.** It is then the same on every device, survives a reinstall and can't be edited. Buying the trial again returns the original transaction, so the trial carries on rather than restarting (§4). [review] ([trials](04-trials.md))
@@ -159,11 +160,15 @@ What a downgrade *does* is policy, and none of it is the package's.
     - has a gate that holds "what is owned" shut, for "StoreKit hasn't answered yet" (`ownershipGate`);
     - has a gate that holds the catalogue shut, for "slow network" (`catalogueGate`);
     - has gates that hold a purchase and a restore open, for "the payment sheet is up" (`purchaseGate`, `restoreGate`);
-    - approves an Ask to Buy only if one is pending, and as the purchase it would have been: for something already owned elsewhere, the original date.
+    - approves an Ask to Buy only if one is pending, and as the purchase it would have been: for something already owned elsewhere, the original date; and declines one by announcing nothing, as StoreKit does;
+    - answers a cancelled request for *products* with an empty list, as StoreKit does; [ran]
+    - can end each product's purchase differently, list a purchase as unverified, and let the listing catch up with nobody reading it.
+- [ ] **Each habit the fake imitates is measured against real StoreKit, per OS**, by a test that fails when StoreKit changes; the habits already differ between macOS 26.6 and the iOS 27 simulator. [ran] ([decisions](10-decisions.md))
+- [ ] **What a test needs and an app does not is a product of its own** (`PurchaseTestSupport`), so that the module an app links for its debug panel is empty in release. [ran]
 - [ ] **The clock is injected.** `TimeProviding`, with `SystemClock` and `ManualClock`. Expiry is tested both with a manual clock (logic) and with a real sub-second interval (the scheduled re-read). ([trials](04-trials.md#testing-the-trial-ends-in-five-minutes))
 - [ ] **Real StoreKit is probed from a hosted test** to learn what a given build actually receives: `StoreDiagnosing`, which `AppStoreFront` implements. That is how "debug builds get nothing" was found. [ran]
 - [ ] **The package's own adapter is run end to end with `SKTestSession`**, in `Demo/Tests`, on the Mac and in an iOS simulator, including StoreKit's own errors (`setSimulatedError`), an unverified purchase, and a canary that fails if StoreKit ever starts answering a cancelled task. Faults that belong to one OS are recorded as known issues there. [ran] ([testing](05-testing.md))
-- [ ] **The package's own tests build and run in release**, where the simulated store does not exist (`make release-tests`), and **`make check` compiles the Demo with its hosted tests for the Mac and iOS, its UI tests, and the app once more in Release, linked**, since nothing else would notice an API change breaking them. [ran]
+- [ ] **The package's own tests run in release as far as they can**: everything that does not need the simulated store, which does not exist there, plus a few tests of `PurchaseStore` itself against a store front that lives in `Tests/` (`make release-tests`; 84 of 196 today), and **`make check` compiles the Demo with its hosted tests for the Mac and iOS, its UI tests, and the app once more in Release, linked**, since nothing else would notice an API change breaking them. [ran]
 
 ### Your app's responsibility
 
@@ -174,9 +179,12 @@ What a downgrade *does* is policy, and none of it is the package's.
     - Disarm a simulated error with `resetToDefaultState()`, not by passing nil: on macOS 26.6, nil for `.purchase` leaves every later purchase failing. [ran]
     - No StoreKit Configuration is needed on the Test action or the test plan: the session made in code loads the file. The scheme's setting belongs to Run. [Apple]
     - Keep the app's own store out of the way while it hosts tests: build none when `XCTestConfigurationFilePath` is in the environment. It listens for transactions too, and finishes the ones the tests are waiting to see.
-- [ ] **Test StoreKit's own failures with `setSimulatedError`**: a load that fails, a purchase that is refused, a purchase that does not verify. [ran]
+- [ ] **Test StoreKit's own failures with `setSimulatedError`**: a load that fails, a purchase that is refused, a purchase that does not verify, a restore the App Store cannot be reached for. And what else the environment does cheaply: an interrupted purchase, a declined Ask to Buy. [ran]
+- [ ] **Give `xcodebuild` a timeout.** It has been seen to finish a simulator run green and never exit. [ran]
 - [ ] **Test a trial that is nearly over with a very short trial, and with a backdated purchase where the OS allows it.** Apple documents backdating (`.purchaseDate(_:)` with `buyProduct(identifier:options:)`), and it works in the iOS 27 simulator. On macOS 26.6 `buyProduct` fails with `StoreKitError.unknown` and the option, through `product.purchase(options:)`, is ignored. [ran]
 - [ ] **Test your own policy against the simulated store and a manual clock**: nothing locked and nothing offered before the store answers, the downgrade when a trial ends, the wording of each outcome. Give the model `any PurchaseStateProviding`, and have it ask `knownStanding()`.
+- [ ] **Link `PurchaseTestSupport` into test targets and not into the app.** It is in every configuration, so an app that links it ships it.
+- [ ] **Remember that a TestFlight build is a Release build**: no simulated store, no scenarios, no debug panel. And hand out Release builds, not `Debug…` ones: a debug build honours `-PurchaseScenario`, by design.
 - [ ] **Put every test, preview and composition root that names the simulated store inside `#if DEBUG`.** It exists only there, so anything else fails the first Release build: a release test run, or the archive. [ran]
 - [ ] **Have every UI test assert a "simulated store" marker first.** In a build that cannot honour a scenario the app runs on the real store and nothing fails. [ran]
 - [ ] **Test Family Sharing in the sandbox, with a Sandbox Test Family.** Xcode's environment cannot make a purchase arrive as a family member's; the simulated store can, and is the only automated way. [Apple]

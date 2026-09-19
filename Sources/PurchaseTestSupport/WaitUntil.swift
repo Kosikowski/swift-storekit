@@ -1,9 +1,13 @@
 //
 //  WaitUntil.swift
-//  PurchaseTestKit
+//  PurchaseTestSupport
 //
 
 /// Waits for `condition`, for at most `timeout`, returning as soon as it holds.
+///
+/// Five seconds unless told otherwise. It costs nothing when the condition holds, which
+/// is every time a suite is green; a tighter ceiling on a *positive* wait is only a
+/// flake waiting for a loaded machine.
 ///
 /// For the few things a test cannot await directly — a transaction delivered through
 /// the updates stream reaches the store on another task. **Not a sleep**: it costs
@@ -15,7 +19,7 @@
 ///     #expect(purchases.standing.ownership(of: "pro") != nil)
 @discardableResult
 public func waitUntil(
-    timeout: Duration = .seconds(2),
+    timeout: Duration = .seconds(5),
     _ condition: () async -> Bool
 ) async -> Bool {
     let clock = ContinuousClock()

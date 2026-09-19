@@ -233,7 +233,7 @@ Otherwise a click in the first moments opens something that should be locked or,
 
 A product enters the set when `purchase` returns `.pending`. It leaves when a grant for it arrives on the updates stream, or when a resolved standing owns it.
 
-**It is for this session only.** StoreKit has no API that lists purchases awaiting approval `[Apple]`, so after a relaunch the set is empty even if a request is still open. The approval itself is not lost: it arrives as a transaction update whenever it comes, and the store hands over anything unfinished as soon as something listens. If the request is declined, nothing arrives `[check]`, and the product stays in the set until the app is relaunched. Word "waiting for approval" accordingly: as a status, not a promise.
+**It is for this session only.** StoreKit has no API that lists purchases awaiting approval `[Apple]`, so after a relaunch the set is empty even if a request is still open. The approval itself is not lost: it arrives as a transaction update whenever it comes, and the adapter asks for anything left unfinished as it starts listening. If the request is declined, nothing arrives — measured on macOS 26.6 `[ran]`; the iOS 27 simulator delivers a decline as a purchase, which is its fault and not a behaviour to build on — and the product stays in the set until the app is relaunched. Word "waiting for approval" accordingly: as a status, not a promise.
 
 ## `activity`
 

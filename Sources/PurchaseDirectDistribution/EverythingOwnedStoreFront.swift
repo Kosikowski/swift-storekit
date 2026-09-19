@@ -1,8 +1,6 @@
 //
 //  EverythingOwnedStoreFront.swift
-//  PurchaseCore
-//
-//  Layer: Application
+//  PurchaseDirectDistribution
 //
 //  A store for builds that are sold some other way.
 //
@@ -14,8 +12,13 @@
 //  **This ships in release builds, by design**, unlike the simulated store. It cannot
 //  be switched on by an argument or a preference; it is what the app was built with.
 //
+//  In a product of its own, so that only a build that is sold some other way links
+//  it. An App Store build has no use for a store in which everything is owned, and
+//  while this lived in PurchaseCore every App Store build carried one all the same.
+//
 
 import Foundation
+public import PurchaseCore
 
 /// A store in which every unlock is already owned and nothing is for sale.
 public struct EverythingOwnedStoreFront: StoreFront {

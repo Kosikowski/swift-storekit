@@ -14,6 +14,8 @@ Apple describes three, to be used in this order. **[Apple]** None of them charge
 | **Sandbox** | End to end with real App Store Connect products, servers included | App Store | Family Sharing, with Sandbox Test Families; declined and prorated refunds | Approving or declining Ask to Buy; forcing errors |
 | **TestFlight** | Testers, on a production-configured build | App Store (it is the sandbox) | | As sandbox |
 
+**A TestFlight build is a Release build.** It has no simulated store, no scenarios and no debug panel — those exist only in DEBUG — so everything in [the simulated store](06-simulated-store.md) stops at the archive, and what testers exercise is the sandbox and nothing else.
+
 Apple nowhere suggests mocking StoreKit, abstracting it, or injecting it: its answer to "how do I test this" is always `StoreKitTest` against the local environment. **[Apple]** Its test store is safe by construction — the `.storekit` file's data "don't appear in App Store-signed apps". This package uses Apple's tools for what they are good at and adds a simulated store for what they cannot reach.
 
 ## What Apple's tools cannot reach
@@ -41,28 +43,30 @@ Measured on macOS 26.6 and in the iOS 27.0 simulator, with Xcode 27.0. **[ran]**
 | The StoreKit adapter against StoreKit's own transactions and errors | real StoreKit, `Demo.storekit` | `make integration`, `make integration-ios` (hosted by the Demo app) |
 | Your `.storekit` file against your catalogue | `StoreKitConfiguration` — no StoreKit | `swift test` |
 | Family Sharing, real products, real signatures, servers | Sandbox, then TestFlight | by hand |
+| **Where the payment sheet appears** — `PurchaseAction`, a window, a view controller | nothing automated: the hosted tests buy with `.automatic`, and no test here reaches `PurchaseButton`'s own path | by hand, with two windows open |
 
 ## Guard every test that names the simulated store
 
-`SimulatedStoreFront` and `Scenario` exist only in DEBUG builds ([release safety](07-release-safety.md)), so **a test that names them must too**:
+`SimulatedStoreFront`, `AnswerGate` and `Scenario` — the whole of `PurchaseTestKit` — exist only in DEBUG builds ([release safety](07-release-safety.md)), so **a test that names them must too**:
 
 ```swift
 #if DEBUG
 import PurchaseCore
-import PurchaseTestKit
+import PurchaseTestKit          // the simulated store: DEBUG only
+import PurchaseTestSupport      // the clock and the waits: every configuration
 import Testing
 
 // …every test below…
 #endif
 ```
 
-Without the guard the file does not compile in a release test run — `swift test -c release`, or a test plan whose configuration is Release — and the failure is a wall of "cannot find 'SimulatedStoreFront' in scope". `ManualClock`, `AnswerGate`, `waitUntil`, `RecordingPurchaseLogger` and `StoreKitConfiguration` need no guard: they grant nothing, and exist in every configuration.
+Without the guard the file does not compile in a release test run — `swift test -c release`, or a test plan whose configuration is Release — and the failure is a wall of "cannot find 'SimulatedStoreFront' in scope". What is in `PurchaseTestSupport` — `ManualClock`, `waitUntil`, `RecordingPurchaseLogger`, `StoreKitConfiguration` — needs no guard: it grants nothing, and exists in every configuration. Link it into test targets and not into the app.
 
 **A release test job then proves that these files compile, and nothing more**: the guarded tests are not there to run. A suite that is guarded from top to bottom reports "Test run with 0 tests" and passes. **[ran]** Keep what needs no simulated store — the `.storekit` check, anything on `ManualClock` alone — outside the guard, and if the job's count matters, put a floor under it, as this package's CI does for both configurations.
 
 A release run also needs testability switched back on wherever a test uses `@testable import`: `-Xswiftc -enable-testing` for SwiftPM, `ENABLE_TESTABILITY = YES` on the Release configuration for an Xcode test plan.
 
-This package's own suite is guarded the same way, and `make check` runs it in release (`make release-tests`) to keep that true.
+This package's own suite is guarded the same way, and `make check` runs it in release (`make release-tests`) to keep that true. So that the release run is not only the easy half, a few tests of `PurchaseStore` itself — a cancelled caller, single-flight, a trial running out — run against a small store front that lives in `Tests/`, where nothing ships and so nothing needs a guard. If your release job matters to you, do the same: a stub of your own costs fifty lines.
 
 ## The simulated store in a unit test
 
@@ -70,6 +74,7 @@ This package's own suite is guarded the same way, and `make check` runs it in re
 #if DEBUG
 import PurchaseCore
 import PurchaseTestKit
+import PurchaseTestSupport
 import Testing
 @testable import YourApp
 
@@ -95,7 +100,7 @@ func trialRunsOut() async {
 Three rules keep such tests from flaking:
 
 - **Give the store and the simulated front the same clock**, so purchase dates and expiry agree.
-- **Wait on a condition, never on a duration.** `waitUntil` returns the moment its condition holds — or after its `timeout`, two seconds unless you say otherwise — and the `#expect` after it is what fails, so a failure says what was expected rather than "timed out".
+- **Wait on a condition, never on a duration.** `waitUntil` returns the moment its condition holds — or after its `timeout`, five seconds unless you say otherwise — and the `#expect` after it is what fails, so a failure says what was expected rather than "timed out".
 - **Before moving time, wait for the sleeper** (`clock.sleeperCount`), so the store has got as far as scheduling its look.
 
 `ManualClock` does not race: deadlines are absolute, so advancing before a sleeper arrives and after it come to the same thing, and whether to park is decided under the lock that `advance` takes.
@@ -133,6 +138,7 @@ The most useful test in a purchasing suite. Nothing may be locked, nothing offer
 #if DEBUG
 import PurchaseCore
 import PurchaseTestKit
+import PurchaseTestSupport
 import Testing
 @testable import YourApp
 
@@ -207,11 +213,41 @@ private func session() throws -> SKTestSession {
 | `.loadProducts`, a network error | thrown as armed → `network` | thrown as a *system* error → `system` |
 | `.purchase`, `purchaseNotAllowed` | thrown as armed → `purchaseNotAllowed` | thrown as `StoreKitError.unknown` |
 | `.verification` | `purchase()` returns an **unverified** transaction, and the listing has it unverified → `unverified`, nothing unlocked | the same |
+| `.appStoreSync`, a network error | a restore throws as armed → `network`, and takes nothing away | thrown, as something |
 | Disarming with `nil`, as documented | **for `.purchase` it arms `StoreKitError.unknown` instead**, until `resetToDefaultState()` | works |
+
+**And what else the environment can do, cheaply**, all of it through the real adapter in `Demo/Tests`:
+
+| | macOS 26.6 | iOS 27.0 simulator |
+|---|---|---|
+| A restore under `disableDialogs` | `completed` | `completed` |
+| An **interrupted purchase** (`interruptedPurchasesEnabled`, then `resolveIssueForTransaction`) | pending, then unlocks through the updates | `purchase()` throws `StoreKitError.unknown` — a known issue there |
+| Ask to Buy **declined** | nothing arrives; the purchase stays pending for the session | the decline is delivered *as a purchase* — a known issue there |
+| A purchase made here, and the updates | not announced: it comes back from `purchase()` | the same |
+| A **cancelled** request for products | **an empty list, not an error**: 0 of 2 | the same |
+| A purchase left unfinished before anything listened | not pinned: it appears in `Transaction.unfinished` after half a second and is gone again, unfinished by anybody, a second later **[check]** | not measured |
 
 So the mapping is proved on the Mac, and on iOS the same tests prove that a failure is a failure and changes nothing. Where a fault belongs to one OS the test records it as a *known issue* there (`withKnownIssue(…, when:)`), which is a canary both ways: it fails if the fault turns up where it should not, and if it has gone from where it was.
 
-`make integration` and `make integration-ios` are not part of CI: StoreKit's test environment is reported to be unreliable under command-line `xcodebuild` on hosted runners **[check]**, and a lane that fails for reasons of its own teaches people to ignore it. They run from the command line on a Mac in about fifteen seconds. **[ran]** What CI does do is *build* them (`make demo`, part of `make check`): the Demo and its hosted tests for the Mac and for iOS, the UI tests, and the app once more in Release, linked. Nothing else compiles any of it, and an API change would otherwise break it unnoticed.
+**Give `xcodebuild` a timeout.** It has been seen to finish a simulator run — every test green — and then never exit. **[ran]** The Makefile's test lanes run under an alarm (`TEST_TIMEOUT`, twenty minutes).
+
+`make integration` and `make integration-ios` do not gate pull requests: StoreKit's test environment is reported to be unreliable under command-line `xcodebuild` on hosted runners **[check]**, and a lane that fails for reasons of its own teaches people to ignore it. But every claim here about what StoreKit does lives in that suite, so "by hand, before a release" was not often enough either. It runs **nightly and on request** (`.github/workflows/integration.yml`), never blocking, with one retry, the result bundle kept, and a red night opening an issue; what that lane measures is what should replace the **[check]** above. From the command line on a Mac it takes about half a minute, and was green every time it was run here. **[ran]**
+
+What CI does on every push is *build* it all (`make demo`, part of `make check`): the Demo and its hosted tests for the Mac and for iOS, the UI tests, and the app once more in Release — linked, and searched for the simulated store. Nothing else compiles any of it, and an API change would otherwise break it unnoticed. CI runs with the hosted image's Xcode (26.6 when this was written), which is what proves the package builds with the older SDK, and also means a green run there says nothing about StoreKit's behaviour: everything marked **[ran]** was run with Xcode 27.
+
+## What the simulated store does not prove
+
+A green suite against `SimulatedStoreFront` says your app does the right thing *given* a store that behaves as the simulated one does. It says nothing about:
+
+- **Signatures and verification.** The simulated store has no signatures. It can list a purchase as unverified (`seedUnverified`), which tests your support path and not StoreKit's checking.
+- **How long the lag is.** It imitates the *order* of events — announced, then listed — in reads, not in time, and that order is itself per OS: a purchase is listed about a second late on macOS 26.6 and at once in the iOS 27 simulator ([the simulated store](06-simulated-store.md#a-fake-not-a-stub)).
+- **What is redelivered at launch.** Unfinished transactions, and purchases made while the app was not running, are StoreKit's to hand over. The adapter asks for the backlog; nothing here shows StoreKit giving it.
+- **The payment sheet**: that it appears, over which window, and what the person sees.
+- **Family Sharing's dates and revocations**, as the App Store really sends them. The simulated store takes your word for the ownership you seed.
+- **Storefronts, currencies and price tiers.** It serves what your `.storekit` file says, or made-up prices.
+- **Your server**, App Store Server Notifications, and anything else downstream of a real transaction.
+
+Those are what the hosted suite, the sandbox and TestFlight are for, in that order.
 
 ## Every regression test is proven to bite
 

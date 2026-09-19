@@ -1,0 +1,67 @@
+# The real adapter against real StoreKit, in a test bundle hosted by the Demo app.
+#
+# Every claim this package makes about what StoreKit does lives in this suite, so "by
+# hand, before a release" was not often enough — and as a gate on every pull request it
+# would be too often: StoreKit's test environment is reported to be unreliable under
+# command-line xcodebuild on hosted runners, and a lane that fails for reasons of its
+# own teaches people to ignore it. So: nightly and on request, never blocking, one retry,
+# a timeout (xcodebuild has been seen to finish a run green and never exit), the result
+# bundle kept, and a red night opens an issue. What this lane measures is what should
+# replace "reported to be unreliable" in docs/05.
+#
+# The Mac only, to begin with. The hosted image's Xcode decides what is being measured:
+# see the Toolchain step, and do not read a green run as a statement about any other OS.
+name: Real StoreKit
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  integration:
+    name: make integration
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: XcodeGen
+        run: brew install xcodegen
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      # Once more if it fails: the first retry policy anybody reaches for, and honest so
+      # long as the log says which attempt passed.
+      - name: Hosted suite, macOS
+        run: |
+          make integration TEST_TIMEOUT=900 && echo "passed at the first attempt" \
+            || { echo "::warning::first attempt failed; trying once more"; make integration TEST_TIMEOUT=900 && echo "passed at the SECOND attempt"; }
+
+      - name: Keep the result bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-storekit-results
+          path: build/demo/Logs/Test
+          if-no-files-found: ignore
+
+      - name: A red night opens an issue
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="The real-StoreKit lane is red"
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number --jq length)
+          if [ "$open" -eq 0 ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" \
+              --body "The nightly run of \`make integration\` failed twice: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Either StoreKit has changed — in which case a habit the simulated store imitates may have changed with it (docs/06) — or the lane is flaky, and that is worth writing down too (docs/05)."
+          fi

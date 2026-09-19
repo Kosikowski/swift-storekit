@@ -26,8 +26,8 @@
 @testable import Demo
 import Foundation
 import PurchaseCore
-import PurchaseStoreKit
-import PurchaseTestKit
+@testable import PurchaseStoreKit
+import PurchaseTestSupport
 import StoreKit
 import StoreKitTest
 import Testing
@@ -104,10 +104,12 @@ struct RealStoreKitTests {
         }
         if case .owned = store.standing.access(to: Self.pro) {} else { Issue.record("not unlocked at once") }
 
-        // …and it is still unlocked once StoreKit's own listing has taken over.
-        await waitUntil(timeout: .seconds(10)) {
+        // …and it is still unlocked once StoreKit's own listing has taken over — which it
+        // has to be seen to do, or what follows passes on the hold alone.
+        let listed = await waitUntil(timeout: .seconds(10)) {
             await AppStoreFront(catalogue: Self.catalogue()).ownedProducts().map(\.id) == [Self.pro]
         }
+        #expect(listed, "StoreKit never listed the purchase")
         await store.refresh()
         if case .owned = store.standing.access(to: Self.pro) {} else { Issue.record("lost once listed") }
         withExtendedLifetime(session) {}
@@ -251,8 +253,19 @@ struct RealStoreKitTests {
     /// a *known issue* where it is expected, which is a canary both ways: the test
     /// fails if the fault turns up where it should not, and if it has gone from where
     /// it was.
-    private static var hasThe27Fixes: Bool {
+    nonisolated private static var hasThe27Fixes: Bool {
         if #available(macOS 27, iOS 27, *) { true } else { false }
+    }
+
+    /// And two faults the other way about: right on macOS 26.6, wrong in the iOS 27.0
+    /// simulator. A *declined* Ask to Buy goes through as a purchase there, and a
+    /// purchase with interruptions switched on throws `StoreKitError.unknown`.
+    nonisolated private static var isTheIOSSimulator: Bool {
+        #if os(iOS)
+        true
+        #else
+        false
+        #endif
     }
 
     /// The test this package could not write on macOS 26, and the reason `trialEnds`
@@ -282,6 +295,9 @@ struct RealStoreKitTests {
             #expect(store.standing.access(to: Self.pro) == .onTrial(period, via: Self.trial))
         } when: {
             !Self.hasThe27Fixes
+        } matching: { issue in
+            // That fault and no other: anything else going wrong in here is a failure.
+            issue.error is StoreKitError
         }
         withExtendedLifetime(session) {}
     }
@@ -299,6 +315,8 @@ struct RealStoreKitTests {
             try await store.purchase(Self.pro)
         } when: {
             !Self.hasThe27Fixes
+        } matching: { issue in
+            (issue.error as? PurchaseError) == .unknown(typeName: "StoreKitError.unknown")
         }
         session.resetToDefaultState()
         session.disableDialogs = true
@@ -308,6 +326,222 @@ struct RealStoreKitTests {
         }
         withExtendedLifetime(session) {}
     }
+
+    // MARK: - The habits the simulated store imitates, held to the real thing
+
+    /// What was measured, where. The simulated store imitates these, and a fake is only
+    /// as good as the evidence that the real thing still behaves so — so each habit has
+    /// a test that *measures* it and compares it with what is written here. When one
+    /// fails, StoreKit has changed: change this, the table in docs/06, and think about
+    /// the fake. They are per OS because they differ per OS: "a purchase is listed
+    /// about a second late" was true of macOS 26.6 and is not true of the iOS 27
+    /// simulator.
+    private enum Measured {
+        #if os(macOS)
+        /// macOS 26.6: empty straight after `purchase()`, listed within about a second.
+        static let listsAPurchaseLate = true
+        /// macOS 26.6: an approved Ask to Buy is announced while the listing is still empty.
+        static let announcesAGrantBeforeListingIt = true
+        #else
+        /// iOS 27.0 simulator.
+        static let listsAPurchaseLate = false
+        static let announcesAGrantBeforeListingIt = false
+        #endif
+        /// Both: the listing is already without it when the refund is announced.
+        static let listsARefundAtOnce = true
+    }
+
+    private func isListed(_ id: ProductID) async -> Bool {
+        await AppStoreFront(catalogue: Self.catalogue()).ownedProducts().contains { $0.id == id }
+    }
+
+    @Test("HABIT: is a purchase listed the moment purchase() returns?")
+    func habitListingLag() async throws {
+        let session = try await session()
+        let front = AppStoreFront(catalogue: Self.catalogue())
+        guard case .purchased = try await front.purchase(Self.pro, confirmation: .automatic) else {
+            Issue.record("expected the purchase to go through")
+            return
+        }
+        let listedAtOnce = await isListed(Self.pro)
+        print("MEASURED listedAtOnce:", listedAtOnce)
+        #expect(listedAtOnce == !Measured.listsAPurchaseLate)
+        // The control: it does get listed, so "not yet" above meant *late* and not *never*.
+        #expect(await waitUntil(timeout: .seconds(10)) { await isListed(Self.pro) })
+        withExtendedLifetime(session) {}
+    }
+
+    @Test("HABIT: does an approved Ask to Buy arrive BEFORE the listing has it?")
+    func habitGrantBeforeListing() async throws {
+        let session = try await session()
+        session.askToBuyEnabled = true
+        let front = AppStoreFront(catalogue: Self.catalogue())
+        var updates = front.transactionUpdates().makeAsyncIterator()
+        #expect(try await front.purchase(Self.pro, confirmation: .automatic) == .pending)
+        let waiting = try #require(session.allTransactions().first { $0.productIdentifier == Self.pro.rawValue })
+        try session.approveAskToBuyTransaction(identifier: waiting.identifier)
+        guard case .granted? = await updates.next() else {
+            Issue.record("expected the approval to arrive as a grant")
+            return
+        }
+        let listedOnArrival = await isListed(Self.pro)
+        print("MEASURED listedOnArrival:", listedOnArrival)
+        #expect(listedOnArrival == !Measured.announcesAGrantBeforeListingIt)
+        #expect(await waitUntil(timeout: .seconds(10)) { await isListed(Self.pro) })
+        withExtendedLifetime(session) {}
+    }
+
+    @Test("HABIT: is a refund gone from the listing by the time it is announced?")
+    func habitRefundDoesNotLag() async throws {
+        let session = try await session()
+        let front = AppStoreFront(catalogue: Self.catalogue())
+        var updates = front.transactionUpdates().makeAsyncIterator()
+        _ = try await front.purchase(Self.pro, confirmation: .automatic)
+        #expect(await waitUntil(timeout: .seconds(10)) { await isListed(Self.pro) })   // the control
+        let bought = try #require(session.allTransactions().first { $0.productIdentifier == Self.pro.rawValue })
+        try session.refundTransaction(identifier: bought.identifier)
+        // The first thing heard may be the purchase itself: the adapter reads the backlog
+        // of unfinished transactions as it subscribes, and that read can catch a purchase
+        // in the instant before it is finished. Announced twice, which costs nothing.
+        var heard: TransactionUpdate?
+        repeat { heard = await updates.next() } while heard != nil && heard != .withdrawn(Self.pro)
+        #expect(heard == .withdrawn(Self.pro))
+        let stillListed = await isListed(Self.pro)
+        print("MEASURED stillListedOnRefund:", stillListed)
+        #expect(stillListed == !Measured.listsARefundAtOnce)
+        withExtendedLifetime(session) {}
+    }
+
+    /// The simulated store's `purchase()` announces nothing, on Apple's word that a
+    /// purchase made on this device comes back from `purchase()` and not through the
+    /// updates. Nothing pinned that.
+    @Test("HABIT: a purchase made HERE does not also arrive through the updates")
+    func habitSameDevicePurchaseIsNotAnnounced() async throws {
+        let session = try await session()
+        // StoreKit's own sequence, not the adapter's: this is about what StoreKit does.
+        let heard = Task { () -> String? in
+            for await result in Transaction.updates { return result.unsafePayloadValue.productID }
+            return nil
+        }
+        try await Task.sleep(for: .milliseconds(300))      // listening before the purchase
+        // Through the adapter, which finishes it at once, as an app's purchase is.
+        _ = try await AppStoreFront(catalogue: Self.catalogue()).purchase(Self.pro, confirmation: .automatic)
+        try await Task.sleep(for: .seconds(3))
+        heard.cancel()
+        #expect(await heard.value == nil)
+        withExtendedLifetime(session) {}
+    }
+
+    /// The reason `declinePending` announces nothing, and the reason `pendingApprovals`
+    /// is for the session only: the app is never told.
+    @Test("HABIT: a DECLINED Ask to Buy sends nothing, and the purchase stays pending")
+    func habitDeclinedAskToBuy() async throws {
+        let session = try await session()
+        session.askToBuyEnabled = true
+        let store = store()
+        await store.start()
+        #expect(try await store.purchase(Self.pro) == .pending)
+        let waiting = try #require(session.allTransactions().first { $0.productIdentifier == Self.pro.rawValue })
+        try session.declineAskToBuyTransaction(identifier: waiting.identifier)
+        try await Task.sleep(for: .seconds(3))
+        withKnownIssue("in the iOS 27.0 simulator a declined Ask to Buy is delivered as a purchase") {
+            #expect(store.pendingApprovals == [Self.pro])
+            #expect(store.standing.access(to: Self.pro) == .none)
+        } when: {
+            Self.isTheIOSSimulator
+        }
+        withExtendedLifetime(session) {}
+    }
+
+    /// The products' twin of the canary below, and the reason `AppStoreFront.products()`
+    /// and `diagnose()` ask from a task of their own. With controls either side: there
+    /// are products to be had, before and after.
+    @Test("CANARY: real StoreKit answers a cancelled request for PRODUCTS with an empty list, not an error")
+    func cancelledCatalogueRead() async throws {
+        let session = try await session()
+        let identifiers = [Self.pro.rawValue, Self.trial.rawValue]
+        #expect(try await Product.products(for: identifiers).count == 2)
+        let cancelled = Task { () -> Int in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return (try? await Product.products(for: identifiers).count) ?? -1
+        }
+        #expect(await cancelled.value == 0)
+        #expect(try await Product.products(for: identifiers).count == 2)
+
+        // …and asked through the adapter by a cancelled caller, the answer is whole.
+        let front = AppStoreFront(catalogue: Self.catalogue())
+        let asked = Task { () -> (Int, [StoreDiagnosis.Hint]) in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return ((try? await front.products().count) ?? -1, await front.diagnose().hints)
+        }
+        let (count, hints) = await asked.value
+        #expect(count == 2)
+        #expect(hints.isEmpty)
+        withExtendedLifetime(session) {}
+    }
+
+    // MARK: - Restoring, interruptions and what was left unfinished
+
+    @Test("a restore completes; one the App Store cannot be reached for is a failure that takes nothing away")
+    func restore() async throws {
+        let session = try await session()
+        let store = store()
+        try await store.purchase(Self.pro)
+        #expect(try await store.restorePurchases() == .completed)
+
+        try await session.setSimulatedError(
+            .generic(.networkError(URLError(.notConnectedToInternet))), forAPI: .appStoreSync)
+        #if os(macOS)
+        await #expect(throws: PurchaseError.network) { try await store.restorePurchases() }
+        #else
+        await #expect(throws: PurchaseError.self) { try await store.restorePurchases() }
+        #endif
+        if case .owned = store.standing.access(to: Self.pro) {} else { Issue.record("a failed restore took the unlock away") }
+        withExtendedLifetime(session) {}
+    }
+
+    /// A purchase the App Store interrupts — terms to accept, a payment method to fix —
+    /// is pending to the app, and goes through later, by itself, through the updates:
+    /// the same shape as Ask to Buy, which is why the simulated store has one way of
+    /// saying both (`.pending`, then `approvePending`).
+    @Test("an INTERRUPTED purchase is pending, and unlocks when the interruption is resolved")
+    func interruptedPurchase() async throws {
+        let session = try await session()
+        session.interruptedPurchasesEnabled = true
+        let store = store()
+        await store.start()
+        try await withKnownIssue("in the iOS 27.0 simulator an interrupted purchase throws StoreKitError.unknown") {
+            #expect(try await store.purchase(Self.pro) == .pending)
+            #expect(store.standing.access(to: Self.pro) == .none)
+            let waiting = try #require(session.allTransactions().first { $0.productIdentifier == Self.pro.rawValue })
+            try session.resolveIssueForTransaction(identifier: waiting.identifier)
+            #expect(await waitUntil(timeout: .seconds(10)) { store.standing.ownership(of: Self.pro) != nil })
+            #expect(store.pendingApprovals.isEmpty)
+        } when: {
+            Self.isTheIOSSimulator
+        } matching: { issue in
+            (issue.error as? PurchaseError) == .unknown(typeName: "StoreKitError.unknown")
+        }
+        withExtendedLifetime(session) {}
+    }
+
+    // Not here: a purchase left unfinished before the store existed. The adapter reads
+    // that backlog as it subscribes (`AppStoreFront.transactionUpdates()`), and the fake
+    // gateway's tests pin it. Against real StoreKit it could not be pinned: on macOS 26.6
+    // an unfinished purchase appears in `Transaction.unfinished` half a second after
+    // `purchase()` returns and is gone again, unfinished by anybody, a second later
+    // (spike/README.md). A test built on that would be a test of the test environment.
+
+    // The case exists from the 27 releases, so this is the one place the adapter's
+    // match on its *name* is ever executed: the package's own tests run on the Mac,
+    // which is older, and skip it.
+    #if canImport(StoreKit, _version: 816)
+    @Test("the presentation-context error still goes by the name the adapter matches", .enabled(if: hasThe27Fixes))
+    func invalidPresentationContext() {
+        guard #available(iOS 27.0, macOS 27.0, *) else { return }
+        #expect(StoreKitErrorMapping.verdict(for: StoreKitError.invalidPresentationContext) == .failure(.invalidConfirmation))
+    }
+    #endif
 
     // MARK: - What this build receives, and a canary
 
@@ -334,7 +568,10 @@ struct RealStoreKitTests {
         let store = store()
         try await store.purchase(Self.pro)
         let front = AppStoreFront(catalogue: Self.catalogue())
-        await waitUntil(timeout: .seconds(10)) { await front.ownedProducts().count == 1 }
+        // The control: there is something to read. Without it, "a cancelled task read
+        // nothing" is also what a purchase that was never listed looks like.
+        let listed = await waitUntil(timeout: .seconds(10)) { await front.ownedProducts().count == 1 }
+        #expect(listed, "StoreKit never listed the purchase, so reading nothing proves nothing")
         let cancelled = Task { () -> Int in
             withUnsafeCurrentTask { $0?.cancel() }
             return await front.ownedProducts().count

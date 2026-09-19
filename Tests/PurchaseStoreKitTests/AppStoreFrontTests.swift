@@ -16,6 +16,20 @@ private final class Log: PurchaseLogging {
     func log(_ event: PurchaseEvent) { events.withLock { $0.append(event) } }
 }
 
+/// StoreKit as it was measured to treat a cancelled task: asked for products, it
+/// answers with none; asked what is owned, likewise.
+private final class CancellationSensitiveGateway: StoreKitGateway {
+    let sold: [StoreProduct]
+    init(products: [StoreProduct]) { sold = products }
+
+    func products(for identifiers: Set<ProductID>) async throws -> [StoreProduct] { Task.isCancelled ? [] : sold }
+    func currentEntitlements() async -> [TransactionSnapshot] { [] }
+    func unfinished() async -> [TransactionSnapshot] { [] }
+    func purchase(_ id: ProductID, confirmation: PurchaseConfirmation) async throws -> GatewayPurchaseResult? { nil }
+    func sync() async throws {}
+    func updates() -> AsyncStream<TransactionSnapshot> { AsyncStream { $0.finish() } }
+}
+
 @Suite("App Store front", .timeLimit(.minutes(1)))
 struct AppStoreFrontTests {
     private let gateway = FakeStoreKitGateway()
@@ -160,6 +174,34 @@ struct AppStoreFrontTests {
         await #expect(throws: PurchaseError.network) { try await front.products() }
     }
 
+    /// Nobody backs out of a price list. A request cancelled under the adapter must
+    /// come out as a failure: as an empty list it would be an *answer*, and the answer
+    /// "this store sells nothing" sends a developer to fix a scheme that is fine.
+    @Test("a products request CANCELLED under the adapter is a failure, never an empty catalogue")
+    func cancelledProductsRequest() async {
+        gateway.state.withLock { $0.products = .failure(CancellationError()) }
+        await #expect(throws: PurchaseError.system) { try await front.products() }
+        gateway.state.withLock { $0.products = .failure(StoreKitError.userCancelled) }
+        await #expect(throws: PurchaseError.system) { try await front.products() }
+    }
+
+    /// Measured against the real store: a cancelled request for products is answered
+    /// with an empty list. So the adapter does not ask in its caller's task.
+    @Test("a CANCELLED caller still gets the products, and a diagnosis that is true")
+    func cancelledCaller() async throws {
+        let sold = StoreProduct(id: pro, displayName: "Pro", displayPrice: "£9.99", price: 9.99)
+        let gateway = CancellationSensitiveGateway(products: [sold])
+        let front = AppStoreFront(catalogue: catalogue, gateway: gateway)
+        let asked = Task { () -> ([StoreProduct]?, StoreDiagnosis) in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return (try? await front.products(), await front.diagnose())
+        }
+        let (products, diagnosis) = await asked.value
+        #expect(products == [sold])
+        #expect(diagnosis.received == [pro])
+        #expect(!diagnosis.hints.contains(.storeSellsNothingToThisBuild))
+    }
+
     // MARK: - Updates
 
     /// A grant arrives before the store's listing has it, so it carries its own facts.
@@ -185,6 +227,23 @@ struct AppStoreFrontTests {
         #expect(await updates.next()?.productID == trial)
         #expect(gateway.finished == [trial])
         #expect(log.events.withLock { $0 } == [.foreignTransactionIgnored(foreign), .unverifiedTransactionIgnored(pro)])
+    }
+
+    /// Apple says unfinished transactions are handed over once, as the app launches.
+    /// This listener starts with the first command, which may be much later, and one
+    /// started just after an unfinished purchase was measured to be handed nothing.
+    @Test("what was left UNFINISHED before anyone listened is asked for, adopted and finished")
+    func unfinishedBacklog() async {
+        gateway.state.withLock {
+            $0.unfinished = [gateway.transaction(pro), gateway.transaction(foreign), gateway.transaction(trial, isRevoked: true)]
+        }
+        var updates = front.transactionUpdates().makeAsyncIterator()
+        #expect(await updates.next() == .granted(OwnedProduct(id: pro, originalPurchaseDate: Date(timeIntervalSince1970: 1_000_000))))
+        #expect(await updates.next() == .withdrawn(trial))
+        #expect(gateway.finished == [pro, trial])          // and somebody else's is left alone
+        // …and the stream carries on with what arrives afterwards.
+        gateway.deliver(gateway.transaction(trial))
+        #expect(await updates.next()?.productID == trial)
     }
 
     // MARK: - Diagnosis
@@ -254,8 +313,15 @@ struct StoreKitErrorMappingTests {
     // that stops matching fails silently — into `.unknown`, losing the one error
     // that tells a developer their window anchor is wrong. Where the case can be
     // spelt, this pins it. 816 is StoreKit's module version in the 27.0 SDK.
+    //
+    // And where it can be *made*: the case is unavailable before the 27 releases, so on
+    // an older OS this is skipped, and shows as skipped — returning early, it used to
+    // report a pass having asserted nothing. `Demo/Tests` runs the same check in the
+    // iOS 27 simulator, which is the one place here it actually executes.
     #if canImport(StoreKit, _version: 816)
-    @Test("the presentation-context error, matched by NAME for the 26 SDK's sake, still matches")
+    private static var isOn27: Bool { if #available(iOS 27.0, macOS 27.0, *) { true } else { false } }
+
+    @Test("the presentation-context error, matched by NAME for the 26 SDK's sake, still matches", .enabled(if: isOn27))
     func invalidPresentationContext() {
         guard #available(iOS 27.0, macOS 27.0, *) else { return }
         #expect(

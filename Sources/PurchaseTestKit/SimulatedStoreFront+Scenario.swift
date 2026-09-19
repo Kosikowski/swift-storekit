@@ -37,6 +37,7 @@ extension SimulatedStoreFront {
         for holding in scenario.earlier {
             seedEarlierPurchase(holding.id, age: holding.age, ownership: holding.ownership)
         }
+        for id in scenario.unverified { seedUnverified(id) }
     }
 }
 

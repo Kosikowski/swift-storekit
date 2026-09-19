@@ -68,6 +68,14 @@ final class LiveStoreKitGateway: StoreKitGateway {
         }
     }
 
+    func unfinished() async -> [TransactionSnapshot] {
+        var snapshots: [TransactionSnapshot] = []
+        for await result in Transaction.unfinished {
+            snapshots.append(Self.snapshot(of: result))
+        }
+        return snapshots
+    }
+
     func sync() async throws {
         try await AppStore.sync()
     }

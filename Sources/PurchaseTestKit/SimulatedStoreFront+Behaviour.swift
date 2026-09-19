@@ -37,6 +37,9 @@ extension SimulatedStoreFront {
         }
 
         public var purchase: PurchaseScript = .succeeds
+        /// How a purchase of one product ends, where that differs from `purchase`:
+        /// the trial goes through and the unlock is left pending.
+        public var purchases: [ProductID: PurchaseScript] = [:]
         public var restore: RestoreScript = .succeeds
         public var catalogue: CatalogueScript = .loads
 
@@ -45,7 +48,8 @@ extension SimulatedStoreFront {
         /// it. Zero is a store more helpful than the real one, and hides the bug.
         public var listsPurchasesAfterReads = 1
 
-        /// The real store answers a cancelled task with nothing. Leave this on.
+        /// The real store answers a cancelled task with nothing — no products, and
+        /// nothing owned. Leave this on.
         public var answersNothingWhenCancelled = true
 
         /// Whether a restore brings what the account owns elsewhere

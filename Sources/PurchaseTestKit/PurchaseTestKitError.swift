@@ -3,24 +3,25 @@
 //  PurchaseTestKit
 //
 //  What can go wrong in this module that is not the simulated store misbehaving on
-//  request.
+//  request: a scenario that does not parse.
 //
-//  One enum for the module, typed, so that a test can say *which* failure it expects
-//  and a parser cannot fail in a way its caller has no case for. Every failure here
-//  is a programmer's — a file that is not where the test thinks it is, a scenario
-//  with a typo in it — so, unlike `PurchaseError`, this one does carry text: the
-//  offending clause, word for word, because "the scenario was invalid" sends someone
-//  to read forty characters by eye and "owns=trail: no product called trail" does
-//  not.
+//  Typed, so that a test can say *which* failure it expects and a parser cannot fail
+//  in a way its caller has no case for. Every failure here is a programmer's — a
+//  scenario with a typo in it — so, unlike `PurchaseError`, this one does carry text:
+//  the offending clause, word for word, because "the scenario was invalid" sends
+//  someone to read forty characters by eye and "owns=trail: no product called trail"
+//  does not.
 //
-//  Not `#if DEBUG`, although half its cases are about scenarios, which are: an error
-//  grants nothing, and the configuration validator that throws the other half is
-//  needed by an app's tests in whatever configuration they are built.
+//  DEBUG only, like everything else in this module. (What can go wrong reading a
+//  `.storekit` file is `StoreKitConfigurationError`, in PurchaseTestSupport, which
+//  is in every configuration.)
 //
+
+#if DEBUG
 
 public import PurchaseCore
 
-/// A failure to read a StoreKit configuration file or a scenario.
+/// A failure to read a scenario.
 public enum PurchaseTestKitError: Error, Hashable, Sendable {
     /// What is wrong with one clause of a scenario.
     ///
@@ -54,18 +55,6 @@ public enum PurchaseTestKitError: Error, Hashable, Sendable {
         case invalidLag(String)
     }
 
-    /// The file could not be read: not there, or not readable by this process. In a
-    /// test target the usual cause is a fixture that was never declared a resource.
-    case unreadableFile(path: String)
-    /// The data is not JSON at all.
-    case notJSON
-    /// JSON, and not a StoreKit configuration: the root is not an object, or carries
-    /// no `version`. Every file Xcode has written has one.
-    case notAStoreKitConfiguration
-    /// An entry with no `productID`. Everything is keyed by it, so this is the one
-    /// key whose absence is not tolerated: skipping the entry would report its
-    /// product as missing from a file it is sitting in.
-    case productWithoutIdentifier(section: String, index: Int)
     /// A scenario that does not parse. `clause` is the offending clause as written.
     case invalidScenario(clause: String, reason: ScenarioFault)
 }
@@ -75,14 +64,6 @@ extension PurchaseTestKitError: CustomStringConvertible {
     /// scenario deserves.
     public var description: String {
         switch self {
-        case let .unreadableFile(path):
-            "The StoreKit configuration file at \(path) could not be read."
-        case .notJSON:
-            "The StoreKit configuration is not JSON."
-        case .notAStoreKitConfiguration:
-            "The JSON is not a StoreKit configuration: its root is not an object with a version."
-        case let .productWithoutIdentifier(section, index):
-            "Entry \(index) of \(section) in the StoreKit configuration has no productID."
         case let .invalidScenario(clause, reason):
             "Invalid scenario clause \"\(clause)\": \(reason)."
         }
@@ -118,3 +99,5 @@ extension PurchaseTestKitError.ScenarioFault: CustomStringConvertible {
         }
     }
 }
+
+#endif

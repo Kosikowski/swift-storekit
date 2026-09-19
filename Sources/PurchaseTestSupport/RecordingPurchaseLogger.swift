@@ -1,6 +1,6 @@
 //
 //  RecordingPurchaseLogger.swift
-//  PurchaseTestKit
+//  PurchaseTestSupport
 //
 
 public import PurchaseCore

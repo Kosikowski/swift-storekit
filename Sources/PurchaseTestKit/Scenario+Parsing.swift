@@ -11,7 +11,9 @@
 //
 //      clause  = "owns=" holding *("," holding)      ; listed from launch
 //              | "earlier=" holding *("," holding)   ; the account's, unknown to this device
-//              | "purchase=" ("succeeds" | "pending" | "cancelled" | "held" | "fails:" error)
+//              | "unverified=" product *("," product) ; listed, and the signature does not check out
+//              | "purchase=" (outcome | "held" | product ":" outcome *("," product ":" outcome))
+//      outcome = "succeeds" | "pending" | "cancelled" | "fails:" error
 //              | "restore="  ("succeeds" | "cancelled" | "held" | "fails:" error)
 //              | "catalogue=" ("loads" | "empty" | "held" | "fails:" error)
 //              | "ownership=" ("answers" | "held")
@@ -64,10 +66,19 @@ extension Scenario {
                 switch key {
                 case "owns": owns = try Self.holdings(value, in: catalogue)
                 case "earlier": earlier = try Self.holdings(value, in: catalogue)
+                case "unverified":
+                    // Empty pieces are kept, as for holdings: `pro,,trial` is an error.
+                    unverified = []
+                    for piece in value.split(separator: ",", omittingEmptySubsequences: false) {
+                        unverified.append(try Self.product(Self.trimmed(piece), in: catalogue))
+                    }
                 case "purchase":
                     if value == "held" {
                         holdsPurchase = true
+                    } else if let perProduct = try Self.purchaseScripts(value, in: catalogue) {
+                        behaviour.purchases = perProduct
                     } else {
+                        // One outcome, for whatever is bought.
                         behaviour.purchase = try Self.purchaseScript(value)
                     }
                 case "restore":
@@ -113,7 +124,7 @@ extension Scenario {
     private typealias ScenarioFault = PurchaseTestKitError.ScenarioFault
 
     private static let keys: Set<String> = [
-        "owns", "earlier", "purchase", "restore", "catalogue", "ownership", "lag",
+        "owns", "earlier", "unverified", "purchase", "restore", "catalogue", "ownership", "lag",
     ]
 
     private static let errors: [String: PurchaseError] = [
@@ -146,6 +157,26 @@ extension Scenario {
         case "cancelled": return .cancelled
         default: return .fails(try failure(value))
         }
+    }
+
+    /// `pro:pending,trial:succeeds`. Nil if the value is not of that shape at all — no
+    /// piece has a product before its first colon — so that the caller can report it
+    /// as the single outcome it was more likely meant to be.
+    private static func purchaseScripts(
+        _ value: String, in catalogue: Catalogue
+    ) throws(ScenarioFault) -> [ProductID: SimulatedStoreFront.Behaviour.PurchaseScript]? {
+        var scripts: [ProductID: SimulatedStoreFront.Behaviour.PurchaseScript] = [:]
+        for piece in value.split(separator: ",", omittingEmptySubsequences: false) {
+            let entry = trimmed(piece)
+            guard let colon = entry.firstIndex(of: ":"), !entry.hasPrefix("fails:") else {
+                if scripts.isEmpty { return nil }
+                throw .unknownValue(entry)
+            }
+            let id = try product(trimmed(entry[..<colon]), in: catalogue)
+            guard scripts[id] == nil else { throw .repeatedProduct(id) }
+            scripts[id] = try purchaseScript(trimmed(entry[entry.index(after: colon)...]))
+        }
+        return scripts
     }
 
     private static func restoreScript(

@@ -1,6 +1,6 @@
 //
 //  StoreKitConfiguration.swift
-//  PurchaseTestKit
+//  PurchaseTestSupport
 //
 //  An Xcode `.storekit` file, read without StoreKit, so that it can be checked
 //  against the app's catalogue by an ordinary unit test.
@@ -44,7 +44,7 @@ public struct StoreKitConfiguration: Hashable, Sendable {
     /// wrong type, and is only reported as one if it is seen.
     public let products: [Product]
 
-    public init(contentsOf url: URL) throws(PurchaseTestKitError) {
+    public init(contentsOf url: URL) throws(StoreKitConfigurationError) {
         let data: Data
         do {
             data = try Data(contentsOf: url)
@@ -54,7 +54,7 @@ public struct StoreKitConfiguration: Hashable, Sendable {
         try self.init(data: data)
     }
 
-    public init(data: Data) throws(PurchaseTestKitError) {
+    public init(data: Data) throws(StoreKitConfigurationError) {
         let json: Any
         do {
             json = try JSONSerialization.jsonObject(with: data)

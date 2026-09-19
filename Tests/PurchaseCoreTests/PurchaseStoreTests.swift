@@ -6,7 +6,9 @@
 
 import Foundation
 import PurchaseCore
+import PurchaseDirectDistribution
 import PurchaseTestKit
+import PurchaseTestSupport
 import Testing
 
 /// Everything here runs against the simulated store and a clock that moves only when
@@ -88,6 +90,27 @@ struct PurchaseStoreTests {
         #expect(front.ownershipGate.waiterCount == 1)
         front.ownershipGate.open()
         for caller in callers { #expect(await caller.value.isKnown) }
+    }
+
+    /// A caller arriving while a pass is under way is promised a pass that *started
+    /// after it asked*. Without the re-run it is handed the pass already in flight,
+    /// whose read may be older than the thing it came to report.
+    @Test("a caller arriving MID-PASS gets a second read, started after it asked")
+    func rerunsForALateCaller() async {
+        await store.start()
+        let resolved = { self.logger.events.filter { if case .standingResolved = $0 { true } else { false } }.count }
+        #expect(resolved() == 1)
+
+        front.ownershipGate.close()
+        let first = Task { await store.refresh() }
+        await waitUntil { front.ownershipGate.waiterCount == 1 }
+        // Arrives mid-pass, and asks. Logged before it asks, with nothing awaited between.
+        front.deliver(Shop.pro)
+        await waitUntil { logger.events.contains(.transactionUpdated(Shop.pro)) }
+        front.ownershipGate.open()
+        await first.value
+        await waitUntil { resolved() == 3 }
+        #expect(resolved() == 3)        // the pass that was under way, and one more
     }
 
     // MARK: - Buying
@@ -213,6 +236,19 @@ struct PurchaseStoreTests {
         #expect(store.standing == before)
         #expect(store.activity == .idle)
         #expect(logger.events.contains(.purchaseFailed(Shop.pro, error)))
+    }
+
+    /// The listener starts with the first command, whichever it is. An app that buys
+    /// before it has called `start()` — a paywall shown at once — must still hear the
+    /// refund.
+    @Test("a purchase made BEFORE start() is still listened for: its refund is heard")
+    func purchaseStartsListening() async throws {
+        front.behaviour.listsPurchasesAfterReads = 5
+        try await store.purchase(Shop.pro)
+        #expect(front.listenerCount == 1)
+        front.revoke(Shop.pro)
+        await waitUntil { store.standing.access(to: Shop.pro) == .none }
+        #expect(store.standing.access(to: Shop.pro) == .none)
     }
 
     @Test("something the catalogue does not sell cannot be bought")
@@ -368,6 +404,18 @@ struct PurchaseStoreTests {
         #expect(store.activity == .idle)
     }
 
+    /// D9: a restore that throws reads again all the same. The store could not be
+    /// reached for the restore, which says nothing about whether it can be read.
+    @Test("a restore that FAILS still reads again, and finds what has turned up meanwhile")
+    func failedRestoreReadsAgain() async {
+        await store.start()
+        #expect(store.standing.access(to: Shop.pro) == .none)
+        front.seed(Shop.pro)                          // listed since, and nobody was told
+        front.behaviour.restore = .fails(.network)
+        await #expect(throws: PurchaseError.network) { try await store.restorePurchases() }
+        #expect(store.standing.ownership(of: Shop.pro) != nil)
+    }
+
     @Test("dismissing the sign-in prompt is a cancellation, not an error")
     func cancelledRestore() async throws {
         front.behaviour.restore = .cancelled
@@ -431,22 +479,21 @@ struct PurchaseStoreTests {
         #expect(logger.events.filter { $0 == .catalogueLoaded(Shop.catalogue.identifiers) }.count == 1)
     }
 
-    /// SwiftUI cancels `.task` whenever its view goes away, and a cancelled request
-    /// comes back from the adapter as a failure. Made in the caller's task, a load
-    /// nobody saw fail was published to every view as "something went wrong".
-    @Test("a caller CANCELLED mid-load does not turn the load into a failure")
+    /// SwiftUI cancels `.task` whenever its view goes away, and the real store answers a
+    /// cancelled request for products with an *empty list* — measured, 0 of 2 — which
+    /// reads as a store that sells this build nothing. Made in the caller's task, one
+    /// paywall closing at the wrong moment emptied every other view's prices.
+    @Test("a caller CANCELLED mid-load still gets the prices, and so does everyone else")
     func cancelledLoad() async {
-        let gate = AnswerGate(closed: true)
-        let store = PurchaseStore(
-            catalogue: Shop.catalogue, catalogueLoader: CancellationSensitiveLoader(gate: gate),
-            ownership: front, purchaser: front, restorer: front, observer: front, clock: clock)
+        front.catalogueGate.close()
         let asked = Task { await store.loadProducts() }
-        await waitUntil { gate.waiterCount == 1 }
+        await waitUntil { front.catalogueGate.waiterCount == 1 }
         asked.cancel()
-        gate.open()
+        front.catalogueGate.open()
         await asked.value
         #expect(store.productLoad == .loaded)
-        #expect(store.products.map(\.id) == [Shop.pro])
+        #expect(store.products.map(\.id) == [Shop.pro, Shop.trial])
+        #expect(!logger.events.contains(.catalogueLoadedEmpty(requested: Shop.catalogue.identifiers)))
     }
 
     /// An ad-hoc build the App Store has never heard of, with no configuration file
@@ -498,19 +545,6 @@ struct PurchaseStoreLifetimeTests {
         #expect(standing.ownership(of: Shop.pro) != nil)
         #expect(standing.trial(Shop.trial) == .notOffered)
         await #expect(throws: PurchaseError.purchaseNotAllowed) { try await store.purchase(Shop.pro) }
-    }
-}
-
-/// A catalogue that treats a cancelled request the way `AppStoreFront` does: the
-/// `CancellationError` StoreKit throws is not a purchase being backed out of, so it
-/// comes out as a failure.
-private struct CancellationSensitiveLoader: ProductCatalogueLoading {
-    let gate: AnswerGate
-
-    func products() async throws(PurchaseError) -> [StoreProduct] {
-        await gate.pass()
-        if Task.isCancelled { throw .system }
-        return [StoreProduct(id: Shop.pro, displayName: "Pro", displayPrice: "$9.99", price: 9.99)]
     }
 }
 

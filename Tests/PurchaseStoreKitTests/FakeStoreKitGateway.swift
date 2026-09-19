@@ -11,6 +11,7 @@ final class FakeStoreKitGateway: StoreKitGateway {
     struct State {
         var products: Result<[StoreProduct], any Error> = .success([])
         var entitlements: [TransactionSnapshot] = []
+        var unfinished: [TransactionSnapshot] = []
         var purchase: Result<GatewayPurchaseResult?, any Error> = .success(nil)
         var sync: (any Error)?
         var finished: [ProductID] = []
@@ -44,6 +45,10 @@ final class FakeStoreKitGateway: StoreKitGateway {
 
     func currentEntitlements() async -> [TransactionSnapshot] {
         state.withLock { $0.entitlements }
+    }
+
+    func unfinished() async -> [TransactionSnapshot] {
+        state.withLock { $0.unfinished }
     }
 
     func purchase(_ id: ProductID, confirmation: PurchaseConfirmation) async throws -> GatewayPurchaseResult? {

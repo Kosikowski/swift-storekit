@@ -34,6 +34,19 @@
 //    build, so a name that is misspelt, or that a rename has left behind, fails here
 //    instead of quietly guarding nothing.
 //
+//  **What it looks for is a module, not a list of names.** PurchaseTestKit and
+//  PurchaseDebugUI are guarded whole, so in a release build they must contribute
+//  *nothing*: no symbol anywhere may mention either. A list of the types that can grant
+//  a purchase is a list somebody has to remember to extend; a new one, under a new
+//  name, would have passed. The two names that matter most are kept as well, in case
+//  one is ever moved to a module this does not watch.
+//
+//  **And it looks at the app, not only at the package** (`--app`, `--debug-app`). What
+//  ships is Xcode's Release build, and Xcode gives a package `DEBUG` by the *name* of
+//  the app's build configuration — a heuristic nobody documents, and the one link a
+//  check of SwiftPM's own release build cannot test. `make demo` builds the Demo both
+//  ways and hands both here: every Mach-O in the bundle, by symbol and by string.
+//
 //  A macro was considered for this and cannot do it: a macro sees source, at compile
 //  time, and the question is about a finished binary. What a macro could enforce —
 //  that the simulated store is not mentioned in a release build — `#if DEBUG` round
@@ -46,16 +59,28 @@ import PackagePlugin
 
 @main
 struct ReleaseCheck: CommandPlugin {
-    /// What must not ship, as it appears in a mangled symbol. Length-prefixed where
-    /// the bare word would be too common to mean anything.
-    private static let forbidden = ["SimulatedStoreFront", "PurchaseDebugPanel", "15PurchaseTestKit8Scenario"]
+    /// What must not ship, as it appears in a mangled symbol: the two modules that are
+    /// guarded whole (length-prefixed, as the mangling has them), and the two types that
+    /// matter most, by name.
+    private static let forbidden = ["15PurchaseTestKit", "15PurchaseDebugUI", "SimulatedStoreFront", "PurchaseDebugPanel"]
 
-    /// Ships in every configuration, from the same module as the simulated store: if
-    /// the release search cannot see this, it cannot see anything.
-    private static let control = "15PurchaseTestKit11ManualClock"
+    /// Ships in every configuration, and is built by the same build: if the release
+    /// search cannot see this, it cannot see anything.
+    private static let control = "19PurchaseTestSupport11ManualClock"
+
+    /// In a built app, additionally: what a scenario is called on a command line and in
+    /// the environment. Strings, which survive where symbols are stripped.
+    private static let forbiddenInAnApp = forbidden + ["PurchaseScenario", "PURCHASE_SCENARIO"]
+
+    /// What any app using the package carries, in any configuration.
+    private static let appControl = "PurchaseStore"
 
     func performCommand(context: PluginContext, arguments: [String]) async throws {
         let nm = try context.tool(named: "nm").url
+        if arguments.contains("--app") || arguments.contains("--debug-app") {
+            try checkApps(arguments: arguments, context: context, nm: nm)
+            return
+        }
 
         let debug = try symbols(in: .debug, context: context, nm: nm)
         let release = try symbols(in: .release, context: context, nm: nm)
@@ -81,6 +106,64 @@ struct ReleaseCheck: CommandPlugin {
             throw Failure("the simulated store is present in a release build: \(found.joined(separator: ", "))")
         }
         print("release-check: clean — \(Self.forbidden.count) names found in debug, none in release, and the release search does see \(Self.control)")
+    }
+
+    // MARK: - A built app
+
+    /// `--app <Release .app> --debug-app <Debug .app>`. The debug app is the control:
+    /// the same search has to find the simulated store where it is known to be.
+    private func checkApps(arguments: [String], context: PluginContext, nm: URL) throws {
+        func value(after flag: String) throws -> URL {
+            guard let index = arguments.firstIndex(of: flag), index + 1 < arguments.count else {
+                throw Failure("\(flag) <path to a built .app> is needed: both --app and --debug-app, one as the control for the other")
+            }
+            let path = arguments[index + 1]
+            let url = path.hasPrefix("/") ? URL(fileURLWithPath: path) : context.package.directoryURL.appending(path: path)
+            guard FileManager.default.fileExists(atPath: url.path) else { throw Failure("there is nothing at \(url.path)") }
+            return url
+        }
+        let strings = try context.tool(named: "strings").url
+        let release = try contents(ofApp: value(after: "--app"), nm: nm, strings: strings)
+        let debug = try contents(ofApp: value(after: "--debug-app"), nm: nm, strings: strings)
+
+        let blind = Self.forbiddenInAnApp.filter { name in !debug.contains { $0.contains(name) } }
+        guard blind.isEmpty else {
+            throw Failure(
+                """
+                VACUOUS — the debug app must contain the simulated store, and the search cannot find \
+                \(blind.joined(separator: ", ")) in it. Was it built in a configuration whose name begins with Debug?
+                """)
+        }
+        guard release.contains(where: { $0.contains(Self.appControl) }) else {
+            throw Failure("VACUOUS — the search cannot find \(Self.appControl) in the release app, so it is not reading it at all.")
+        }
+        let found = Self.forbiddenInAnApp.filter { name in release.contains { $0.contains(name) } }
+        guard found.isEmpty else {
+            throw Failure("the simulated store is present in the RELEASE APP: \(found.joined(separator: ", "))")
+        }
+        print("release-check: the app is clean — \(Self.forbiddenInAnApp.count) names found in the debug app, none in the release app, which does carry \(Self.appControl)")
+    }
+
+    /// Every symbol and every string in every Mach-O file of the bundle. In a debug-type
+    /// Xcode build the code is not in the main executable at all but in a `.debug.dylib`
+    /// beside it, so nothing is taken for granted about where to look.
+    private func contents(ofApp app: URL, nm: URL, strings: URL) throws -> [String] {
+        guard let walk = FileManager.default.enumerator(at: app, includingPropertiesForKeys: [.isRegularFileKey]) else { return [] }
+        var lines: [String] = []
+        for case let file as URL in walk {
+            guard (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true, isMachO(file) else { continue }
+            lines += try output(of: nm, [file.path])
+            lines += try output(of: strings, ["-a", file.path])
+        }
+        return lines
+    }
+
+    private func isMachO(_ file: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: file), let magic = try? handle.read(upToCount: 4), magic.count == 4 else { return false }
+        try? handle.close()
+        let word = magic.withUnsafeBytes { $0.load(as: UInt32.self) }
+        // Thin, either byte order, 32- or 64-bit; and fat.
+        return [0xfeed_face, 0xfeed_facf, 0xcefa_edfe, 0xcffa_edfe, 0xcafe_babe, 0xbeba_feca].contains(word)
     }
 
     // MARK: - Private
@@ -121,10 +204,14 @@ struct ReleaseCheck: CommandPlugin {
     /// Plain `nm`, not `nm -a`: the debugger's entries name every source *file*, and a
     /// file that compiled to nothing is exactly what is wanted here.
     private func symbols(in file: URL, nm: URL) throws -> [String] {
+        try output(of: nm, [file.path])
+    }
+
+    private func output(of tool: URL, _ arguments: [String]) throws -> [String] {
         let process = Process()
         let output = Pipe()
-        process.executableURL = nm
-        process.arguments = [file.path]
+        process.executableURL = tool
+        process.arguments = arguments
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         try process.run()

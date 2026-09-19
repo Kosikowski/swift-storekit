@@ -20,9 +20,18 @@ The gateway fetches, forwards and copies a transaction's fields into a `Transact
 | What is owned | `Transaction.currentEntitlements` | Current, not deprecated; only the singular `currentEntitlement(for:)` is. At most one transaction per non-consumable; refunded ones are already excluded; family-shared ones are included. **[Apple]** |
 | Buying | `PurchaseAction`, `purchase(confirmIn:)`, or `purchase(options:)` | By anchor; see below. |
 | Restoring | `AppStore.sync()` | Prompts for a password. Only behind a button. |
-| Arrivals | `Transaction.updates` | From the first command, for the store's life. |
+| Arrivals | `Transaction.updates`, and `Transaction.unfinished` once | From the first command, for the store's life. The backlog is read once, after subscribing: Apple hands unfinished transactions to a listener at *launch*, and this one may start later ([D29](10-decisions.md#d29-what-was-left-unfinished-is-asked-for-not-waited-for)). |
 
 Nothing from StoreKit 1 is used, and no SDK-27-only symbol, so the package builds with Xcode 26 and 27.
+
+## Every read is made in a task nobody cancels
+
+| Read | Asked from a cancelled task, real StoreKit answers **[ran]** | So |
+|---|---|---|
+| What is owned (`Transaction.currentEntitlements`) | nothing: 0 of 1 | `PurchaseStore` reads in a task of its own ([D2](10-decisions.md#d2-ownership-is-never-read-in-a-task-something-else-can-cancel)) |
+| What is for sale (`Product.products(for:)`) | **an empty list, not an error**: 0 of 2 | `PurchaseStore.loadProducts()` does likewise, and so do `AppStoreFront.products()` and `diagnose()` themselves, for whoever calls them directly ([D26](10-decisions.md#d26-products-too-are-asked-for-in-a-task-nobody-cancels--in-the-adapter)) |
+
+Nothing at all reads as "owns nothing"; an empty list reads as "sells nothing". Neither is an error, which is what makes both dangerous. A cancellation that does arrive as a thrown error is mapped to a failure for a products request — nobody backs out of a price list — and to a cancellation only for a purchase or a restore.
 
 ## Triage: one place decides what to do with a transaction
 

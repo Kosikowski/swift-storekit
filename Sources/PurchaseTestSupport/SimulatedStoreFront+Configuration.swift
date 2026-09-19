@@ -1,6 +1,6 @@
 //
 //  SimulatedStoreFront+Configuration.swift
-//  PurchaseTestKit
+//  PurchaseTestSupport
 //
 //  A simulated store that sells what the app's own `.storekit` file sells.
 //
@@ -10,13 +10,17 @@
 //  that says what they are, and Xcode's test environment already reads it; read here
 //  too, the simulated paywall and the StoreKit-testing paywall cannot drift apart.
 //
-//  The initialiser is here rather than beside `StoreKitConfiguration` because that
-//  ships in every configuration and this, like the store it builds, only in DEBUG.
+//  Here, in the module that reads the file, and not beside the store it builds:
+//  PurchaseTestKit is what an app links to have a simulated store, and is kept free of
+//  anything that is not behind `#if DEBUG`. An app that wants its previews to show the
+//  file's names and prices links this module as well, and carries the file reader —
+//  which grants nothing — in its release build. DEBUG only, like the store.
 //
 
 #if DEBUG
 
 public import PurchaseCore
+public import PurchaseTestKit
 
 extension SimulatedStoreFront {
     /// A store selling the catalogue's products as `configuration` describes them.

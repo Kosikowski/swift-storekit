@@ -1,6 +1,6 @@
 //
 //  ManualClock.swift
-//  PurchaseTestKit
+//  PurchaseTestSupport
 //
 //  A clock that moves only when it is told to.
 //

@@ -12,7 +12,9 @@
 //  · **It lists a purchase one read late.** The real store lists a purchase about a
 //    second after `purchase()` returns. The first fake written for this listed at
 //    once, and the bug it hid — Buy appearing to do nothing until relaunch — shipped.
-//  · **It answers a cancelled task with nothing**, as the real store was measured to.
+//  · **It answers a cancelled task with nothing**, as the real store was measured to —
+//    about what is owned, and about what is for sale: a cancelled request for products
+//    comes back as an empty list, not an error.
 //  · **Buying something already owned hands back the original**, original date and
 //    all. That is what makes a trial one trial.
 //  · **The account may own things this device has not heard of** — bought on another
@@ -43,6 +45,9 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
         /// Owned by the account, unknown to this device.
         public let earlier: [OwnedProduct]
         public let pending: Set<ProductID>
+        /// Listed by the store with a signature that does not check out: counted by
+        /// nobody, and reported only by `diagnose()`.
+        public let unverified: Set<ProductID>
     }
 
     private struct Unlisted {
@@ -57,6 +62,7 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
         var unlisted: [Unlisted] = []
         var earlier: [OwnedProduct] = []
         var pending: Set<ProductID> = []
+        var unverified: Set<ProductID> = []
         var nextListener = 0
         var listeners: [Int: AsyncStream<TransactionUpdate>.Continuation] = [:]
     }
@@ -110,7 +116,7 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
         state.withLock {
             Snapshot(
                 listed: $0.listed, unlisted: $0.unlisted.map(\.product), earlier: $0.earlier,
-                pending: $0.pending)
+                pending: $0.pending, unverified: $0.unverified)
         }
     }
 
@@ -160,6 +166,15 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
     ) {
         seedEarlierPurchase(
             OwnedProduct(id: id, originalPurchaseDate: date(ago: age), ownership: ownership))
+    }
+
+    /// The store lists this product, and **its signature does not check out**: a
+    /// customer who paid, and whose purchase the app must not count. `ownedProducts()`
+    /// leaves it out, as the real adapter does, so the app sees someone who owns
+    /// nothing; `diagnose()` is where it shows. For an app's "I paid and it is locked"
+    /// support path, which nothing else here can reach.
+    public func seedUnverified(_ id: ProductID) {
+        state.withLock { _ = $0.unverified.insert(id) }
     }
 
     // MARK: - Things that happen by themselves
@@ -229,6 +244,28 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
         return true
     }
 
+    /// Someone declines it. **Nothing is announced**, because nothing is: measured
+    /// against the real store, a declined Ask to Buy sends no transaction, and the app
+    /// is left believing it pending until it is relaunched. What an app does about
+    /// that is what this is for testing.
+    ///
+    /// - Returns: whether there was anything to decline.
+    @discardableResult
+    public func declinePending(_ id: ProductID) -> Bool {
+        state.withLock { $0.pending.remove(id) != nil }
+    }
+
+    /// The listing catches up **without being read**. The lag here is counted in reads,
+    /// which is what makes a test of it deterministic; the real one is a matter of
+    /// time, and passes whether or not anybody looks. This is that: everything bought
+    /// and not yet listed is listed now, and nothing is announced.
+    public func listUnlisted() {
+        state.withLock { state in
+            state.listed.append(contentsOf: state.unlisted.map(\.product))
+            state.unlisted = []
+        }
+    }
+
     /// The store takes a purchase back, as a refund does, and says so — whether or
     /// not it had got as far as listing it. Unlike a grant, this does not lag: the
     /// real listing was already empty at the instant the refund was announced.
@@ -246,6 +283,7 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
             state.unlisted = []
             state.earlier = []
             state.pending = []
+            state.unverified = []
         }
     }
 
@@ -253,7 +291,13 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
 
     public func products() async throws(PurchaseError) -> [StoreProduct] {
         await catalogueGate.pass()
-        let (script, products) = state.withLock { ($0.behaviour.catalogue, $0.products) }
+        let cancelled = Task.isCancelled
+        let (script, products, silent) = state.withLock {
+            ($0.behaviour.catalogue, $0.products, $0.behaviour.answersNothingWhenCancelled)
+        }
+        // As measured against the real store: a cancelled request is not refused, it
+        // is answered — with nothing, which reads as a store that sells nothing.
+        if cancelled, silent { return [] }
         switch script {
         case .loads: return products
         case let .loadsOnly(identifiers): return products.filter { identifiers.contains($0.id) }
@@ -286,7 +330,7 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
         // Dated when it goes through, not when the sheet went up.
         let now = clock.now
         let result: Result<PurchaseOutcome, PurchaseError> = state.withLock { state in
-            switch state.behaviour.purchase {
+            switch state.behaviour.purchases[id] ?? state.behaviour.purchase {
             case let .fails(error):
                 return .failure(error)
             case .cancelled:
@@ -338,7 +382,9 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
     // MARK: - StoreDiagnosing
 
     public func diagnose() async -> StoreDiagnosis {
-        let (script, products, listed) = state.withLock { ($0.behaviour.catalogue, $0.products, $0.listed) }
+        let (script, products, listed, unverified) = state.withLock {
+            ($0.behaviour.catalogue, $0.products, $0.listed, $0.unverified.count)
+        }
         // What `products()` would hand back right now, without waiting at the gate.
         let received: Set<ProductID> = switch script {
         case .loads: Set(products.map(\.id))
@@ -352,7 +398,7 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing {
             received: received.intersection(catalogue.identifiers),
             catalogueFailure: failure,
             verifiedEntitlements: listed.filter { catalogue.contains($0.id) }.count,
-            unverifiedEntitlements: 0,
+            unverifiedEntitlements: unverified,
             foreignEntitlements: listed.filter { !catalogue.contains($0.id) }.count,
             environment: "Simulated")
     }
