@@ -264,6 +264,8 @@ The tests that pin it found a store that spun. A doubted lapse leaves the standi
 
 A downgrade, and a crossgrade to another duration, come back from `purchase()` as `.success` **with the transaction already held**, unchanged, on both platforms. **[ran]** Taken at its word, it says the cheaper plan was bought. `PurchaseStore` compares the product it asked for with the product it got: another product of the same group is `.planChangeScheduled(to:at:)`, and nothing changes until the renewal, when the plan waited for is what renews. An upgrade is a new transaction at once, and the one left behind is marked upgraded, finished, and not counted. **[ran]**
 
+The same holds for an Ask to Buy. Approved, a downgrade arrives as the plan already held, and the plan asked for is not active until the renewal. So `pendingApprovals` lets go of a plan when the status names it as the next one, not when it is active. Otherwise "waiting for approval" stays up for as long as a whole period after someone has approved it.
+
 Asked in the same instant as the first purchase, before StoreKit had listed it, a downgrade on the Mac came back as the new plan instead — seen once, and not pinned. **[check]** No person downgrades within half a second of subscribing.
 
 ## D38. What is held is chosen by date; a past period refunded takes nothing away

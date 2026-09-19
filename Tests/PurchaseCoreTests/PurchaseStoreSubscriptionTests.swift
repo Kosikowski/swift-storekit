@@ -168,6 +168,23 @@ struct PurchaseStoreSubscriptionTests {
         #expect(store.pendingApprovals.isEmpty)
     }
 
+    /// Approved, a downgrade hands back the plan already held (measured) and waits for the
+    /// renewal, so the plan asked for is not active for up to a whole period. Pending till
+    /// then, "waiting for approval" stayed on screen long after the approval.
+    @Test("an Ask to Buy for a downgrade stops being pending when it is approved, not at the renewal")
+    func askToBuyDowngrade() async throws {
+        front.seedSubscription(status(product: Plans.premium))
+        front.behaviour.purchase = .pending
+        await store.start()
+        #expect(try await store.purchase(Plans.monthly) == .pending)
+        #expect(store.pendingApprovals == [Plans.monthly])
+        front.approvePending(Plans.monthly)
+        await waitUntil { group.current?.renewal?.nextProduct == Plans.monthly }
+        await waitUntil { store.pendingApprovals.isEmpty }
+        #expect(store.pendingApprovals.isEmpty)
+        #expect(group.current?.product == Plans.premium)
+    }
+
     // MARK: - The moment at a renewal
 
     /// Measured: at every renewal, for up to 0.7 s on the Mac, the status says the

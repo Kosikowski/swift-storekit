@@ -369,7 +369,13 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             guard case let .active(current, _) = standing.subscription(in: group) else { return nil }
             return current.product
         }
-        let settled = pendingApprovals.intersection(standing.ownedProducts.map(\.id) + subscribed)
+        // An approved change of plan waits for the renewal, handed back as the plan already
+        // held (measured): the plan asked for is not active until then, only named as next.
+        let scheduled = groups.compactMap { group -> ProductID? in
+            guard case let .active(current, _) = standing.subscription(in: group) else { return nil }
+            return current.renewal?.nextProduct
+        }
+        let settled = pendingApprovals.intersection(standing.ownedProducts.map(\.id) + subscribed + scheduled)
         if !settled.isEmpty { pendingApprovals.subtract(settled) }
         logger.log(.standingResolved(owned: Set(standing.ownedProducts.map(\.id) + subscribed)))
         scheduleNextLook()

@@ -121,7 +121,7 @@ A subscription is bought with `PurchaseButton` or `purchase(_:)`, as anything is
 | `.pending` | Ask to Buy | "Waiting for approval." |
 | `.cancelled` | The person backed out | Nothing |
 
-A downgrade comes back from StoreKit as a plain success **with the plan already held** `[ran]`. Taken at its word, it says the cheaper plan was bought, which is how an app ends up telling someone on Plus that they are now on Monthly. The store compares the product it asked for with the one it got back, and says `.planChangeScheduled`. Until the renewal, `renewal.nextProduct` names the plan to come.
+A downgrade comes back from StoreKit as a plain success **with the plan already held** `[ran]`. Taken at its word, it says the cheaper plan was bought, which is how an app ends up telling someone on Plus that they are now on Monthly. The store compares the product it asked for with the one it got back, and says `.planChangeScheduled`. Until the renewal, `renewal.nextProduct` names the plan to come. An Ask to Buy for a downgrade stops being pending once it is approved and the status names the plan as next. It does not wait for the renewal.
 
 An upgrade is immediate: a new transaction for the higher level, and the one left behind is marked upgraded and not counted `[ran]`.
 
