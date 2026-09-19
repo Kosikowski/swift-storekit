@@ -12,6 +12,9 @@
 
 /// Something worth logging.
 public enum PurchaseEvent: Hashable, Sendable {
+    /// The store read what is owned. `owned` is what the standing it holds grants: the
+    /// products owned, and the subscriptions that are active — logged at every read, so
+    /// that a moment in which a subscriber was not granted is in the log.
     case standingResolved(owned: Set<ProductID>)
     case catalogueLoaded(Set<ProductID>)
     /// The store returned **no products at all** for the identifiers asked for.

@@ -14,6 +14,9 @@
 
 #if DEBUG
 
+import Foundation
+import PurchaseCore
+
 extension SimulatedStoreFront {
     /// Arranges the store as `scenario` describes.
     ///
@@ -38,6 +41,48 @@ extension SimulatedStoreFront {
             seedEarlierPurchase(holding.id, age: holding.age, ownership: holding.ownership)
         }
         for id in scenario.unverified { seedUnverified(id) }
+        for subscription in scenario.subscriptions {
+            if let status = status(of: subscription) { seedSubscription(status) }
+        }
+    }
+
+    /// A scenario's subscription as a status, by this store's clock and behaviour. A grace
+    /// period with no length in the behaviour runs the sixteen days App Store Connect
+    /// offers in the middle.
+    private func status(of subscription: Scenario.Subscription) -> HeldSubscription? {
+        guard let terms = catalogue.entry(for: subscription.id)?.subscriptionTerms else { return nil }
+        let now = clock.now
+        let period = behaviour.subscriptionPeriod.timeInterval
+        let age = subscription.age.timeInterval
+        let renewing = Renewal(willRenew: true, nextProduct: subscription.id)
+        let off = Renewal(willRenew: false, nextProduct: nil)
+        let started: Date
+        let state: HeldSubscription.State
+        var renewal = renewing
+        switch subscription.state {
+        case .subscribed:
+            started = now.addingTimeInterval(-age)
+            state = .subscribed
+        case .cancelled:
+            started = now.addingTimeInterval(-age)
+            state = .subscribed
+            renewal = off
+        case .inGracePeriod:
+            started = now.addingTimeInterval(-age - period)
+            let grace = (behaviour.gracePeriod ?? .seconds(16 * 86_400)).timeInterval
+            state = .inGracePeriod(until: started.addingTimeInterval(period + grace))
+        case .inBillingRetry:
+            started = now.addingTimeInterval(-age - period)
+            state = .inBillingRetry
+        case .lapsed:
+            started = now.addingTimeInterval(-age - period)
+            state = .expired(.autoRenewDisabled)
+            renewal = off
+        }
+        return HeldSubscription(
+            product: subscription.id, group: terms.group, ownership: subscription.ownership, state: state,
+            firstSubscribed: started, periodStarted: started, periodEnds: started.addingTimeInterval(period),
+            renewal: renewal)
     }
 }
 

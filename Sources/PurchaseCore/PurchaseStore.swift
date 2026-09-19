@@ -362,7 +362,7 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         }
         let settled = pendingApprovals.intersection(standing.ownedProducts.map(\.id) + subscribed)
         if !settled.isEmpty { pendingApprovals.subtract(settled) }
-        logger.log(.standingResolved(owned: Set(standing.ownedProducts.map(\.id))))
+        logger.log(.standingResolved(owned: Set(standing.ownedProducts.map(\.id) + subscribed)))
         scheduleNextLook()
     }
 

@@ -28,6 +28,15 @@ extension SimulatedStoreFront {
             case fails(PurchaseError)
         }
 
+        /// What happens when a subscription that is to renew reaches the end of its period.
+        public enum RenewalScript: Hashable, Sendable {
+            /// It renews: a new transaction, for the plan it was to renew as.
+            case renews
+            /// The charge fails: into the grace period, if `gracePeriod` is set, then
+            /// billing retry for `billingRetryPeriod`, then expired.
+            case fails
+        }
+
         public enum CatalogueScript: Hashable, Sendable {
             case loads
             /// Only some products come back: the rest are misspelt or not yet
@@ -61,6 +70,24 @@ extension SimulatedStoreFront {
         /// How long a subscription bought here runs before it is due to renew. A month, as
         /// near as a fixed length gets; a test that watches renewals sets it to seconds.
         public var subscriptionPeriod: Duration = .seconds(30 * 86_400)
+
+        /// What happens at a renewal. Change it before the period ends.
+        public var renewal: RenewalScript = .renews
+
+        /// The billing grace period, as App Store Connect sets it: nil is off, which is
+        /// App Store Connect's default too. 3, 16 or 28 days there.
+        public var gracePeriod: Duration?
+
+        /// How long Apple goes on retrying a failed charge before the subscription expires.
+        public var billingRetryPeriod: Duration = .seconds(60 * 86_400)
+
+        /// **The moment at a renewal**, as measured against the real store: the status
+        /// says the subscription has expired — will not renew, no reason — and the listing
+        /// has nothing, until the renewal is listed; the renewal itself is announced first.
+        /// On by default, like every awkward habit here: an app that is right through it
+        /// is right when it is shorter. Its length is counted in reads, one more than
+        /// `listsPurchasesAfterReads`.
+        public var showsTheRenewalMoment = true
 
         /// The three scripts, for a store that misbehaves from its first line. The rest
         /// are properties, and the defaults are the real store on a good day.

@@ -148,6 +148,9 @@ private struct PanelContent: View {
             ForEach(store.catalogue.entries) { entry in
                 row(entry.id.rawValue, describe(entry, at: date))
             }
+            ForEach(store.catalogue.subscriptionGroups, id: \.self) { group in
+                row("Group \(group)", describe(store.standing.subscription(in: group), at: date))
+            }
             row("Pending approval", store.pendingApprovals.isEmpty ? "none" : list(store.pendingApprovals))
             row("Activity", String(describing: store.activity))
         }
@@ -156,6 +159,23 @@ private struct PanelContent: View {
             ForEach(store.products) { product in
                 row(product.displayName, product.displayPrice)
             }
+        }
+    }
+
+    private func describe(_ group: SubscriptionStanding, at date: Date) -> String {
+        switch group {
+        case .unknown: return "unknown"
+        case .none: return "never subscribed"
+        case let .active(held, _), let .inactive(held, _):
+            let renewal: String
+            switch held.renewal?.willRenew {
+            case true?:
+                let next = held.renewal?.nextProduct.map { $0 == held.product ? "" : " as \($0)" } ?? ""
+                renewal = "renews\(next) \(held.accessEnds.formatted(date: .abbreviated, time: .standard))"
+            case false?: renewal = "ends \(held.accessEnds.formatted(date: .abbreviated, time: .standard))"
+            case nil: renewal = "renewal not known"
+            }
+            return "\(group.isActive == true ? "ACTIVE" : "inactive"): \(held.product) \(held.state), \(renewal)"
         }
     }
 
@@ -205,6 +225,15 @@ private struct PanelContent: View {
                     Button("Trial through Family Sharing (must not count)") {
                         simulated.deliver(entry.id, ownership: .familyShared)
                     }
+                } else if entry.subscriptionTerms != nil {
+                    Button("Subscribed on another device") { simulated.deliverSubscription(entry.id) }
+                    Button("Shared by a family member") { simulated.deliverSubscription(entry.id, ownership: .familyShared) }
+                    Button("Renew now") { simulated.renewNow(entry.id) }
+                    Button("Switch auto-renew off") { simulated.cancelAutoRenew(entry.id) }
+                    Button("Switch auto-renew on") { simulated.resumeAutoRenew(entry.id) }
+                    Button("Price rise awaiting consent") { simulated.raisePrice(entry.id, needsConsent: true) }
+                    Button("The failed charge goes through") { simulated.recoverBilling(entry.id) }
+                    Button("Lapse now", role: .destructive) { simulated.lapse(entry.id) }
                 } else {
                     Button("Bought on another device") { simulated.deliver(entry.id) }
                     Button("Shared by a family member") { simulated.deliver(entry.id, ownership: .familyShared) }
@@ -236,6 +265,18 @@ private struct PanelContent: View {
             scriptButton("Catalogue loads", simulated) { $0.catalogue = .loads }
             scriptButton("Catalogue is empty (unknown build)", simulated) { $0.catalogue = .loadsOnly([]) }
             scriptButton("Catalogue fails: network", simulated) { $0.catalogue = .fails(.network) }
+            if !store.catalogue.subscriptionGroups.isEmpty {
+                scriptButton("Renewals go through", simulated) { $0.renewal = .renews }
+                scriptButton("Renewals fail, no grace period", simulated) {
+                    $0.renewal = .fails
+                    $0.gracePeriod = nil
+                }
+                scriptButton("Renewals fail, 16-day grace period", simulated) {
+                    $0.renewal = .fails
+                    $0.gracePeriod = .seconds(16 * 86_400)
+                }
+                scriptButton("Subscriptions renew every 2 minutes", simulated) { $0.subscriptionPeriod = .seconds(120) }
+            }
             scriptButton("Restore fails: network", simulated) { $0.restore = .fails(.network) }
             scriptButton("Restore succeeds", simulated) { $0.restore = .succeeds }
             Button("Hold restores open (asking for a password)") { simulated.restoreGate.close() }

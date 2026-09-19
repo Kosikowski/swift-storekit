@@ -53,6 +53,11 @@ public enum ScenarioError: Error, Hashable, Sendable {
         case unknownOwnership(String)
         /// Not a whole number of reads.
         case invalidLag(String)
+        /// A subscription clause naming something that is not a subscription.
+        case notASubscription(ProductID)
+        /// A subscription in `owns` or `earlier`: it is arranged with its state, in
+        /// `subscribed=` and its kin.
+        case subscriptionHeldAsPurchase(ProductID)
     }
 
     /// A scenario that does not parse. `clause` is the offending clause as written.
@@ -96,6 +101,10 @@ extension ScenarioError.ScenarioFault: CustomStringConvertible {
             "\"\(name)\" is not purchased, family or assigned"
         case let .invalidLag(lag):
             "\"\(lag)\" is not a whole number of reads"
+        case let .notASubscription(id):
+            "\(id) is not a subscription"
+        case let .subscriptionHeldAsPurchase(id):
+            "\(id) is a subscription: arrange it with subscribed=, cancelled=, grace=, retry= or lapsed="
         }
     }
 }
