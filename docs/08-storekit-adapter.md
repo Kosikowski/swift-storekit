@@ -20,6 +20,9 @@ The gateway fetches, forwards and copies a transaction's fields into a `Transact
 | What is owned | `Transaction.currentEntitlements` | Current, not deprecated; only the singular `currentEntitlement(for:)` is. At most one transaction per non-consumable; refunded ones are already excluded; family-shared ones are included. **[Apple]** |
 | Buying | `PurchaseAction`, `purchase(confirmIn:)`, or `purchase(options:)` | By anchor; see below. |
 | Restoring | `AppStore.sync()` | Prompts for a password. Only behind a button. |
+| Subscription statuses | `Product.SubscriptionInfo.status(for:)`, per group | Static: no product loaded first. Read beside the listing, and deciding over it ([D35](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule)). A group StoreKit could not be asked about is left out and logged as `subscriptionStatusUnavailable`, never answered empty |
+| Status changes | `Product.SubscriptionInfo.Status.updates` | Merged into the updates stream: an expiry, a cancellation and a grace period send no transaction at all **[ran]** |
+| Managing subscriptions | `manageSubscriptionsSheet` (iOS), a link (macOS) | In `PurchaseUI`, not here ([D43](10-decisions.md#d43-managing-a-subscription-is-apples-page-on-the-mac-a-link)) |
 | Arrivals | `Transaction.updates`, and `Transaction.unfinished` once | From the first command, for the store's life. The backlog is read once, after subscribing: Apple hands unfinished transactions to a listener at *launch*, and this one may start later ([D29](10-decisions.md#d29-what-was-left-unfinished-is-asked-for-not-waited-for)). |
 
 Nothing from StoreKit 1 is used, and no SDK-27-only symbol, so the package builds with Xcode 26 and 27.
@@ -29,6 +32,7 @@ Nothing from StoreKit 1 is used, and no SDK-27-only symbol, so the package build
 | Read | Asked from a cancelled task, real StoreKit answers **[ran]** | So |
 |---|---|---|
 | What is owned (`Transaction.currentEntitlements`) | nothing: 0 of 1 | `PurchaseStore` reads in a task of its own ([D2](10-decisions.md#d2-ownership-is-never-read-in-a-task-something-else-can-cancel)) |
+| Subscription statuses (`status(for:)`) | **an empty array**: "never subscribed" | `PurchaseStore` reads them in its task; `AppStoreFront.subscriptionStatuses(in:)` asks from a task of its own ([D41](10-decisions.md#d41-subscription-statuses-are-read-in-a-task-nobody-cancels)) |
 | What is for sale (`Product.products(for:)`) | **an empty list, not an error**: 0 of 2 | `PurchaseStore.loadProducts()` does likewise, and so do `AppStoreFront.products()` and `diagnose()` themselves, for whoever calls them directly ([D26](10-decisions.md#d26-products-too-are-asked-for-in-a-task-nobody-cancels--in-the-adapter)) |
 
 Nothing at all reads as "owns nothing"; an empty list reads as "sells nothing". Neither is an error, which is what makes both dangerous. A cancellation that does arrive as a thrown error is mapped to a failure for a products request — nobody backs out of a price list — and to a cancellation only for a purchase or a restore.
@@ -40,7 +44,11 @@ Nothing at all reads as "owns nothing"; an empty list reads as "sells nothing". 
 | `foreign` | Not in the catalogue. Decided **first**: whether someone else's transaction verifies is not this app's business. | No | **No** |
 | `unverified` | Signature does not check out | No | **No** |
 | `withdrawn` | Verified, ours, revoked | No | Yes |
-| `adopt` | Verified, ours, standing | Yes | Yes |
+| `pastPeriodWithdrawn` | A subscription transaction revoked **after its period had ended**: an old period refunded, the subscription carrying on **[ran]**. Not announced ([D38](10-decisions.md#d38-what-is-held-is-chosen-by-date-a-past-period-refunded-takes-nothing-away)) | No | Yes |
+| `superseded` | A subscription transaction upgraded away from `[Apple]`. Not announced | No | Yes |
+| `adopt` | Verified, ours, standing. A subscription's carries its period's end | Yes | Yes |
+
+A subscription **status** has triage of its own, in `SubscriptionTriage`: a status whose transaction does not verify is not counted, and logged; one whose renewal info does not verify is counted, with nothing known of its renewal. StoreKit's renewal states, expiration reasons, offer types and payment modes are open sets, and each is matched with a branch for a value added later, which becomes `unrecognised` ([D40](10-decisions.md#d40-every-storekit-open-set-crosses-with-a-case-for-what-it-adds-later)).
 
 Finishing removes a transaction from the store's redelivery queue for good, which is why a foreign one is left for whoever owns that product, and an unverified one is left to be offered again. Reading entitlements finishes nothing at all.
 
@@ -50,7 +58,7 @@ Whether an adopted transaction *counts* for this account — a family-shared tri
 
 ## Updates carry facts
 
-`transactionUpdates()` yields `.granted(OwnedProduct)` or `.withdrawn(ProductID)`. A grant arrives **before** `currentEntitlements` has it, so a listener told only "something changed" reads the listing, finds nothing, and never looks again. A refund does not lag. **[ran]** See [decisions, D4](10-decisions.md#d4-the-updates-stream-carries-facts-not-a-signal).
+`transactionUpdates()` yields `.granted(OwnedProduct)`, `.withdrawn(ProductID)`, or `.subscriptionChanged(HeldSubscription)` with the new status. A grant arrives **before** `currentEntitlements` has it, so a listener told only "something changed" reads the listing, finds nothing, and never looks again. A refund does not lag. **[ran]** See [decisions, D4](10-decisions.md#d4-the-updates-stream-carries-facts-not-a-signal).
 
 ## Errors
 

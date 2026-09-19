@@ -172,7 +172,7 @@ It checks that the file sells exactly the catalogue's identifiers, that each is 
 
 ## Real StoreKit, from a hosted test bundle
 
-`Demo/Tests/RealStoreKitTests.swift` runs the real `AppStoreFront` through `PurchaseStore` against `Demo.storekit`, on the Mac and in an iOS simulator. What it takes — little of which Apple writes down:
+`Demo/Tests/RealStoreKitTests.swift` runs the real `AppStoreFront` through `PurchaseStore` against `Demo.storekit`, on the Mac and in an iOS simulator; `RealSubscriptionTests.swift` does the same for subscriptions, with `SKTestSession.timeRate` renewing every ten seconds and `shouldEnterBillingRetryOnRenewal` and `billingGracePeriodIsEnabled` making a charge fail ([subscriptions](15-subscriptions.md#testing)). What it takes — little of which Apple writes down:
 
 ```swift
 import StoreKitTest
@@ -241,6 +241,7 @@ A green suite against `SimulatedStoreFront` says your app does the right thing *
 - **What is redelivered at launch.** Unfinished transactions, and purchases made while the app was not running, are StoreKit's to hand over. The adapter asks for the backlog; nothing here shows StoreKit giving it.
 - **The payment sheet**: that it appears, over which window, and what the person sees.
 - **Family Sharing's dates and revocations**, as the App Store really sends them. The simulated store takes your word for the ownership you seed.
+- **A renewal while a real device's app is closed, and a subscription shared by a family member.** Xcode's environment cannot make either; the sandbox can, by hand.
 - **Storefronts, currencies and price tiers.** It serves what your `.storekit` file says, or made-up prices.
 - **Your server**, App Store Server Notifications, and anything else downstream of a real transaction.
 

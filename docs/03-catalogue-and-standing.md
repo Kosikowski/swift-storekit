@@ -77,8 +77,9 @@ An entry is an identifier and the one thing about the product that the store can
 |---|---|
 | `.unlock(_ id:, familySharing:)` | `.unlock(familySharing:)`: a one-time purchase that is kept. `familySharing` defaults to `.honoured` |
 | `.trial(_ id:, of:, lasting:)` | `.trial(TrialTerms)`: a free non-consumable standing in for other unlocks for a while ([trials](04-trials.md)) |
+| `.subscription(_ id:, in:, level:, familySharing:)` | `.subscription(SubscriptionTerms)`: an auto-renewable subscription in a group, at a level — 1 is the highest ([subscriptions](15-subscriptions.md)) |
 
-`entry.trialTerms` is the terms if the entry is a trial, and nil otherwise.
+`entry.trialTerms` is the terms if the entry is a trial, and nil otherwise; `entry.subscriptionTerms` likewise for a subscription. `catalogue.subscriptionGroups` lists the groups, and `catalogue.subscriptions(in:)` a group's entries. A trial may not name a subscription — a subscription has an introductory offer of its own for that — and a level below 1 is a problem.
 
 The trial's `targets` are the one relation between products that the package knows about. It is there because a store fact depends on it: a trial is not on offer to someone who already owns everything it would lend.
 
@@ -134,6 +135,7 @@ public enum ProductAccess: Hashable, Sendable {
     case unknown
     case owned(OwnedProduct)
     case onTrial(TrialPeriod, via: ProductID)
+    case subscribed(HeldSubscription)
     case none
 }
 ```
@@ -143,6 +145,7 @@ public enum ProductAccess: Hashable, Sendable {
 | `.unknown` | The store has not answered yet. **Not the same as `.none`** |
 | `.owned(OwnedProduct)` | Held, and counted for this account |
 | `.onTrial(TrialPeriod, via:)` | Lent by a trial that is still running at the date asked; `via` is the trial product |
+| `.subscribed(HeldSubscription)` | The subscription plan held, entitled by the store's last word: subscribed, or in a grace period. Another plan of the same group is `.none`; ask `subscription(in:)` for the group ([subscriptions](15-subscriptions.md#where-the-account-stands)) |
 | `.none` | The store has answered, and there is no right to it |
 
 There is deliberately no `Bool`. (`isGranted` is the nearest thing, and is a `Bool?`: nil until the store has answered, so it cannot be tested with `if` until somebody has decided what nil means — [getting started](02-getting-started.md#derive-your-own-ispro).) Collapsing this to "is it unlocked" throws away `.unknown`, and `.unknown` read as "no" is the bug where a paying customer meets the paywall at every launch. An app that wants a `Bool` decides what `.unknown` means for the thing being asked, which is usually "wait", and says so itself:
@@ -186,11 +189,11 @@ Three details of `access(to:at:)`:
 
 An `OwnedProduct` is only ever built from a transaction the store has verified and has not taken back. A standing holds only the ones that count, by the table above.
 
-A trial product is in `ownedProducts` from the day it is taken and **stays there after it ends**. Holding the trial product is a fact; whether it still lends anything is `trial(_:at:)`'s answer.
+A trial product is in `ownedProducts` from the day it is taken and **stays there after it ends**. Holding the trial product is a fact; whether it still lends anything is `trial(_:at:)`'s answer. Subscriptions are not in `ownedProducts`: `subscription(in:)` answers for each group, with a `SubscriptionStanding`.
 
 ### `nextExpiry`
 
-The end of the running trial that ends soonest after `asOf`, or nil when the standing is unknown or no trial is running.
+The end of the running trial that ends soonest after `asOf` — or of an active subscription's access, whichever comes first — or nil when the standing is unknown and nothing is running. For a subscription it is only when to *ask*: it may have renewed, and only the store can say ([D36](10-decisions.md#d36-a-lapse-at-a-periods-end-is-believed-only-when-it-lasts)).
 
 Nothing observable happens when a trial runs out: no transaction arrives. Whoever holds a standing therefore has to look again at that moment, or nothing locks until something unrelated redraws or the app is relaunched. `PurchaseStore` does this for the standing it publishes. `nextExpiry` is public for code that keeps a standing of its own.
 

@@ -37,7 +37,7 @@ Dependencies point inwards only. `PurchaseStoreKit` and `PurchaseUI` do not know
 |---|---|---|
 | `PurchaseCore` | All the logic: values, rules, ports, and the one stateful class | Foundation, Observation |
 | `PurchaseStoreKit` | The App Store behind Core's ports | StoreKit; AppKit or UIKit for purchase anchors |
-| `PurchaseUI` | Environment entries, a start-at-launch modifier, two buttons. No paywall | SwiftUI; StoreKit in one file, for `@Environment(\.purchase)` |
+| `PurchaseUI` | Environment entries, a start-at-launch modifier, three buttons: buy, restore, manage subscriptions. No paywall | SwiftUI; StoreKit in two files, for `@Environment(\.purchase)` and the manage-subscriptions sheet |
 | `PurchaseLaunch` | The composition root, for an app that does not want to write one: `StoreLaunch.make(catalogue:)`. In a DEBUG build `-PurchaseScenario` chooses a simulated store; otherwise, and always in release, the App Store. Never empty, and the only thing an app imports for this | Foundation |
 | `PurchaseDebugUI` | A panel that drives the simulated store in a running debug build. Its *name* is in every build, and draws nothing in release, so an app needs no `#if` to mention it | SwiftUI |
 | `PurchaseSimulator` | The simulated store, its gates and scenarios. **The whole module is behind `#if DEBUG`**, so an app that links it — every app using the two above — ships with nothing of it. No app imports it | Foundation, Synchronization |
@@ -53,8 +53,8 @@ Core is one target, so that an app writes one `import`. Its layers are named in 
 
 | Layer | May not mention | Contents |
 |---|---|---|
-| **Domain** | `@MainActor`, Observation, the store, the role protocols | `ProductID`, `Catalogue`, `CatalogueEntry`, `TrialTerms`, `TrialPeriod`, `TrialStatus`, `Ownership`, `OwnedProduct`, `StoreProduct`, `ProductAccess`, `Standing`, `StandingResolver`, `TransactionUpdate`, `PurchaseOutcome`, `PurchaseCompletion`, `RestoreOutcome`, `PurchaseError`, `PurchaseConfirmation`, `PurchaseEvent`, `StoreDiagnosis`, and the `package`-level `Duration.timeInterval` |
-| **Port** | `@MainActor`, Observation, the store | `ProductCatalogueLoading`, `OwnershipReading`, `ProductPurchasing`, `PurchaseRestoring`, `TransactionObserving`, `StoreFront`, `StoreDiagnosing`, `TimeProviding`, `PurchaseLogging` |
+| **Domain** | `@MainActor`, Observation, the store, the role protocols | `ProductID`, `Catalogue`, `CatalogueEntry`, `TrialTerms`, `TrialPeriod`, `TrialStatus`, `SubscriptionGroupID`, `SubscriptionTerms`, `HeldSubscription`, `Renewal`, `AppliedOffer`, `OfferID`, `SubscriptionStanding`, `Ownership`, `OwnedProduct`, `StoreProduct`, `ProductAccess`, `Standing`, `StandingResolver`, `TransactionUpdate`, `PurchaseOutcome`, `PurchaseCompletion`, `RestoreOutcome`, `PurchaseError`, `PurchaseConfirmation`, `PurchaseEvent`, `StoreDiagnosis`, and the `package`-level `Duration.timeInterval` |
+| **Port** | `@MainActor`, Observation, the store | `ProductCatalogueLoading`, `OwnershipReading`, `ProductPurchasing`, `PurchaseRestoring`, `TransactionObserving`, `SubscriptionStatusReading`, `StoreFront`, `StoreDiagnosing`, `TimeProviding`, `PurchaseLogging` |
 | **Application** | — | `PurchaseStore`, `PurchaseStateProviding`, `PurchaseCommanding`, `UnlistedPurchases`, `PurchaseActivity`, `ProductLoadState`, `SystemClock`, `SilentPurchaseLogger` |
 
 Every domain value is `Sendable` and `Hashable`. Nothing in the domain reads a clock: every question that depends on time takes the date as a parameter, which is what makes a trial's expiry testable without waiting for it.
@@ -69,7 +69,8 @@ A store is five small roles, because their consumers differ. `PurchaseStore`'s d
 | `OwnershipReading` | The whole listing every time; only what the store vouches for; never throws; no side effects. |
 | `ProductPurchasing` | Finishes the transaction it returns, and only if it is verified and for a catalogue product. |
 | `PurchaseRestoring` | For a Restore button only: on the App Store it asks for a password. |
-| `TransactionObserving` | Yields the transaction's facts, not a bare signal; registered by the time it returns. |
+| `TransactionObserving` | Yields the transaction's facts, not a bare signal — and a subscription's status when it changes; registered by the time it returns. |
+| `SubscriptionStatusReading` | Optional. Every status for each group asked; a group that could not be read is left out, never answered empty; never throws. Asked from a task nobody cancels ([D41](10-decisions.md#d41-subscription-statuses-are-read-in-a-task-nobody-cancels)). |
 | `TimeProviding` | `now`, and `sleep(until:)` with an absolute deadline. |
 | `PurchaseLogging` | Receives events that are safe to write down as they are. |
 | `StoreDiagnosing` | Reports what this build actually receives from the store. |
@@ -87,7 +88,8 @@ What it holds is only what has to be stateful, which is the order things happen 
 - **Resolving is single-flight, with a re-run, in a task nobody cancels.** The real store answers a cancelled task with nothing at all, which reads as owning nothing, and SwiftUI cancels `.task` whenever a view goes away. So ownership is read in a task of its own, and a cancelled caller waits for it like anyone else. A caller arriving mid-read gets a read that started after it asked, so a `purchase()` that has returned has a standing that includes it. **Prices load the same way**, for the two reasons of their own in [D20](10-decisions.md#d20-prices-load-single-flight-too-in-a-task-nobody-cancels), except that a caller arriving mid-load joins it: prices asked for a moment ago are the prices.
 - **Ownership before prices.** `start()` reads what is owned and does not load the catalogue. A catalogue failure keeps the last good prices and never touches the standing.
 - **Grants are held until listed.** The store lists a purchase a moment after it says the purchase was made, whether the purchase was made here or arrived as an update. The grant is believed until the listing has it *and counts it*, until the store withdraws it, or until a grace period ends, whichever is first. The time limit keeps the listing the last word.
-- **A look is scheduled for whatever changes by itself**: the end of a running trial, and the lapse of a held grant. A wake that lands early finds nothing changed and waits again.
+- **A look is scheduled for whatever changes by itself**: the end of a running trial, the end of a subscription's access, and the lapse of a held grant. A wake that lands early finds nothing changed and waits again. None is ever scheduled for a moment already gone ([D36](10-decisions.md#d36-a-lapse-at-a-periods-end-is-believed-only-when-it-lasts)).
+- **Subscriptions are decided by the status, and a lapse at a period's end only when it lasts.** Statuses are read beside the listing, in the same task; a purchase or renewal is held until a status has caught up with it ([D35](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule), [D36](10-decisions.md#d36-a-lapse-at-a-periods-end-is-believed-only-when-it-lasts)).
 - **Nothing ever downgrades on a failure.** A purchase that throws leaves the standing alone; a restore that throws reads again and rethrows.
 
 ## The StoreKit adapter

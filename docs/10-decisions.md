@@ -241,3 +241,55 @@ The costs, stated:
 - **It can be got past on purpose.** An app that puts Swift Testing on its own search paths may link. That is what `release-check --app` is still for.
 - **Not measured: a product Xcode builds as a dynamic framework**, which it may do when one product is shared between an app and its extension. **[check]**
 
+
+## D35. Subscriptions are decided by the status, by Apple's rule
+
+What a subscription group amounts to is `SubscriptionStanding`, from the statuses `Product.SubscriptionInfo.status(for:)` reports. **Subscribed and in a grace period give access; billing retry, expired and revoked do not** — Apple's entitlement rule `[Apple]`, and for the grace period a promise the developer makes in App Store Connect `[Apple]`. Billing retry is reported as a state, never granted: an app that wants to be lenient says so in its own code ([subscriptions](15-subscriptions.md#access-is-apples-rule)).
+
+**The status decides, and the listing stands in only for a group whose status could not be read.** The plan had it the other way — either source enough to grant — and phase 0 measured why not: the iOS simulator lists a subscription in billing retry, with a renewal transaction of its own, and at a renewal both platforms list nothing for a moment. **[ran]** A status read that fails takes nothing away (D9); a group that could not be read is left out of the answer, never answered empty, since empty is "never subscribed".
+
+Of several statuses, the entitled one at the highest level decides, the person's own before anybody else's, then the one that lasts longer. `statuses.first` is how other libraries lost a family member's subscription behind the person's own expired one ([plan](14-subscriptions-plan.md#how-others-do-it)).
+
+## D36. A lapse at a period's end is believed only when it lasts
+
+At the end of every period StoreKit says, for a moment, that the subscription has ended: `expired` for up to 0.7 s on the Mac, and in the iOS simulator also "will not renew" and "eligible for a win-back offer", with nothing in the values to tell it from a real lapse. **[ran]** Believed, every subscriber is locked out at every renewal — for a moment, or, with nothing scheduled to look again, until the next launch.
+
+So an `expired` reading, or none, for a subscription the last standing held as active and renewing, read less than `renewalGrace` (30 seconds by default) after its period ended, is not believed yet: the previous standing stands, and the store looks again in a couple of seconds. Billing retry and revocation are definite and believed at once; so is a lapse before the period is up. The renewal itself usually arrives on the updates stream first, and is held until a status has caught up with it, as a grant is (D4); a held renewal whose status says billing retry — the iOS simulator's — is settled by that status.
+
+The tests that pin it found a store that spun. A doubted lapse leaves the standing as it was, unpublished, and its `nextExpiry` a moment already gone; a look scheduled for that moment woke at once, and again. Looks are never scheduled in the past, and a subscription the store still calls subscribed after its end is looked at again a minute later. **[ran]** And a year of monthly renewals against the simulated store, which keeps the moment by default (D42), could not fail at first: the lock-out lasted one read, and a poll never saw it. The store's log of each read now names the active subscriptions, which is what "why did a subscriber see the paywall" needs anyway, and the test reads every one.
+
+## D37. A change of plan is read by comparing what was asked for with what came back
+
+A downgrade, and a crossgrade to another duration, come back from `purchase()` as `.success` **with the transaction already held**, unchanged, on both platforms. **[ran]** Taken at its word, it says the cheaper plan was bought. `PurchaseStore` compares the product it asked for with the product it got: another product of the same group is `.planChangeScheduled(to:at:)`, and nothing changes until the renewal, when the plan waited for is what renews. An upgrade is a new transaction at once, and the one left behind is marked upgraded, finished, and not counted. **[ran]**
+
+Asked in the same instant as the first purchase, before StoreKit had listed it, a downgrade on the Mac came back as the new plan instead — seen once, and not pinned. **[check]** No person downgrades within half a second of subscribing.
+
+## D38. What is held is chosen by date; a past period refunded takes nothing away
+
+Renewals missed while nothing ran arrive at the next launch **newest first**, the oldest last and sometimes the original purchase after them. **[ran]** A listener that took the last to arrive as the current one would hold a period long over. A subscription's hold never outlasts the end of the period it bought, so one already over is not believed at all.
+
+Refunding the first period of a subscription that has renewed revokes that transaction and nothing else. **[ran]** Announced as a withdrawal of the product, it would drop the hold on the renewal that is current. The adapter finishes a subscription transaction revoked after its period ended and announces nothing — the revocation date and the expiration date say which it was, with no clock.
+
+## D39. The group and the level are restated in the catalogue
+
+`status(for:)` takes the group's identifier and needs no product loaded, so what a subscriber may use waits for no network (D8). The level chooses between two statuses with no prices either. A transaction carries neither reliably. So both are written in the catalogue, as Family Sharing is, and the `.storekit` check keeps them honest. **Level 1 is the highest**: moving from level 2 to level 1 was an upgrade. **[ran]**
+
+## D40. Every StoreKit open set crosses with a case for what it adds later
+
+`RenewalState`, `ExpirationReason`, `Transaction.OfferType` and `Transaction.Offer.PaymentMode` are `RawRepresentable` structs, and Apple adds values to them without a compile error — the 27 SDK added `.assigned`, `.unbundled` and the bundle product types. **[Apple]** Each is matched with a branch for something newer, which becomes `unrecognised`: said, and never taken for subscribed (D21). An expiry with no reason is `unstated`, which is what the moment at a renewal looks like. `expired` while the renewal info says it is still retrying is billing retry, by Apple's own table **[Apple]** — the iOS simulator says so after a grace period **[ran]**.
+
+## D41. Subscription statuses are read in a task nobody cancels
+
+A status read from a cancelled task answers with **an empty array**, "never subscribed", on the Mac and in the iOS simulator, as the listing answers a cancelled task with nothing (D2). **[ran]** `PurchaseStore` reads statuses beside the listing in its own task; `AppStoreFront.subscriptionStatuses(in:)` asks from a task of its own for whoever calls it directly. `isEligibleForIntroOffer(for:)` is not affected by cancellation — but it keeps its first answer for the life of the process, before and after the offer is used **[ran]**, which phase 2 has to design around.
+
+## D42. The simulated store renews by its clock, and keeps the renewal moment
+
+A year of renewals is a `ManualClock` advanced twelve times. The simulated store does what its clock has done at each read: renews, lapses, or goes through a grace period and billing retry into expiry, as its behaviour says. And it keeps the moment at a renewal by default — the renewal announced first, the status expired and not renewing, the listing empty, for a read longer than a purchase's lag — for D28's reason: a fake politer than the real store hides the lock-out that moment causes. Each subscription habit is held to real StoreKit, per OS, by a test in `Demo/Tests` ([simulated store](06-simulated-store.md#subscriptions)).
+
+## D43. Managing a subscription is Apple's page; on the Mac, a link
+
+`ManageSubscriptionsButton` presents Apple's sheet on iOS. macOS has no sheet — `manageSubscriptionsSheet` and `AppStore.showManageSubscriptions` are unavailable there **[Apple]** — so it opens `https://apps.apple.com/account/subscriptions`. Either way the store reads again when the person comes back: a cancellation made there sends the app nothing **[ran]**. There is still no paywall, and nothing wraps `SubscriptionStoreView`.
+
+## D44. No public name StoreKit has at the top level
+
+StoreKit 18.4 added top-level `SubscriptionInfo`, `SubscriptionStatus`, `SubscriptionPeriod`, `SubscriptionRenewalInfo` and `SubscriptionRenewalState`, and libraries with those names stopped compiling in apps that import both ([plan](14-subscriptions-plan.md#how-others-do-it)). The package's are `HeldSubscription`, `SubscriptionStanding`, `SubscriptionGroupID`, `SubscriptionTerms`, `Renewal`, `AppliedOffer` and `OfferID`, checked against the 24 top-level names of the 27 SDK. **[ran]**

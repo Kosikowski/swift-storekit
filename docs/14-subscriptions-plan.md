@@ -1,6 +1,6 @@
 # Plan: subscriptions and offers
 
-**Status: phase 0 done, 19 September 2026: real StoreKit measured, and the design below corrected by it ([what it found](#what-phase-0-found)). Nothing else is built.** The research is [Subscriptions and offers in StoreKit](13-subscriptions-and-offers.md); this is what to build from it, in what order, and what to measure before any of it.
+**Status, 19 September 2026: phases 0 and 1 done.** Real StoreKit measured, the design below corrected by it ([what it found](#what-phase-0-found)), and auto-renewable subscriptions built on it — [the guide](15-subscriptions.md), and decisions [D35](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule) to [D44](10-decisions.md#d44-no-public-name-storekit-has-at-the-top-level). Offers, phase 2, are next. The research is [Subscriptions and offers in StoreKit](13-subscriptions-and-offers.md); this is what to build from it, in what order, and what to measure before any of it.
 
 Evidence tags as in the research. Names in code sketches are placeholders, to be settled in phase 1; the shapes are the proposal.
 
@@ -301,6 +301,8 @@ Every row of the research marked `[check]` that the design leans on, measured in
 - The adapter: fields, statuses, `Status.updates`, open sets.
 - The simulated store's subscriptions and habits; scenarios; the debug panel; the `.storekit` checks.
 - Documentation: a subscriptions guide beside [trials](04-trials.md); the checklist; [App Store Connect](09-app-store-connect.md) for groups, levels, the grace period (turn it on) and Family Sharing; the roadmap and README.
+
+**Done**, with one measurement fewer than planned: the Xcode 26.6 column comes from the nightly hosted lane. What was learnt building it is in [D35–D44](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule), among them a store that spun while doubting a lapse, and a test that could not see a lock-out one read long.
 
 **Done when** an app can sell a monthly and a yearly subscription in one group and, against the simulated store and a manual clock, a test can walk it through subscribe, renew, grace, billing retry, recovery, lapse, refund, upgrade and downgrade, with every rule in Core proven to bite ([D14](10-decisions.md#d14-every-regression-test-is-proven-to-bite)); and the hosted suite holds each measured habit on both platforms. Released as **0.3.0**, a minor bump: the API moves ([README](../README.md#using-it)).
 

@@ -4,7 +4,7 @@ What the package does not do, and why not yet.
 
 | Not here | Why | If you need it now |
 |---|---|---|
-| **Auto-renewable subscriptions** | A different problem: status, renewal, grace periods, billing retry, offers, upgrade paths. Doing non-consumables well first. **Planned**: [the plan](14-subscriptions-plan.md), from [the research](13-subscriptions-and-offers.md). | StoreKit's `SubscriptionStoreView` covers a great deal unaided. |
+| **Subscription offers** beyond the introductory one: win-back, promotional, codes, introductory eligibility | Auto-renewable subscriptions themselves are [here](15-subscriptions.md). Offers are [phase 2 of the plan](14-subscriptions-plan.md#phase-2-offers). | StoreKit's `SubscriptionStoreView` shows and applies them unaided. |
 | **Consumables** | Need a balance the app must keep, and delivery before finishing. | — |
 | **Non-renewing subscriptions** | Expiry is the app's to compute; close to the trial model, and a candidate: phase 3 of [the plan](14-subscriptions-plan.md#phase-3-on-demand). | — |
 | **Offer-code redemption** | The updates listener already receives a redeemed transaction. A redemption button would use `presentOfferCodeRedeemSheet(from:options:)`, which is SDK 27 only. Phase 2 of [the plan](14-subscriptions-plan.md#phase-2-offers). | SwiftUI's `offerCodeRedemption` modifier. |

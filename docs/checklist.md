@@ -86,7 +86,7 @@ Each item says how it is known:
 - [ ] **`Transaction.updates` is listened to from launch, for the app's whole life.** It carries Ask to Buy approvals, purchases on other devices and refunds. It does not carry purchases made with `purchase()` in this process. [Apple] The listener starts with `start()`, which `.purchaseStore(_:)` calls.
     - **The stream carries the transaction's facts, not only a product ID**: `TransactionUpdate.granted(OwnedProduct)` or `.withdrawn(ProductID)`. An update for a grant arrives *before* the listing has it: when an approved Ask to Buy arrives, the listing at that instant is still empty, and has the product about half a second later. A listener that re-reads the listing on the update finds nothing, and has no reason ever to look again. A refund's update does not lag: the listing is already empty when it arrives. So a grant is held exactly as a purchase is, and a withdrawal drops the hold at once. [ran]
     - Verified transactions for catalogue products are finished. Unverified ones are not, because the App Store offers them again. [Apple] Transactions for products the catalogue does not list are left alone, for whoever owns them. ([the adapter](08-storekit-adapter.md))
-- [ ] **The outcomes are told apart by type.** `PurchaseCompletion` has `.owned`, `.trialRunning`, `.trialUsed`, `.notCounted`, `.pending` and `.cancelled`; what went wrong is a thrown `PurchaseError`. An unverified purchase is `PurchaseError.unverified` and is never a cancellation. A cancellation that arrives *thrown*, as `StoreKitError.userCancelled`, is still a cancellation. [review]
+- [ ] **The outcomes are told apart by type.** `PurchaseCompletion` has `.owned`, `.trialRunning`, `.trialUsed`, `.notCounted`, `.subscribed`, `.planChangeScheduled`, `.pending` and `.cancelled`; what went wrong is a thrown `PurchaseError`. An unverified purchase is `PurchaseError.unverified` and is never a cancellation. A cancellation that arrives *thrown*, as `StoreKitError.userCancelled`, is still a cancellation. [review]
 - [ ] **Errors carry no text.** `PurchaseError` is typed, and an unrecognised error crosses as the name of its type, because some StoreKit errors echo App Store account identifiers in `localizedDescription`. [review]
 - [ ] **Buying an already-owned non-consumable returns the original transaction.** For a used trial the purchase returns `PurchaseCompletion.trialUsed(TrialPeriod)`, and `TrialStatus.used(TrialPeriod)` says when it ended. [ran]
 - [ ] **Restore is `AppStore.sync()` followed by a fresh read.** `restorePurchases()` and `RestorePurchasesButton`. A restore that fails reads again and never downgrades. [Apple]
@@ -219,6 +219,26 @@ Nothing in this section is the package's.
 - [ ] **Changing where a trial's start comes from changes people's trials.** Anyone who had been given a fresh local trial by reinstalling will see it end on the App Store's date, possibly at once. Put that in the release notes and brief support. ([migrating](12-migrating-an-existing-app.md#changing-where-a-trials-start-comes-from-changes-peoples-trials))
 - [ ] **Downgrade behaviour is a product decision.** Choose between lock, remove and keep deliberately, and write the choice down. Keeping everything unlocked turns a trial into permanent extras.
 
-## 10. The shape of the library
+## 10. Subscriptions
+
+### Handled by the package
+
+- [ ] **Access is Apple's rule, decided by the status.** Subscribed and in a grace period give access; billing retry, expired and revoked do not, and are reported. The status decides and the listing stands in only when no status can be read, because the iOS simulator lists a subscription in billing retry. [ran] ([subscriptions](15-subscriptions.md#access-is-apples-rule))
+- [ ] **A subscriber is not locked out at a renewal.** StoreKit says, for a moment at the end of every period, that the subscription has expired; a lapse there is believed only when it lasts (`renewalGrace`), and the renewal, which arrives on the updates stream first, is held. [ran] ([D36](10-decisions.md#d36-a-lapse-at-a-periods-end-is-believed-only-when-it-lasts))
+- [ ] **A downgrade is not reported as bought.** StoreKit returns the plan already held; the completion is `.planChangeScheduled(to:at:)`. [ran]
+- [ ] **Statuses are read in a task nobody cancels**, since a cancelled read answers "never subscribed". [ran]
+- [ ] **Renewals missed while the app was closed are judged by date**, not by the order they arrive in — newest first. [ran]
+- [ ] **The group and level in the catalogue are checked against the `.storekit` file.** Level 1 is the highest. [ran]
+
+### Your app's responsibility
+
+- [ ] **Turn on the billing grace period in App Store Connect**, and say what a person in it should do: their payment failed, and they keep access until it ends. [Apple] ([App Store Connect](09-app-store-connect.md#subscriptions))
+- [ ] **Decide whether billing retry keeps access.** The package says no, as Apple does; leniency is yours to write. ([subscriptions](15-subscriptions.md#access-is-apples-rule))
+- [ ] **Call `refresh()` when the app becomes active.** A cancellation made elsewhere, and an expiry, send nothing. [ran]
+- [ ] **Offer Apple's page for managing the subscription** — `ManageSubscriptionsButton`, a link on macOS, where there is no sheet. [Apple]
+- [ ] **Word the paywall as App Review asks**: the plan, its length, the full renewal price as the most prominent price, and links to the terms and privacy policy. [Apple]
+- [ ] **Try Family Sharing and a renewal while the app is closed in the sandbox**, by hand: Xcode's environment can make neither. [Apple]
+
+## 11. The shape of the library
 
 The package's targets, layers, protocols and the reasons behind them are in [architecture](01-architecture.md) and [decisions](10-decisions.md). To move an app that already has hand-written StoreKit code onto it, see [migrating an existing app](12-migrating-an-existing-app.md).

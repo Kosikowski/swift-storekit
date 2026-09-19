@@ -1,8 +1,8 @@
 # swift-storekit
 
-One-time purchases and trials over StoreKit 2, for macOS 26 and iOS 26, with a simulated store for testing them.
+One-time purchases, trials and auto-renewable subscriptions over StoreKit 2, for macOS 26 and iOS 26, with a simulated store for testing them.
 
-> ⚠️ **Early.** Non-consumables and trials only. No subscriptions, no consumables. The API may still move.
+> ⚠️ **Early.** Non-consumables, trials and auto-renewable subscriptions. No subscription offers beyond the introductory one yet, and no consumables. The API may still move.
 
 Selling a non-consumable looks like sixty lines of StoreKit, and every app that writes those sixty lines gets a different handful of them wrong. Each of these was found in shipping code or measured against real StoreKit, and each has a test here:
 
@@ -132,6 +132,7 @@ Test your own app against `SimulatedStoreFront` and a `ManualClock`, both from `
 | [Getting started](docs/02-getting-started.md) | From nothing to a working purchase |
 | [Catalogue and standing](docs/03-catalogue-and-standing.md) | The values an app reads |
 | [Trials](docs/04-trials.md) | The free non-consumable, its dates and its end |
+| [Subscriptions](docs/15-subscriptions.md) | Declaring them, where a subscriber stands, renewals, plan changes, managing, testing |
 | [Testing](docs/05-testing.md) | Apple's environments, and where the simulated store fits |
 | [The simulated store](docs/06-simulated-store.md) | Behaviour, scenarios, the debug panel, previews |
 | [Release safety](docs/07-release-safety.md) | Keeping the simulated store out of what ships |
@@ -140,7 +141,7 @@ Test your own app against `SimulatedStoreFront` and a `ManualClock`, both from `
 | [Decisions](docs/10-decisions.md) | Why, with the evidence for each |
 | [Not implemented, deliberately](docs/11-roadmap.md) | Subscriptions, consumables, and the rest |
 | [Subscriptions and offers in StoreKit](docs/13-subscriptions-and-offers.md) | Research: how the App Store runs subscriptions and offers, and what an app can see |
-| [Plan: subscriptions and offers](docs/14-subscriptions-plan.md) | Proposed: what to build, in what order, and what to measure first |
+| [Plan: subscriptions and offers](docs/14-subscriptions-plan.md) | What was built, in what order, what was measured first, and what is next |
 | [Migrating an existing app](docs/12-migrating-an-existing-app.md) | From hand-written StoreKit 2 |
 | [Checklist](docs/checklist.md) | Everything to get right, and who handles it |
 
