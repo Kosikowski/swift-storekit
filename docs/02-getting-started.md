@@ -22,7 +22,7 @@ In Xcode, use File › Add Package Dependencies…. In a `Package.swift`:
 dependencies: [
     // Up to the next *minor*, until 1.0: `from:` accepts everything below 1.0, and
     // before 1.0 a minor release is where the API moves.
-    .package(url: "https://github.com/Kosikowski/swift-storekit.git", .upToNextMinor(from: "0.1.0")),
+    .package(url: "https://github.com/Kosikowski/swift-storekit.git", .upToNextMinor(from: "0.2.0")),
 ],
 targets: [
     .target(

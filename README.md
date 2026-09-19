@@ -55,10 +55,10 @@ An app's code imports nothing that is missing from a release build, and needs no
 ## Using it
 
 ```swift
-.package(url: "https://github.com/Kosikowski/swift-storekit.git", .upToNextMinor(from: "0.1.0"))
+.package(url: "https://github.com/Kosikowski/swift-storekit.git", .upToNextMinor(from: "0.2.0"))
 ```
 
-Up to the next *minor*, until 1.0: `from: "0.1.0"` accepts everything below 1.0, and before 1.0 a minor release is where the API moves.
+Up to the next *minor*, until 1.0: `from: "0.2.0"` accepts everything below 1.0, and before 1.0 a minor release is where the API moves.
 
 ```swift
 import PurchaseCore
