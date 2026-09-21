@@ -188,7 +188,7 @@ if let request = store.requestedPurchases.first, !isOnboarding {
 }
 ```
 
-A purchase of the product, however it ends, deals with the request. A win-back or promotional offer the person chose goes with it, so buying it never charges the regular price in its place; a promotional one is signed by the app's `OfferSigning`, as any is. An offer of a kind StoreKit adds later is left off, and logged as `requestedOfferUnrecognised`. Xcode's environment delivered no request on either platform, so this is tried in the sandbox, on a device ([D53](10-decisions.md#d53-a-purchase-asked-for-outside-the-app-is-a-request-and-the-app-decides)).
+A purchase of the product, however it ends, deals with the request. A win-back or promotional offer the person chose goes with it, so buying it never charges the regular price in its place; a promotional one is signed by the app's `OfferSigning`, as any is. An offer of a kind StoreKit adds later is left off, and logged as `requestedOfferUnrecognised`. A Mac Catalyst app is never sent a promoted purchase, because the Mac App Store does not promote them `[Apple]`. Xcode's environment delivered no request on either platform, so this is tried in the sandbox, on a device ([D53](10-decisions.md#d53-a-purchase-asked-for-outside-the-app-is-a-request-and-the-app-decides)).
 
 ## Apple's own messages
 
@@ -203,7 +203,7 @@ ContentView()
     .storeMessages(deferredWhile: model.isOnboarding, showing: { $0 != .winBackOffer })
 ```
 
-Held messages are shown in order when the condition turns false, read as the app says it now. One that cannot be shown — no scene to show it in — waits for the next chance: the condition turning false again, or the scene becoming active. A reason `showing` declines (`StoreMessageReason`: `.priceIncreaseConsent`, `.billingIssue`, `.winBackOffer`, `.generic`, or `.unrecognised` for one StoreKit adds later) is never shown. The Mac has no such messages `[Apple]`, and there the modifier does nothing ([D55](10-decisions.md#d55-apples-own-messages-wait-while-the-app-says-so)).
+Held messages are shown in order when the condition turns false, read as the app says it now. One that cannot be shown — no scene to show it in — waits for the next chance: the condition turning false again, or the scene becoming active. A reason `showing` declines (`StoreMessageReason`: `.priceIncreaseConsent`, `.billingIssue`, `.winBackOffer`, `.generic`, or `.unrecognised` for one StoreKit adds later) is never shown. macOS has no such messages `[Apple]`, and there the modifier does nothing. Apple lists them for Mac Catalyst, so a Catalyst app holds them as an iOS app does ([D55](10-decisions.md#d55-apples-own-messages-wait-while-the-app-says-so)).
 
 ## Non-renewing subscriptions
 

@@ -9,7 +9,8 @@
 //  onboarding, a game, a form half filled. An app may hold them back and show them later
 //  (`Message.messages`, iOS only) `[Apple]`. When is the app's policy, so this is only the
 //  mechanism: messages wait while the app says so, and are shown when it stops saying so
-//  (`MessageQueue`). The Mac has no such messages `[Apple]`, and there this does nothing.
+//  (`MessageQueue`). macOS has no such messages `[Apple]`, and there this does nothing. A
+//  Mac Catalyst app runs the iOS code, because Apple lists `Message` for Catalyst too.
 //
 //  A view-layer StoreKit call, as the manage-subscriptions sheet is: a message can only be
 //  shown by the view it reached, so it cannot be moved behind `PurchaseStoreKit`.

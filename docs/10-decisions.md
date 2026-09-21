@@ -358,7 +358,7 @@ A promoted in-app purchase tapped on the App Store, and a win-back offer taken t
 
 The offer the person chose goes with the request: a win-back offer, and a promotional one, which the app's signer signs when it is bought. Left off, buying the request would charge the regular price in place of the offer the person saw. An introductory offer needs no asking, and one of a kind StoreKit adds later is left off and logged, `requestedOfferUnrecognised`.
 
-Not measured: in Xcode's environment no intent arrived on either platform, whether the `itms-services://` URL was opened by the app or, in the iOS simulator, by the system **[ran]**. It is tried in the sandbox, on a device, by hand.
+A Mac Catalyst app is never sent one for a promoted purchase, because the Mac App Store does not promote them **[Apple]**; there `requestedPurchases` stays empty. Not measured: in Xcode's environment no intent arrived on either platform, whether the `itms-services://` URL was opened by the app or, in the iOS simulator, by the system **[ran]**. It is tried in the sandbox, on a device, by hand.
 
 ## D54. On a 12-month commitment, whether it will renew and whether it will end are two facts
 
@@ -370,7 +370,7 @@ Not measured: no `.storekit` file with a billing plan could be written that `SKT
 
 ## D55. Apple's own messages wait while the app says so
 
-A price rise to agree to, a billing problem and a win-back offer are sheets StoreKit shows by itself, and on iOS an app may hold them back `[Apple]`. When to show them is policy. `.storeMessages(deferredWhile:showing:)` in `PurchaseUI` is the mechanism: messages wait while the app says so, are shown in order when it stops, and a reason the app never wants shown, the win-back sheet of an app with its own say, is not shown. The Mac has no messages, and there it does nothing. Not measured: no purchase could be made from a UI-test runner to ask a price rise of **[ran]**.
+A price rise to agree to, a billing problem and a win-back offer are sheets StoreKit shows by itself, and on iOS an app may hold them back `[Apple]`. When to show them is policy. `.storeMessages(deferredWhile:showing:)` in `PurchaseUI` is the mechanism: messages wait while the app says so, are shown in order when it stops, and a reason the app never wants shown, the win-back sheet of an app with its own say, is not shown. macOS has no messages, and there it does nothing. Apple lists them for Mac Catalyst, so a Catalyst app runs the iOS code. Not measured: no purchase could be made from a UI-test runner to ask a price rise of **[ran]**.
 
 The first version read the app's condition from the task that began with the view, so it never saw it change: an app that began deferred held every later message for good, a price rise to agree to among them. The condition is now read as the app says it now, and the holding is `MessageQueue`, which a test reaches. A message the app has taken StoreKit will not show itself, so one that cannot be shown is kept for the next chance, not dropped.
 

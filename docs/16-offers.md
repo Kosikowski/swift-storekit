@@ -129,6 +129,8 @@ With the 27 SDK the sheet also hands the transaction back, and the store takes i
 }
 ```
 
+In a Mac Catalyst app, StoreKit's `AppStore.presentOfferCodeRedeemSheet(in:)` throws `[Apple]`. There a code is redeemed in the App Store, and arrives on the updates stream like any other.
+
 ## Retention offers
 
 Shown by the system in the cancellation flow, from autumn 2026 `[Apple]`. There is nothing to present and nothing to buy with. A subscription bought with one is counted like any other, and its offer, which the 27 SDK does not name, is `OfferKind.unrecognised` ([D57](10-decisions.md#d57-seats-and-retention-offers-need-nothing-new)).
