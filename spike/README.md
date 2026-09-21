@@ -106,7 +106,7 @@ says this machine grants without a password; it takes the mouse for the length o
 A static text's string is its `label` on iOS and its `value` on the Mac.
 
 Run on 19 September 2026: macOS 26.6.2 with Xcode 27.0, and the iOS 27.0 simulator. With
-Xcode 26.6: **not yet run** — the hosted runner is the only place it is installed.
+Xcode 26.6, on the hosted runner: [below](#with-xcode-266).
 
 | | Question | macOS 26.6, Xcode 27.0 | iOS 27.0 simulator |
 |---|---|---|---|
@@ -148,6 +148,27 @@ comparing what `purchase()` returned with what was asked for; missed renewals ar
 date, never by arrival; a withdrawal names a transaction, not a product; status reads go in
 a task nobody cancels; introductory eligibility is also read from the group's own
 transactions; and win-back purchases can only be tested on the Mac.
+
+### With Xcode 26.6
+
+Run on 21 September 2026 by the hosted suite (`Demo/Tests`) on GitHub's runner, macOS 26.6.2
+with Xcode 26.6, four times. It is the macOS above with older tools, and the test
+environment is the tools': it does not do what Xcode 27's does.
+
+| | Question | macOS 26.6, Xcode 26.6 |
+|---|---|---|
+| q06 | Billing retry without a grace period (`shouldEnterBillingRetryOnRenewal`) | **Not entered.** The subscription renewed, in all four runs |
+| q06 | A grace period (`billingGracePeriodIsEnabled` as well) | **No grace period.** Billing retry with no grace date, in all four |
+| q02 | Is a subscription purchase listed late? | Either: late in one run, at once in another |
+| | Is a subscription bought here announced on `updates`? | **No**, within five seconds, in all four |
+| q09 | `isEligibleForIntroOffer(for:)` after the purchase | Kept its first answer in three runs, and said `false` in one |
+
+Each time the package said what StoreKit said. The hosted suite expects these with Xcode
+26.6 only, asked of the compiler, and excuses the first two only by StoreKit's own status
+([D59](../docs/10-decisions.md#d59-a-known-issue-is-decided-by-storekit-never-by-the-package)).
+Also seen: a refund of a non-consumable was not announced within the two minutes a test
+has, in two runs of four. The adapter announces that refund as it did before
+subscriptions, and no earlier nightly run saw this.
 
 ### Phase 3: what else StoreKit does, and what Xcode's environment could not be made to do
 
