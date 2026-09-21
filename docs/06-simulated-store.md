@@ -167,7 +167,7 @@ Errors: `productUnavailable`, `purchaseNotAllowed`, `notAvailableInStorefront`, 
 
 ## Subscriptions
 
-The simulated store runs subscriptions **by its own clock**. Each read first does what the clock has done since the last one: a period that has ended renews — as the plan a change was waiting for, if one was — or lapses if auto-renew was off, or, with `behaviour.renewal = .fails`, goes into the grace period if `behaviour.gracePeriod` is set, then billing retry for `behaviour.billingRetryPeriod`, then expires. With a `ManualClock` a year of renewals is twelve calls to `advance`.
+The simulated store runs subscriptions **by its own clock**. Each read first does what the clock has done since the last one: a period that has ended renews — as the plan a change was waiting for, if one was — or lapses if auto-renew was off, or, with `behaviour.renewal = .fails` (a `RenewalScript`: `.renews` or `.fails`), goes into the grace period if `behaviour.gracePeriod` is set, then billing retry for `behaviour.billingRetryPeriod`, then expires. With a `ManualClock` a year of renewals is twelve calls to `advance`.
 
 | Habit of the real store | macOS 26.6 | iOS 27.0 simulator | Held to it by | In the simulated one |
 |---|---|---|---|---|
@@ -191,7 +191,7 @@ Products with offers sell them: pass them in `products:`, or build the store fro
 | A lapse makes win-back offers eligible at once | yes **[ran]** | yes **[ran]** | `winBack` (offers, the Mac) | Yes |
 | Buying again after a lapse returns the old transaction, and buys nothing | once, right after a lapse; two seconds later it bought **[ran]** | yes, with or without an offer **[ran]** | phase 0, q10; D51 | Only if told to (`handsBackTheLapsedTransaction`) |
 
-`useIntroductoryOffer(in:)` says the account has used a group's offer elsewhere, and `productsOnSale` puts an offer on sale, or takes one off, while the store runs. Scenarios add plausible offers to every subscription: `intro=eligible` or `intro=used` (a week free), `winback=` and `promo=` with identifiers (three months at a discount), and `signatures=rejected`.
+`useIntroductoryOffer(in:)` says the account has used a group's offer elsewhere, and `productsOnSale` puts an offer on sale, or takes one off, while the store runs. Scenarios add plausible offers to every subscription: `intro=eligible` or `intro=used` (a week free; `Scenario.IntroductoryOffer` in code), `winback=` and `promo=` with identifiers (three months at a discount), and `signatures=rejected`.
 
 ### Non-renewing subscriptions, commitments, and requests
 

@@ -12,7 +12,7 @@ An offer's price, its number of periods and its currency belong to App Store Con
 
 ```swift
 let monthly = store.products.first { $0.id == Shop.monthly }?.subscription   // StoreProduct.Subscription
-monthly?.period               // BillingPeriod: .months(1)
+monthly?.period               // BillingPeriod: .months(1); `value` and `unit`, a BillingPeriod.Unit
 monthly?.introductoryOffer    // OfferTerms?
 monthly?.promotionalOffers    // [OfferTerms]
 monthly?.winBackOffers        // [OfferTerms]
