@@ -25,6 +25,8 @@ public struct Catalogue: Hashable, Sendable {
         case trialTargetIsNotAnUnlock(trial: ProductID, target: ProductID)
         /// App Store Connect ranks a group's subscriptions from 1, the highest.
         case subscriptionLevelBelowOne(ProductID)
+        /// A non-renewing subscription that lasts no time at all.
+        case nonRenewingWithoutDuration(ProductID)
     }
 
     public let entries: [CatalogueEntry]
@@ -64,6 +66,9 @@ public struct Catalogue: Hashable, Sendable {
         for entry in entries {
             if let terms = entry.subscriptionTerms, terms.level < 1 {
                 problems.append(.subscriptionLevelBelowOne(entry.id))
+            }
+            if let terms = entry.nonRenewingTerms, terms.duration <= .zero {
+                problems.append(.nonRenewingWithoutDuration(entry.id))
             }
         }
         return problems

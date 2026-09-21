@@ -46,6 +46,8 @@ public enum StoreKitConfigurationProblem: Hashable, Sendable {
     /// An offer the app names, and the file does not have on that product: buying with it
     /// fails as an unknown offer.
     case offerMissing(OfferID, product: ProductID)
+    /// Not a NonRenewingSubscription in the file, and the catalogue declares one.
+    case notNonRenewing(ProductID, type: String)
 }
 
 extension StoreKitConfigurationProblem: CustomStringConvertible {
@@ -81,6 +83,9 @@ extension StoreKitConfigurationProblem: CustomStringConvertible {
             "\(id) \(fileShares ? "is" : "is not") family-shareable in the StoreKit "
                 + "configuration file, and the catalogue \(catalogueHonours ? "honours" : "ignores") "
                 + "Family Sharing for it. Make them agree with App Store Connect."
+        case let .notNonRenewing(id, type):
+            "\(id) is \(type.isEmpty ? "of no type" : "a \(type)") in the StoreKit configuration file. "
+                + "The catalogue declares a non-renewing subscription: a NonRenewingSubscription."
         case let .offerMissing(offer, id):
             "The app names the offer \"\(offer)\" for \(id), and the StoreKit configuration file has "
                 + "no promotional or win-back offer by that identifier on it. Buying with it would fail."

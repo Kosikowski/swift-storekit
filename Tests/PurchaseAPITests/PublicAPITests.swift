@@ -56,6 +56,9 @@ struct PublicAPITests {
         TrialStatus.self, TrialTerms.self, OfferKind.self, OfferPaymentMode.self, OfferTerms.self,
         BillingPeriod.self, IntroductoryEligibility.self, WinBackOffer.self,
         (any IntroductoryEligibilityReading).self, (any OfferSigning).self, OfferSignatureRequest.self,
+        NonRenewingTerms.self, NonRenewingPeriod.self, NonRenewingStatus.self, RequestedPurchase.self,
+        BillingPlan.self, BillingPlanTerms.self, SubscriptionCommitment.self, CommitmentRenewal.self,
+        BundleMembership.self, BundledSubscription.self, StoreMessageReason.self,
     ]
 
     #if DEBUG

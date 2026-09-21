@@ -42,4 +42,7 @@ protocol StoreKitGateway: Sendable {
 
     /// Every transaction the account has had in the group, verified or not.
     func transactions(in group: SubscriptionGroupID) async -> [TransactionSnapshot]
+
+    /// Purchases the person asked for outside the app, as they arrive.
+    func purchaseIntents() -> AsyncStream<IntentSnapshot>
 }

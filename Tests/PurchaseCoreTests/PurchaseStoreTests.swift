@@ -296,6 +296,35 @@ struct PurchaseStoreTests {
         #expect(front.lastPurchaseOptions == PurchaseOptions())
     }
 
+    // MARK: - Asked for outside the app
+
+    @Test("a purchase asked for OUTSIDE THE APP waits for the app, once, and buys nothing by itself")
+    func requested() async throws {
+        await store.start()
+        front.requestPurchase(Shop.pro)
+        front.requestPurchase(Shop.pro)
+        // A third, to know the two before it have been heard: the stream keeps its order.
+        front.requestPurchase(Shop.trial)
+        #expect(await waitUntil { store.requestedPurchases.contains(RequestedPurchase(product: Shop.trial)) })
+        #expect(store.requestedPurchases == [RequestedPurchase(product: Shop.pro), RequestedPurchase(product: Shop.trial)])
+        #expect(store.standing.access(to: Shop.pro) == .none)
+        #expect(front.lastPurchaseOptions == nil)
+    }
+
+    @Test("bought here, however it ends, the request is dealt with; dismissed, it is let go")
+    func requestedThenBought() async throws {
+        await store.start()
+        front.requestPurchase(Shop.pro)
+        front.requestPurchase(Shop.trial)
+        #expect(await waitUntil { store.requestedPurchases.count == 2 })
+        let request = store.requestedPurchases[0]
+        front.behaviour.purchase = .cancelled
+        try await store.purchase(request.product, options: request.options)
+        #expect(store.requestedPurchases == [RequestedPurchase(product: Shop.trial)])
+        store.dismissRequestedPurchase(RequestedPurchase(product: Shop.trial))
+        #expect(store.requestedPurchases.isEmpty)
+    }
+
     @Test("something the catalogue does not sell cannot be bought")
     func notInCatalogue() async {
         await #expect(throws: PurchaseError.productUnavailable) { try await store.purchase("nowhere") }

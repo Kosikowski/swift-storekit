@@ -52,6 +52,10 @@ public protocol PurchaseCommanding: AnyObject, Sendable {
     /// A failure never takes away what was already known to be owned.
     @discardableResult
     func restorePurchases() async throws(PurchaseError) -> RestoreOutcome
+
+    /// Lets a requested purchase go without buying it: already owned, say, or declined. A
+    /// purchase of the product, however it ends, lets its request go as well.
+    func dismissRequestedPurchase(_ request: RequestedPurchase)
 }
 
 extension PurchaseCommanding {

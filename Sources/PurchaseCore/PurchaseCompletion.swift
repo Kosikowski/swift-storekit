@@ -43,6 +43,9 @@ public enum PurchaseCompletion: Hashable, Sendable {
     /// subscription already held (spike/README.md), so taken at its word it says the
     /// cheaper plan was bought.
     case planChangeScheduled(to: ProductID, at: Date?)
+    /// A non-renewing subscription, now running: the period it is part of, extended by
+    /// this purchase if one was already running and the terms say they stack.
+    case nonRenewing(NonRenewingPeriod)
     /// Ask to Buy. The product is in `pendingApprovals` until it is settled.
     case pending
     case cancelled

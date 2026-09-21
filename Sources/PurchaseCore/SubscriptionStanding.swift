@@ -65,13 +65,14 @@ extension SubscriptionStanding {
     /// these hold, and `previous` stands instead:
     ///
     /// - `previous` was active, and the renewal it knew of was to happen (or it knew of
-    ///   none: a status that could not be read is no evidence of a lapse);
+    ///   none: a status that could not be read is no evidence of a lapse) — the last month of
+    ///   a commitment not to be renewed is not to happen, whatever `willRenew` says;
     /// - its period has ended, and less than `renewalGrace` ago — a reading that says
     ///   "ended" before the period is up is a real change, a refund say;
     /// - the reading says `expired`, or has nothing: billing retry and revocation are
     ///   definite, and are believed at once.
     func believed(over previous: SubscriptionStanding, at date: Date, renewalGrace: TimeInterval) -> SubscriptionStanding {
-        guard case let .active(before, _) = previous, before.renewal?.willRenew != false else { return self }
+        guard case let .active(before, _) = previous, before.willRenewAtPeriodEnd != false else { return self }
         guard date >= before.periodEnds, date < before.periodEnds.addingTimeInterval(renewalGrace) else { return self }
         switch self {
         case .active, .unknown:

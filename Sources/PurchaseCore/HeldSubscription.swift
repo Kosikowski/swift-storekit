@@ -39,6 +39,8 @@ public struct HeldSubscription: Hashable, Sendable {
         case billingError
         case didNotConsentToPriceIncrease
         case productUnavailable
+        /// Held through a subscription bundle, and left it (27).
+        case unbundled
         /// StoreKit's own "unknown".
         case unknown
         /// StoreKit gave no reason. Measured, this is what the moment at every renewal
@@ -70,10 +72,19 @@ public struct HeldSubscription: Hashable, Sendable {
     /// not known.
     public let transactionID: UInt64?
 
+    /// On the monthly plan with a 12-month commitment: which month of how many, and when the
+    /// commitment ends. Nil on the up-front plan, and before 26.4.
+    public let commitment: SubscriptionCommitment?
+
+    /// The subscription bundle it is held through, if it is (27). Nil when not, and when
+    /// nothing is known of the renewal.
+    public let bundle: BundleMembership?
+
     public init(
         product: ProductID, group: SubscriptionGroupID, ownership: Ownership = .purchased,
         state: State, firstSubscribed: Date, periodStarted: Date, periodEnds: Date,
-        offer: AppliedOffer? = nil, renewal: Renewal? = nil, transactionID: UInt64? = nil
+        offer: AppliedOffer? = nil, renewal: Renewal? = nil, transactionID: UInt64? = nil,
+        commitment: SubscriptionCommitment? = nil, bundle: BundleMembership? = nil
     ) {
         self.product = product
         self.group = group
@@ -85,6 +96,8 @@ public struct HeldSubscription: Hashable, Sendable {
         self.offer = offer
         self.renewal = renewal
         self.transactionID = transactionID
+        self.commitment = commitment
+        self.bundle = bundle
     }
 
     /// Whether this status gives access, by Apple's rule: subscribed, or in a grace period.
@@ -93,6 +106,21 @@ public struct HeldSubscription: Hashable, Sendable {
         case .subscribed, .inGracePeriod: true
         case .inBillingRetry, .expired, .revoked, .unrecognised: false
         }
+    }
+
+    /// Whether it goes on past the end of this period, as the store last said: false when
+    /// auto-renew is off, **and in the last month of a commitment that will not be renewed**.
+    /// Nil when nothing is known of the renewal.
+    ///
+    /// Not `renewal.willRenew`, which on a 12-month commitment stays true after the person
+    /// cancels, because the monthly billing does go on until the commitment ends `[Apple]`.
+    public var willRenewAtPeriodEnd: Bool? {
+        guard let renewal else { return nil }
+        if !renewal.willRenew { return false }
+        if let commitment, commitment.billingPeriod >= commitment.billingPeriods, renewal.commitment?.willRenew == false {
+            return false
+        }
+        return true
     }
 
     /// When access by this status ends: the end of the grace period, or of the period.

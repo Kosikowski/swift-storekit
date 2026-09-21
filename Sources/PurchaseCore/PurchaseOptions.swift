@@ -26,6 +26,11 @@ public struct PurchaseOptions: Hashable, Sendable {
 
     public var offer: Offer?
 
+    /// The billing plan to buy on: `.monthly`, for a 12-month commitment. Nil: up front.
+    /// Where the system is older than 26.4 a purchase asking for one fails as `unsupported`
+    /// rather than being billed up front without saying so.
+    public var billingPlan: BillingPlan?
+
     /// A UUID of the app's own, for an app with a server that ties purchases to its own
     /// accounts. Handed to the store untouched, and returned by Apple on the transaction
     /// and in its server notifications. Nothing here reads it or decides by it.
@@ -36,8 +41,9 @@ public struct PurchaseOptions: Hashable, Sendable {
     /// none, and whatever an app might have put here is not what is sent.
     public package(set) var signature: String?
 
-    public init(offer: Offer? = nil, appAccountToken: UUID? = nil) {
+    public init(offer: Offer? = nil, appAccountToken: UUID? = nil, billingPlan: BillingPlan? = nil) {
         self.offer = offer
         self.appAccountToken = appAccountToken
+        self.billingPlan = billingPlan
     }
 }

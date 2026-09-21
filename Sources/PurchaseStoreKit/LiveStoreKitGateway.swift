@@ -62,6 +62,15 @@ final class LiveStoreKitGateway: StoreKitGateway {
         guard let product = try await product(id) else { return nil }
         var storeOptions: Set<Product.PurchaseOption> = []
         if let token = options.appAccountToken { storeOptions.insert(.appAccountToken(token)) }
+        if let plan = options.billingPlan {
+            // Asked for and not to be had is a failure, never a purchase billed some other way.
+            guard #available(macOS 26.4, iOS 26.4, *) else { throw PurchaseCore.PurchaseError.unsupported }
+            switch plan {
+            case .monthly: storeOptions.insert(.billingPlanType(.monthly))
+            case .upFront: storeOptions.insert(.billingPlanType(.upFront))
+            case .unrecognised: throw PurchaseCore.PurchaseError.unsupported
+            }
+        }
         switch options.offer {
         case nil:
             break
@@ -136,6 +145,21 @@ final class LiveStoreKitGateway: StoreKitGateway {
         return snapshots
     }
 
+    /// The intent's own product is kept, so that buying it needs no second trip to the store.
+    func purchaseIntents() -> AsyncStream<IntentSnapshot> {
+        let (stream, continuation) = AsyncStream<IntentSnapshot>.makeStream()
+        let task = Task { [self] in
+            for await intent in PurchaseIntent.intents {
+                let id = ProductID(intent.product.id)
+                cache.withLock { $0[id] = intent.product }
+                continuation.yield(IntentSnapshot(productID: id, offerType: intent.offer?.type, offerID: intent.offer?.id))
+            }
+            continuation.finish()
+        }
+        continuation.onTermination = { _ in task.cancel() }
+        return stream
+    }
+
     func statusUpdates() -> AsyncStream<StatusSnapshot> {
         let (stream, continuation) = AsyncStream<StatusSnapshot>.makeStream()
         let task = Task {
@@ -190,6 +214,12 @@ final class LiveStoreKitGateway: StoreKitGateway {
         let transaction = result.unsafePayloadValue
         let verification: TransactionSnapshot.Verification =
             if case .verified = result { .verified } else { .unverified }
+        var commitment: SubscriptionCommitment?
+        if #available(macOS 26.4, iOS 26.4, *), let info = transaction.commitmentInfo {
+            commitment = SubscriptionCommitment(
+                plan: transaction.billingPlanType.map(plan) ?? .monthly, billingPeriod: Int(info.billingPeriodNumber),
+                billingPeriods: Int(info.totalBillingPeriods), endsAt: info.expirationDate, price: info.price)
+        }
         return TransactionSnapshot(
             productID: ProductID(transaction.productID),
             originalPurchaseDate: transaction.originalPurchaseDate,
@@ -205,19 +235,39 @@ final class LiveStoreKitGateway: StoreKitGateway {
             isUpgraded: transaction.isUpgraded,
             offerType: transaction.offer?.type,
             offerID: transaction.offer?.id,
-            offerPaymentMode: transaction.offer?.paymentMode)
+            offerPaymentMode: transaction.offer?.paymentMode, commitment: commitment)
+    }
+
+    private static func snapshot(of info: Product.SubscriptionInfo.RenewalInfo) -> RenewalSnapshot {
+        var commitment: CommitmentRenewal?
+        if #available(macOS 26.4, iOS 26.4, *), let pending = info.commitmentInfo {
+            commitment = CommitmentRenewal(
+                willRenew: pending.willAutoRenew, nextProduct: ProductID(pending.autoRenewPreference),
+                plan: plan(pending.renewalBillingPlanType), renewsAt: pending.renewalDate, price: pending.renewalPrice)
+        }
+        var bundle: BundleMembership?
+        #if canImport(StoreKit, _version: 816)
+        // Named in the 27 SDK, back-deployed: the 26 SDK cannot spell them (D17).
+        if let product = info.bundleProductID {
+            bundle = BundleMembership(
+                product: ProductID(product), group: info.bundleSubscriptionGroupID.map(SubscriptionGroupID.init(rawValue:)),
+                willLeave: info.willUnbundle)
+        }
+        #endif
+        return RenewalSnapshot(
+            willAutoRenew: info.willAutoRenew, autoRenewPreference: info.autoRenewPreference,
+            expirationReason: info.expirationReason, isInBillingRetry: info.isInBillingRetry,
+            gracePeriodExpirationDate: info.gracePeriodExpirationDate,
+            priceIncreaseStatus: info.priceIncreaseStatus, renewalPrice: info.renewalPrice,
+            currencyCode: info.currency?.identifier, eligibleWinBackOfferIDs: info.eligibleWinBackOfferIDs,
+            offerType: info.offer?.type, offerID: info.offer?.id, offerPaymentMode: info.offer?.paymentMode,
+            commitment: commitment, bundle: bundle)
     }
 
     private static func snapshot(of status: Product.SubscriptionInfo.Status) -> StatusSnapshot {
         let renewal: RenewalSnapshot? =
             if case let .verified(info) = status.renewalInfo {
-                RenewalSnapshot(
-                    willAutoRenew: info.willAutoRenew, autoRenewPreference: info.autoRenewPreference,
-                    expirationReason: info.expirationReason, isInBillingRetry: info.isInBillingRetry,
-                    gracePeriodExpirationDate: info.gracePeriodExpirationDate,
-                    priceIncreaseStatus: info.priceIncreaseStatus, renewalPrice: info.renewalPrice,
-                    currencyCode: info.currency?.identifier, eligibleWinBackOfferIDs: info.eligibleWinBackOfferIDs,
-                    offerType: info.offer?.type, offerID: info.offer?.id, offerPaymentMode: info.offer?.paymentMode)
+                snapshot(of: info)
             } else {
                 nil
             }
@@ -225,11 +275,42 @@ final class LiveStoreKitGateway: StoreKitGateway {
     }
 
     private static func subscription(of info: Product.SubscriptionInfo) -> StoreProduct.Subscription {
-        StoreProduct.Subscription(
+        var plans: [BillingPlanTerms] = []
+        if #available(macOS 26.4, iOS 26.4, *) {
+            plans = info.pricingTerms.map { terms in
+                BillingPlanTerms(
+                    plan: plan(terms.billingPlanType), billingDisplayPrice: terms.billingDisplayPrice,
+                    billingPrice: terms.billingPrice, billingPeriod: period(terms.billingPeriod),
+                    commitmentDisplayPrice: terms.commitmentInfo.displayPrice, commitmentPrice: terms.commitmentInfo.price,
+                    commitmentPeriod: period(terms.commitmentInfo.period), offers: terms.subscriptionOffers.map(Self.terms(of:)))
+            }
+        }
+        var bundled: [BundledSubscription] = []
+        #if canImport(StoreKit, _version: 816)
+        if #available(macOS 27, iOS 27, *) {
+            bundled = info.bundledSubscriptions.map { member in
+                BundledSubscription(
+                    product: ProductID(member.id), displayName: member.displayName, displayPrice: member.displayPrice,
+                    group: SubscriptionGroupID(member.subscriptionGroupID), level: member.subscriptionGroupLevel)
+            }
+        }
+        #endif
+        return StoreProduct.Subscription(
             group: SubscriptionGroupID(info.subscriptionGroupID), period: period(info.subscriptionPeriod),
             introductoryOffer: info.introductoryOffer.map(terms(of:)),
             promotionalOffers: info.promotionalOffers.map(terms(of:)),
-            winBackOffers: info.winBackOffers.map(terms(of:)))
+            winBackOffers: info.winBackOffers.map(terms(of:)), billingPlans: plans, bundledSubscriptions: bundled)
+    }
+
+    /// An open set, as every StoreKit one is (D40). Measured, StoreKit spells them
+    /// `BILLED_UPFRONT` and `MONTHLY`.
+    @available(macOS 26.4, iOS 26.4, *)
+    static func plan(_ type: Product.SubscriptionInfo.BillingPlanType) -> BillingPlan {
+        switch type {
+        case .monthly: .monthly
+        case .upFront: .upFront
+        default: .unrecognised
+        }
     }
 
     static func terms(of offer: Product.SubscriptionOffer) -> OfferTerms {

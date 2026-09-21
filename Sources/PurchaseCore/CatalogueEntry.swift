@@ -35,6 +35,9 @@ public struct CatalogueEntry: Hashable, Sendable, Identifiable {
         /// An auto-renewable subscription, in a group, at a level. What it is worth while
         /// it runs is the store's to say, not the clock's: see `SubscriptionStanding`.
         case subscription(SubscriptionTerms)
+        /// A non-renewing subscription: bought for a length of time, and bought again to
+        /// go on. Its end is the app's to say, as a trial's is: the store gives it none.
+        case nonRenewing(NonRenewingTerms)
     }
 
     public let id: ProductID
@@ -62,6 +65,19 @@ public struct CatalogueEntry: Hashable, Sendable, Identifiable {
         _ id: ProductID, in group: SubscriptionGroupID, level: Int, familySharing: FamilySharing = .honoured
     ) -> CatalogueEntry {
         CatalogueEntry(id: id, kind: .subscription(SubscriptionTerms(group: group, level: level, familySharing: familySharing)))
+    }
+
+    /// A non-renewing subscription, each purchase lasting `duration`. Purchases made while
+    /// one runs extend it (`.consecutive`) unless the terms say otherwise.
+    public static func nonRenewing(
+        _ id: ProductID, lasting duration: Duration, stacking: NonRenewingTerms.Stacking = .consecutive
+    ) -> CatalogueEntry {
+        CatalogueEntry(id: id, kind: .nonRenewing(NonRenewingTerms(duration: duration, stacking: stacking)))
+    }
+
+    /// The terms, if this is a non-renewing subscription.
+    public var nonRenewingTerms: NonRenewingTerms? {
+        if case let .nonRenewing(terms) = kind { terms } else { nil }
     }
 
     /// The terms, if this is a subscription.

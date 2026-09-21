@@ -29,12 +29,17 @@ public enum TransactionUpdate: Hashable, Sendable {
     /// retry, lapsed — with the new status attached. An expiry sends no transaction at all
     /// (measured, spike/README.md), so this is how one is heard while the app runs.
     case subscriptionChanged(HeldSubscription)
+    /// The person asked to buy something outside the app — a promoted purchase on the App
+    /// Store, or a win-back offer there with streamlined purchasing off. **Nothing has been
+    /// bought**: the app decides whether and when to go on.
+    case purchaseRequested(RequestedPurchase)
 
     public var productID: ProductID {
         switch self {
         case let .granted(owned): owned.id
         case let .withdrawn(id): id
         case let .subscriptionChanged(held): held.product
+        case let .purchaseRequested(request): request.product
         }
     }
 }

@@ -205,11 +205,27 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusRead
                 }
             }
         }
+        // A purchase asked for outside the app: a request, for the app to act on. Only a
+        // catalogue product's, and a win-back offer is the only one an intent was said to carry.
+        let intents = gateway.purchaseIntents()
+        let intentTask = Task { [catalogue] in
+            for await intent in intents where catalogue.contains(intent.productID) {
+                continuation.yield(.purchaseRequested(Self.request(from: intent)))
+            }
+        }
         continuation.onTermination = { _ in
             task.cancel()
             statusTask.cancel()
+            intentTask.cancel()
         }
         return stream
+    }
+
+    static func request(from intent: IntentSnapshot) -> RequestedPurchase {
+        guard let id = intent.offerID, let type = intent.offerType,
+            LiveStoreKitGateway.kind(type) == .winBack
+        else { return RequestedPurchase(product: intent.productID) }
+        return RequestedPurchase(product: intent.productID, offer: .winBack(OfferID(id)))
     }
 
     // MARK: - SubscriptionStatusReading

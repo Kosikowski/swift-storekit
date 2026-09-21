@@ -36,7 +36,7 @@ enum SubscriptionTriage {
                 state: state(status.state, renewal: status.renewal, periodEnds: periodEnds),
                 firstSubscribed: transaction.originalPurchaseDate, periodStarted: transaction.purchaseDate,
                 periodEnds: periodEnds, offer: offer(of: transaction), renewal: status.renewal.map(renewal),
-                transactionID: transaction.id))
+                transactionID: transaction.id, commitment: transaction.commitment, bundle: status.renewal?.bundle))
     }
 
     /// Apple's own table, on `isInBillingRetry`: retrying with a grace date is a grace
@@ -67,6 +67,8 @@ enum SubscriptionTriage {
         case .billingError: return .billingError
         case .didNotConsentToPriceIncrease: return .didNotConsentToPriceIncrease
         case .productUnavailable: return .productUnavailable
+        // Named in the 27 SDK and back-deployed, so matched by its value: the 26 SDK has no name.
+        case Product.SubscriptionInfo.RenewalInfo.ExpirationReason(rawValue: 6): return .unbundled
         case .unknown: return .unknown
         default: return .unrecognised
         }
@@ -112,6 +114,7 @@ enum SubscriptionTriage {
             willRenew: info.willAutoRenew, nextProduct: info.autoRenewPreference.map(ProductID.init(rawValue:)),
             price: info.renewalPrice, currencyCode: info.currencyCode, priceIncrease: increase,
             winBackOffers: info.eligibleWinBackOfferIDs.map(OfferID.init(rawValue:)),
-            offer: offer(info.offerType, id: info.offerID, paymentMode: info.offerPaymentMode))
+            offer: offer(info.offerType, id: info.offerID, paymentMode: info.offerPaymentMode),
+            commitment: info.commitment)
     }
 }

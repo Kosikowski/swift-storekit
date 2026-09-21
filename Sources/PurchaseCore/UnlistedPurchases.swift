@@ -30,6 +30,8 @@ struct UnlistedPurchases: Sendable {
     private struct Hold: Sendable {
         let product: OwnedProduct
         let until: Date
+        /// Held beside any other of the same product, and settled by its own date.
+        let alongside: Bool
     }
 
     private var holds: [Hold] = []
@@ -39,18 +41,24 @@ struct UnlistedPurchases: Sendable {
     /// When the hold that lapses soonest does so.
     var nextLapse: Date? { holds.map(\.until).min() }
 
-    mutating func hold(_ product: OwnedProduct, until deadline: Date) {
-        holds.removeAll { $0.product.id == product.id }
-        holds.append(Hold(product: product, until: deadline))
+    /// - Parameter alongside: keep every other hold of the product. Each purchase of a
+    ///   non-renewing subscription is time bought, and the listing keeps them all
+    ///   (measured); a second one held in place of the first would lose the first.
+    mutating func hold(_ product: OwnedProduct, until deadline: Date, alongside: Bool = false) {
+        holds.removeAll { $0.product.id == product.id && (!alongside || $0.product.purchaseDate == product.purchaseDate) }
+        holds.append(Hold(product: product, until: deadline, alongside: alongside))
     }
 
     /// The store has listed these, or their time is up: its listing speaks for itself.
     ///
     /// - Parameter listing: what the store lists **and the resolver counts**. A listing
-    ///   that has the product without counting it has not taken over from the hold.
+    ///   that has the product without counting it has not taken over from the hold. A hold
+    ///   kept alongside others is taken over only by the listing of that purchase.
     mutating func settle(listedIn listing: [OwnedProduct], at now: Date) {
-        let listed = Set(listing.map(\.id))
-        holds.removeAll { listed.contains($0.product.id) || $0.until <= now }
+        holds.removeAll { hold in
+            hold.until <= now
+                || listing.contains { $0.id == hold.product.id && (!hold.alongside || $0.purchaseDate == hold.product.purchaseDate) }
+        }
     }
 
     /// The store has withdrawn this product.

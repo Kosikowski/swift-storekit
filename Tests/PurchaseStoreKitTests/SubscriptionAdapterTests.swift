@@ -111,6 +111,31 @@ struct SubscriptionAdapterTests {
         #expect(held(snapshot)?.transactionID == 7_001)
     }
 
+    /// On a 12-month commitment the renewal says it will renew after a cancellation, and only
+    /// the commitment's own renewal says it ends [Apple]: both are carried across, apart.
+    @Test("a commitment is carried across: which month of how many, and what happens when it ends")
+    func commitment() {
+        var transaction = gateway.subscription(monthly, from: start, to: end)
+        transaction.commitment = SubscriptionCommitment(
+            plan: .monthly, billingPeriod: 12, billingPeriods: 12, endsAt: end, price: 179.88)
+        var info = renewal()
+        info.commitment = CommitmentRenewal(willRenew: false, nextProduct: monthly, plan: .monthly, renewsAt: end, price: 179.88)
+        let held = held(StatusSnapshot(state: .subscribed, transaction: transaction, renewal: info))
+        #expect(held?.commitment == transaction.commitment)
+        #expect(held?.renewal?.commitment == info.commitment)
+        #expect(held?.renewal?.willRenew == true)
+        #expect(held?.willRenewAtPeriodEnd == false)
+    }
+
+    @Test("a subscription held through a BUNDLE says which, and whether it leaves it; leaving it is a lapse of its own")
+    func bundle() {
+        var info = renewal()
+        info.bundle = BundleMembership(product: "com.example.bundle", group: "21799999", willLeave: true)
+        #expect(held(StatusSnapshot(state: .subscribed, transaction: gateway.subscription(monthly, from: start, to: end), renewal: info))?.bundle
+            == BundleMembership(product: "com.example.bundle", group: "21799999", willLeave: true))
+        #expect(SubscriptionTriage.lapse(Product.SubscriptionInfo.RenewalInfo.ExpirationReason(rawValue: 6)) == .unbundled)
+    }
+
     @Test("an offer the next renewal is at is read from the renewal info")
     func renewalOffer() {
         let waiting = held(status(.subscribed, renewal(offer: (.promotional, "promo.returning", .payAsYouGo))))
@@ -235,10 +260,29 @@ struct SubscriptionAdapterTests {
     @Test("the offer and the store's signature reach StoreKit as they were asked for")
     func purchaseWithOffer() async throws {
         gateway.state.withLock { $0.purchase = .success(.success(gateway.subscription(monthly, from: start, to: end))) }
-        var options = PurchaseOptions(offer: .promotional("promo.returning"))
+        var options = PurchaseOptions(offer: .promotional("promo.returning"), billingPlan: .monthly)
         options.signature = "compact.jws"
         _ = try await front.purchase(monthly, options: options, confirmation: .automatic)
         #expect(gateway.state.withLock { $0.purchaseOptions } == options)
+    }
+
+    // MARK: - Purchases asked for outside the app
+
+    @Test("a purchase asked for outside the app is announced as a request, a win-back offer with it; somebody else's is not")
+    func purchaseRequested() async {
+        var updates = front.transactionUpdates().makeAsyncIterator()
+        await Task.yield()
+        gateway.request(IntentSnapshot(productID: "somebody.elses"))
+        gateway.request(IntentSnapshot(productID: monthly, offerType: .winBack, offerID: "winback.three"))
+        gateway.request(IntentSnapshot(productID: pro))
+        #expect(await updates.next() == .purchaseRequested(RequestedPurchase(product: monthly, offer: .winBack("winback.three"))))
+        #expect(await updates.next() == .purchaseRequested(RequestedPurchase(product: pro)))
+    }
+
+    @Test("an intent's offer of a kind an intent was not said to carry is left off: the request is the product's")
+    func purchaseRequestedOtherOffer() {
+        let intent = IntentSnapshot(productID: monthly, offerType: .promotional, offerID: "promo")
+        #expect(AppStoreFront.request(from: intent) == RequestedPurchase(product: monthly))
     }
 
     // MARK: - Introductory eligibility

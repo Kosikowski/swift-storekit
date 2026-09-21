@@ -57,16 +57,24 @@ extension StoreProduct {
         public let promotionalOffers: [OfferTerms]
         /// For people who have lapsed, as Apple decides.
         public let winBackOffers: [OfferTerms]
+        /// The plans it can be paid on: up front always, and monthly with a 12-month
+        /// commitment where it is offered (26.4). Empty before 26.4, where up front is all.
+        public let billingPlans: [BillingPlanTerms]
+        /// For a subscription bundle (27), the subscriptions it includes. Empty for any other.
+        public let bundledSubscriptions: [BundledSubscription]
 
         public init(
             group: SubscriptionGroupID, period: BillingPeriod, introductoryOffer: OfferTerms? = nil,
-            promotionalOffers: [OfferTerms] = [], winBackOffers: [OfferTerms] = []
+            promotionalOffers: [OfferTerms] = [], winBackOffers: [OfferTerms] = [], billingPlans: [BillingPlanTerms] = [],
+            bundledSubscriptions: [BundledSubscription] = []
         ) {
             self.group = group
             self.period = period
             self.introductoryOffer = introductoryOffer
             self.promotionalOffers = promotionalOffers
             self.winBackOffers = winBackOffers
+            self.billingPlans = billingPlans
+            self.bundledSubscriptions = bundledSubscriptions
         }
     }
 }

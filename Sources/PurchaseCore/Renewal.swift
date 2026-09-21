@@ -41,9 +41,15 @@ public struct Renewal: Hashable, Sendable {
     /// current subscriber takes effect at the next billing event `[Apple]`.
     public let offer: AppliedOffer?
 
+    /// On a 12-month commitment, what happens when the commitment ends. **Read "will it
+    /// end" from here, not from `willRenew`**: cancelled during a commitment, the monthly
+    /// billing goes on and `willRenew` stays true `[Apple]`.
+    public let commitment: CommitmentRenewal?
+
     public init(
         willRenew: Bool, nextProduct: ProductID?, price: Decimal? = nil, currencyCode: String? = nil,
-        priceIncrease: PriceIncrease = .none, winBackOffers: [OfferID] = [], offer: AppliedOffer? = nil
+        priceIncrease: PriceIncrease = .none, winBackOffers: [OfferID] = [], offer: AppliedOffer? = nil,
+        commitment: CommitmentRenewal? = nil
     ) {
         self.willRenew = willRenew
         self.nextProduct = nextProduct
@@ -52,5 +58,6 @@ public struct Renewal: Hashable, Sendable {
         self.priceIncrease = priceIncrease
         self.winBackOffers = winBackOffers
         self.offer = offer
+        self.commitment = commitment
     }
 }

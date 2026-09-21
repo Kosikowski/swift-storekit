@@ -63,6 +63,7 @@ struct ContentView: View {
             }
             Divider()
             membership
+            seasonPass
             // Apple's own views sell from the App Store whatever the store below is, so they
             // are offered only when that is the App Store too.
             if launch?.isSimulated == false {
@@ -103,7 +104,7 @@ struct ContentView: View {
             Label("Pro", systemImage: "checkmark.seal.fill").font(.title2)
         case let .onTrial(period, _)?:
             Label("Trial until \(Self.moment(period.endsAt))", systemImage: "hourglass").font(.title2)
-        case .subscribed?:
+        case .subscribed?, .nonRenewing?:
             Label("Pro", systemImage: "checkmark.seal.fill").font(.title2)
         case .none?:
             Label("Free", systemImage: "lock").font(.title2)
@@ -167,6 +168,28 @@ struct ContentView: View {
         case .freeTrial: "\(span) free"
         case .payUpFront: "\(terms.displayPrice) for \(span)"
         default: "\(terms.displayPrice) a \(unit) for \(span)"
+        }
+    }
+
+    // MARK: - A season pass, a non-renewing subscription
+
+    /// Its end is the Demo's to say — thirty days a purchase — and the package works it out
+    /// from every purchase the store lists.
+    private var seasonPass: some View {
+        HStack {
+            Text(seasonStatus).accessibilityIdentifier("season-status")
+            PurchaseButton(Shop.season) { notice = Self.words(for: $0) } label: {
+                Text("Season pass\(price(of: Shop.season))")
+            }
+        }
+    }
+
+    private var seasonStatus: String {
+        switch purchases?.standing.nonRenewing(Shop.season) {
+        case nil, .unknown?: "Season pass: …"
+        case .none?: "No season pass"
+        case let .active(period)?: "Season pass until \(Self.moment(period.endsAt))"
+        case let .ended(period)?: "Season pass ended \(Self.moment(period.endsAt))"
         }
     }
 
@@ -248,7 +271,7 @@ struct ContentView: View {
 
     private static func words(for result: Result<PurchaseCompletion, PurchaseError>) -> String? {
         switch result {
-        case .success(.owned), .success(.trialRunning), .success(.subscribed), .success(.cancelled): nil
+        case .success(.owned), .success(.trialRunning), .success(.subscribed), .success(.nonRenewing), .success(.cancelled): nil
         case .success(.offerNotApplied):
             "You're a member — but the offer couldn't be applied, so this was at the regular price. Contact support if that's not what you expected."
         case let .success(.planChangeScheduled(_, at)):

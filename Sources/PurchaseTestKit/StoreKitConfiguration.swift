@@ -114,7 +114,7 @@ public struct StoreKitConfiguration: Hashable, Sendable {
             let found = products.filter { $0.id == entry.id }
             if found.isEmpty { problems.append(.missing(entry.id)) }
             for product in found {
-                if entry.subscriptionTerms == nil, product.type != "NonConsumable" {
+                if entry.subscriptionTerms == nil, entry.nonRenewingTerms == nil, product.type != "NonConsumable" {
                     problems.append(.notNonConsumable(entry.id, type: product.type))
                 }
                 switch entry.kind {
@@ -137,6 +137,10 @@ public struct StoreKitConfiguration: Hashable, Sendable {
                         problems.append(.subscriptionLevelMismatch(entry.id, catalogue: terms.level, file: product.groupLevel))
                     }
                     problems += Self.familySharing(of: product, honoured: terms.familySharing == .honoured, entry: entry.id)
+                case .nonRenewing:
+                    if product.type != "NonRenewingSubscription" {
+                        problems.append(.notNonRenewing(entry.id, type: product.type))
+                    }
                 }
             }
         }

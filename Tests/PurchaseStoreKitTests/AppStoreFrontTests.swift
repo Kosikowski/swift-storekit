@@ -34,6 +34,7 @@ private final class CancellationSensitiveGateway: StoreKitGateway {
     func statusUpdates() -> AsyncStream<StatusSnapshot> { AsyncStream { $0.finish() } }
     func isEligibleForIntroductoryOffer(in group: SubscriptionGroupID) async -> Bool { true }
     func transactions(in group: SubscriptionGroupID) async -> [TransactionSnapshot] { [] }
+    func purchaseIntents() -> AsyncStream<IntentSnapshot> { AsyncStream { $0.finish() } }
 }
 
 @Suite("App Store front", .timeLimit(.minutes(1)))

@@ -203,11 +203,15 @@ private struct PanelContent: View {
             case .notOffered: return "not offered"
             }
         }
+        if entry.nonRenewingTerms != nil, case let .ended(period) = store.standing.nonRenewing(entry.id, at: date) {
+            return "ended \(period.endsAt.formatted(date: .abbreviated, time: .standard))"
+        }
         switch store.standing.access(to: entry.id, at: date) {
         case .unknown: return "unknown"
         case let .owned(owned): return "owned (\(owned.ownership))"
         case let .onTrial(period, via): return "on trial via \(via), \(remaining(period, at: date)) left"
         case let .subscribed(held): return "subscribed (\(held.state)), until \(held.accessEnds.formatted(date: .abbreviated, time: .standard))"
+        case let .nonRenewing(period): return "running until \(period.endsAt.formatted(date: .abbreviated, time: .standard))"
         case .none: return "none"
         }
     }
@@ -258,6 +262,7 @@ private struct PanelContent: View {
                     Button("Bought on another device") { simulated.deliver(entry.id) }
                     Button("Shared by a family member") { simulated.deliver(entry.id, ownership: .familyShared) }
                 }
+                Button("Promoted on the App Store: asked for there") { simulated.requestPurchase(entry.id) }
                 Button("Approve Ask to Buy") { simulated.approvePending(entry.id) }
                 Button("Refund", role: .destructive) { simulated.revoke(entry.id) }
             }

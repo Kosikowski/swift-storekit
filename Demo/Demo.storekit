@@ -1,6 +1,22 @@
 {
   "identifier" : "D3A0C0DE",
-  "nonRenewingSubscriptions" : [],
+  "nonRenewingSubscriptions" : [
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "6800000020",
+      "localizations" : [
+        {
+          "description" : "Thirty days of everything, bought again to go on.",
+          "displayName" : "Season Pass",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.example.purchasedemo.season",
+      "referenceName" : "Season Pass",
+      "type" : "NonRenewingSubscription"
+    }
+  ],
   "products" : [
     {
       "displayPrice" : "19.99",

@@ -49,4 +49,7 @@ struct TransactionSnapshot: Sendable {
     var offerType: StoreKit.Transaction.OfferType? = nil
     var offerID: String? = nil
     var offerPaymentMode: StoreKit.Transaction.Offer.PaymentMode? = nil
+    /// On a 12-month commitment (26.4): which month of how many. Copied straight to the
+    /// package's own value, since a field newer than the deployment target cannot be stored.
+    var commitment: SubscriptionCommitment? = nil
 }

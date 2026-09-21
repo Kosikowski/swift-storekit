@@ -28,6 +28,7 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     public private(set) var productLoad: ProductLoadState = .notLoaded
     public private(set) var pendingApprovals: Set<ProductID> = []
     public private(set) var activity: PurchaseActivity = .idle
+    public private(set) var requestedPurchases: [RequestedPurchase] = []
     /// Apple's word on each group's introductory offer, read with the prices.
     private var saysEligible: [SubscriptionGroupID: Bool] = [:]
     /// Groups in which this store has seen an introductory offer used. Apple's answer keeps
@@ -283,6 +284,8 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         defer { activity = .idle }
         logger.log(.purchaseStarted(id))
 
+        // Asked for outside the app and now bought here, however it ends: the request is dealt with.
+        requestedPurchases.removeAll { $0.product == id }
         let outcome: PurchaseOutcome
         do throws(PurchaseError) {
             let signed = try await signed(options, for: id)
@@ -300,6 +303,16 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         // that has ended. It is a purchase that did not happen, and trying again is fair.
         if case let .purchased(owned) = outcome, catalogue.entry(for: owned.id)?.subscriptionTerms != nil,
             let ends = owned.expirationDate, ends <= clock.now
+        {
+            logger.log(.purchaseFailed(id, .system))
+            await resolve()
+            throw .system
+        }
+        // So can a non-renewing subscription bought again: the iOS simulator handed back the
+        // purchase before, and bought nothing, in two runs of three (spike/README.md, n03).
+        // A purchase already counted is not time bought.
+        if case let .purchased(owned) = outcome, catalogue.entry(for: owned.id)?.nonRenewingTerms != nil,
+            standing.purchases(ofNonRenewing: owned.id).contains(owned.purchaseDate)
         {
             logger.log(.purchaseFailed(id, .system))
             await resolve()
@@ -605,8 +618,16 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         case .subscriptionChanged:
             // Read again: the status is asked for with the listing, and decides.
             break
+        case let .purchaseRequested(request):
+            // A request, not a purchase: nothing to read. Kept once, for the app to act on.
+            if !requestedPurchases.contains(request) { requestedPurchases.append(request) }
+            return
         }
         await resolve()
+    }
+
+    public func dismissRequestedPurchase(_ request: RequestedPurchase) {
+        requestedPurchases.removeAll { $0 == request }
     }
 
     /// Believed for `listingGrace` — and a subscription never beyond the end of the period
@@ -615,7 +636,9 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     /// first and the oldest last (measured).
     private func hold(_ owned: OwnedProduct) {
         let until = clock.now.addingTimeInterval(listingGrace.timeInterval)
-        unlisted.hold(owned, until: min(until, owned.expirationDate ?? .distantFuture))
+        unlisted.hold(
+            owned, until: min(until, owned.expirationDate ?? .distantFuture),
+            alongside: catalogue.entry(for: owned.id)?.nonRenewingTerms != nil)
     }
 
     // MARK: - Subscriptions
@@ -655,6 +678,11 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
                 return .subscribed(current)
             }
             return subscription(from: owned, in: terms.group).map(PurchaseCompletion.subscribed) ?? .owned(owned)
+        }
+        if catalogue.entry(for: owned.id)?.nonRenewingTerms != nil,
+            case let .active(period) = standing.nonRenewing(owned.id, at: clock.now)
+        {
+            return .nonRenewing(period)
         }
         guard let terms = catalogue.entry(for: owned.id)?.trialTerms else { return .owned(owned) }
         let period = terms.period(startingAt: owned.originalPurchaseDate)

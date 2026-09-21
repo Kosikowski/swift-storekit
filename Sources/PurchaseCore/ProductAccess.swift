@@ -23,6 +23,8 @@ public enum ProductAccess: Hashable, Sendable {
     case onTrial(TrialPeriod, via: ProductID)
     /// A subscription the store says is entitled: subscribed, or in a grace period.
     case subscribed(HeldSubscription)
+    /// A non-renewing subscription, running.
+    case nonRenewing(NonRenewingPeriod)
     case none
 }
 
@@ -35,7 +37,7 @@ extension ProductAccess {
     /// somebody has decided what nil means for the thing being asked.
     public var isGranted: Bool? {
         switch self {
-        case .owned, .onTrial, .subscribed: true
+        case .owned, .onTrial, .subscribed, .nonRenewing: true
         case .none: false
         case .unknown: nil
         }

@@ -32,17 +32,20 @@ public struct Standing: Hashable, Sendable {
     public let catalogue: Catalogue
     private let holdings: [ProductID: OwnedProduct]
     private let subscriptions: [SubscriptionGroupID: SubscriptionStanding]
+    /// Every counted purchase of each non-renewing subscription, by date, oldest first.
+    private let nonRenewingPurchases: [ProductID: [Date]]
 
     /// Built by `StandingResolver`; `holdings` must already be the ones that count.
     init(
         phase: Phase, asOf: Date, catalogue: Catalogue, holdings: [ProductID: OwnedProduct],
-        subscriptions: [SubscriptionGroupID: SubscriptionStanding] = [:]
+        subscriptions: [SubscriptionGroupID: SubscriptionStanding] = [:], nonRenewing: [ProductID: [Date]] = [:]
     ) {
         self.phase = phase
         self.asOf = asOf
         self.catalogue = catalogue
         self.holdings = holdings
         self.subscriptions = subscriptions
+        self.nonRenewingPurchases = nonRenewing
     }
 
     /// The standing before the store has said anything.
@@ -53,7 +56,8 @@ public struct Standing: Hashable, Sendable {
     public var isKnown: Bool { phase == .known }
 
     /// What is held and counts, in identifier order. A trial product is in here from
-    /// the day it is taken and stays after it ends; ask `trial(_:at:)` where it stands.
+    /// the day it is taken and stays after it ends; ask `trial(_:at:)` where it stands. So
+    /// is a non-renewing subscription, as its latest purchase: ask `nonRenewing(_:at:)`.
     /// Subscriptions are not: ask `subscription(in:)`.
     public var ownedProducts: [OwnedProduct] {
         holdings.values.sorted { $0.id < $1.id }
@@ -70,6 +74,11 @@ public struct Standing: Hashable, Sendable {
         // the store is asked again when it comes. For the dates, see the `HeldSubscription`.
         if let terms = catalogue.entry(for: id)?.subscriptionTerms {
             if case let .active(held, _) = subscription(in: terms.group), held.product == id { return .subscribed(held) }
+            return .none
+        }
+        // By the clock, as a trial is: its end is the catalogue's to say.
+        if catalogue.entry(for: id)?.nonRenewingTerms != nil {
+            if case let .active(period) = nonRenewing(id, at: date) { return .nonRenewing(period) }
             return .none
         }
         if let owned = holdings[id], catalogue.entry(for: id)?.trialTerms == nil {
@@ -96,6 +105,24 @@ public struct Standing: Hashable, Sendable {
         guard isKnown else { return .unknown }
         return subscriptions[group] ?? .none
     }
+
+    // MARK: - Non-renewing subscriptions
+
+    /// Where the non-renewing subscription `id` stands at `date`: the period running then,
+    /// made of every purchase that reaches it, or the last one that ended.
+    public func nonRenewing(_ id: ProductID, at date: Date) -> NonRenewingStatus {
+        guard isKnown else { return .unknown }
+        guard let terms = catalogue.entry(for: id)?.nonRenewingTerms else { return .none }
+        let periods = terms.periods(of: nonRenewingPurchases[id] ?? [])
+        if let running = periods.first(where: { $0.isRunning(at: date) }) { return .active(running) }
+        if let ended = periods.last(where: { $0.endsAt <= date }) { return .ended(ended) }
+        return .none
+    }
+
+    public func nonRenewing(_ id: ProductID) -> NonRenewingStatus { nonRenewing(id, at: asOf) }
+
+    /// Every counted purchase of the non-renewing subscription `id`, by date.
+    func purchases(ofNonRenewing id: ProductID) -> [Date] { nonRenewingPurchases[id] ?? [] }
 
     // MARK: - Trials
 
@@ -132,7 +159,11 @@ public struct Standing: Hashable, Sendable {
             guard case let .active(held, _) = standing, held.accessEnds > asOf else { return nil }
             return held.accessEnds
         }
-        return (trials + subscribed).min()
+        let nonRenewing = nonRenewingPurchases.keys.compactMap { id -> Date? in
+            if case let .active(period) = self.nonRenewing(id) { return period.endsAt }
+            return nil
+        }
+        return (trials + subscribed + nonRenewing).min()
     }
 
     /// Whether `other` answers every question this does, each asked of its own moment.
@@ -143,10 +174,11 @@ public struct Standing: Hashable, Sendable {
     /// what it held, and is the one case where nothing new is something new.
     func saysTheSame(as other: Standing) -> Bool {
         guard phase == other.phase, catalogue == other.catalogue, holdings == other.holdings,
-              subscriptions == other.subscriptions
+              subscriptions == other.subscriptions, nonRenewingPurchases == other.nonRenewingPurchases
         else { return false }
         return catalogue.entries.allSatisfy { entry in
             access(to: entry.id) == other.access(to: entry.id) && trial(entry.id) == other.trial(entry.id)
+                && nonRenewing(entry.id) == other.nonRenewing(entry.id)
         }
     }
 

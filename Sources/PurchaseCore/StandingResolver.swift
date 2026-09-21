@@ -38,6 +38,10 @@ public struct StandingResolver: Sendable {
             return owned.ownership == .purchased || owned.ownership == .assigned
         case let .subscription(terms):
             return counts(owned.ownership, under: terms.familySharing)
+        case .nonRenewing:
+            // App Store Connect shares no non-renewing subscription with a family; one that
+            // arrived shared anyway would carry somebody else's date, as a trial would.
+            return owned.ownership == .purchased || owned.ownership == .assigned
         }
     }
 
@@ -65,14 +69,23 @@ public struct StandingResolver: Sendable {
         subscriptions: [SubscriptionGroupID: SubscriptionStanding] = [:]
     ) -> Standing {
         var holdings: [ProductID: OwnedProduct] = [:]
+        // Every purchase of a non-renewing subscription counts: each bought time. Measured,
+        // the listing keeps every one (spike/README.md, n02), and a purchase held beside
+        // the listing is the same one, a moment early: one date, one purchase.
+        var nonRenewing: [ProductID: Set<Date>] = [:]
         for candidate in owned where catalogue.entry(for: candidate.id)?.subscriptionTerms == nil && counts(candidate, in: catalogue) {
+            if catalogue.entry(for: candidate.id)?.nonRenewingTerms != nil {
+                nonRenewing[candidate.id, default: []].insert(candidate.purchaseDate)
+            }
             guard let existing = holdings[candidate.id] else {
                 holdings[candidate.id] = candidate
                 continue
             }
-            if Self.prefers(candidate, over: existing) { holdings[candidate.id] = candidate }
+            if Self.prefers(candidate, over: existing, catalogue: catalogue) { holdings[candidate.id] = candidate }
         }
-        return Standing(phase: .known, asOf: date, catalogue: catalogue, holdings: holdings, subscriptions: subscriptions)
+        return Standing(
+            phase: .known, asOf: date, catalogue: catalogue, holdings: holdings, subscriptions: subscriptions,
+            nonRenewing: nonRenewing.mapValues { $0.sorted() })
     }
 
     /// What one subscription group amounts to.
@@ -111,10 +124,13 @@ public struct StandingResolver: Sendable {
         return .inactive(latest, all: all)
     }
 
-    private static func prefers(_ candidate: OwnedProduct, over existing: OwnedProduct) -> Bool {
+    /// Of two copies of a product: the account's own, then the earlier — or, for a
+    /// non-renewing subscription, of which every purchase is a copy, the latest.
+    private static func prefers(_ candidate: OwnedProduct, over existing: OwnedProduct, catalogue: Catalogue) -> Bool {
         let candidateIsOwn = candidate.ownership == .purchased
         let existingIsOwn = existing.ownership == .purchased
         if candidateIsOwn != existingIsOwn { return candidateIsOwn }
+        if catalogue.entry(for: candidate.id)?.nonRenewingTerms != nil { return candidate.purchaseDate > existing.purchaseDate }
         return candidate.originalPurchaseDate < existing.originalPurchaseDate
     }
 }

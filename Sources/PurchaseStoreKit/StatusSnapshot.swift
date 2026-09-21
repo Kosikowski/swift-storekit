@@ -11,6 +11,7 @@
 //
 
 import Foundation
+import PurchaseCore
 import StoreKit
 
 struct StatusSnapshot: Sendable {
@@ -19,6 +20,13 @@ struct StatusSnapshot: Sendable {
     let transaction: TransactionSnapshot
     /// Nil when the renewal info did not verify: then nothing is known of what comes next.
     let renewal: RenewalSnapshot?
+}
+
+/// A `PurchaseIntent`: the product asked for outside the app, and the offer it came with.
+struct IntentSnapshot: Sendable {
+    let productID: ProductID
+    var offerType: Product.SubscriptionOffer.OfferType? = nil
+    var offerID: String? = nil
 }
 
 struct RenewalSnapshot: Sendable {
@@ -35,4 +43,8 @@ struct RenewalSnapshot: Sendable {
     var offerType: StoreKit.Transaction.OfferType? = nil
     var offerID: String? = nil
     var offerPaymentMode: StoreKit.Transaction.Offer.PaymentMode? = nil
+    /// On a 12-month commitment (26.4): what happens when the commitment ends.
+    var commitment: CommitmentRenewal? = nil
+    /// The subscription bundle it is held through (27 SDK).
+    var bundle: BundleMembership? = nil
 }

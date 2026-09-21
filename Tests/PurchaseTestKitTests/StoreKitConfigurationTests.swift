@@ -185,6 +185,20 @@ struct StoreKitConfigurationTests {
         #expect(monthly.groupLevel == 2)
     }
 
+    @Test("a non-renewing subscription must be one in the file, and one that is agrees")
+    func nonRenewing() throws {
+        let file = try configuration(products: """
+            {"productID": "season", "type": "NonRenewingSubscription", "displayPrice": "4.99"},
+            {"productID": "pro", "type": "NonConsumable", "displayPrice": "9.99"}
+            """)
+        let season: ProductID = "season"
+        #expect(file.problems(against: [.nonRenewing(season, lasting: .seconds(60)), .unlock("pro", familySharing: .ignored)]) == [])
+        #expect(file.problems(against: [.nonRenewing("pro", lasting: .seconds(60)), .unlock(season, familySharing: .ignored)]) == [
+            .notNonRenewing("pro", type: "NonConsumable"), .notNonConsumable(season, type: "NonRenewingSubscription"),
+        ])
+        #expect(StoreKitConfigurationProblem.notNonRenewing("pro", type: "NonConsumable").description.contains("NonRenewingSubscription"))
+    }
+
     @Test("a subscription's period and offers are read as Xcode wrote them, and served to a simulated store")
     func subscriptionOffers() throws {
         let file = try fixture("subscriptions")

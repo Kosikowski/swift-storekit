@@ -241,13 +241,26 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
     /// The person switches auto-renew off — in Manage Subscriptions, or anywhere else. The
     /// subscription runs to the end of its period and then lapses. Announced, as the Mac
     /// was measured to announce it; the iOS simulator says nothing until the renewal.
+    ///
+    /// **During a 12-month commitment the monthly billing goes on**: the renewal still says it
+    /// will renew, and only the commitment's own renewal says it ends with the commitment
+    /// `[Apple]`.
     public func cancelAutoRenew(_ id: ProductID) {
-        change(id) { $0.with(renewal: Renewal(willRenew: false, nextProduct: nil)) }
+        change(id) { status in
+            guard let commitment = status.renewal?.commitment else {
+                return status.with(renewal: Renewal(willRenew: false, nextProduct: nil))
+            }
+            return status.with(renewal: Renewal(
+                willRenew: true, nextProduct: status.product, commitment: commitment.with(willRenew: false)))
+        }
     }
 
-    /// Auto-renew switched back on, before the period ended.
+    /// Auto-renew switched back on, before the period — or the commitment — ended.
     public func resumeAutoRenew(_ id: ProductID) {
-        change(id) { $0.with(renewal: Renewal(willRenew: true, nextProduct: $0.product)) }
+        change(id) { status in
+            status.with(renewal: Renewal(
+                willRenew: true, nextProduct: status.product, commitment: status.renewal?.commitment?.with(willRenew: true)))
+        }
     }
 
     /// The price is going up: awaiting consent, or only notified of.
@@ -339,11 +352,20 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
     /// the account's own be refunded afterwards, nothing is left, where the real store
     /// might still list the family member's.
     public func deliver(_ product: OwnedProduct) {
+        // A non-renewing subscription's purchases are each time bought, and all stay.
+        let alongside = catalogue.entry(for: product.id)?.nonRenewingTerms != nil
         announce(.granted(product)) { state in
             state.pending.remove(product.id)
-            if let held = Self.held(product.id, in: state), Self.outranks(held, product) { return }
-            Self.hold(product, in: &state)
+            if !alongside, let held = Self.held(product.id, in: state), Self.outranks(held, product) { return }
+            Self.hold(product, in: &state, alongside: alongside)
         }
+    }
+
+    /// The person asks, outside the app, to buy `id` — a promoted purchase tapped on the App
+    /// Store, or a win-back offer taken there with streamlined purchasing off. Announced as a
+    /// request; nothing is bought until the app buys it.
+    public func requestPurchase(_ id: ProductID, offer: PurchaseOptions.Offer? = nil) {
+        announce(.purchaseRequested(RequestedPurchase(product: id, offer: offer))) { _ in }
     }
 
     /// The store says a product has been granted, and then **never lists it**. Reported
@@ -426,8 +448,20 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
     /// member's sharing ending here takes nothing the account bought for itself. With
     /// nothing held here, the copy elsewhere is the one taken back. Anything pending
     /// stays pending: nothing had been bought, and approved later it is a new purchase.
+    ///
+    /// A non-renewing subscription's **latest purchase** is the one taken back, and any
+    /// others stay: measured, refunding one of two leaves the other listed (spike/README.md,
+    /// n03).
     public func revoke(_ id: ProductID) {
+        let catalogue = catalogue
         announce(.withdrawn(id)) { state in
+            if catalogue.entry(for: id)?.nonRenewingTerms != nil {
+                let purchases = state.listed.filter { $0.id == id } + state.unlisted.map(\.product).filter { $0.id == id }
+                guard let latest = purchases.max(by: { $0.purchaseDate < $1.purchaseDate }) else { return }
+                state.listed.removeAll { $0 == latest }
+                state.unlisted.removeAll { $0.product == latest }
+                return
+            }
             let held = Self.held(id, in: state)
             state.listed.removeAll { $0.id == id }
             state.unlisted.removeAll { $0.product.id == id }
@@ -546,7 +580,13 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
                 if let refusal = Self.refusal(of: options, for: id, in: state, catalogue: catalogue) {
                     return .failure(.offerRefused(refusal))
                 }
-                return .success(.purchased(Self.buy(id, offer: options.offer, at: now, in: &state, catalogue: catalogue)))
+                if let plan = options.billingPlan, plan != .upFront,
+                    state.products.first(where: { $0.id == id })?.subscription?.billingPlans.contains(where: { $0.plan == plan }) != true
+                {
+                    return .failure(.unsupported)
+                }
+                return .success(.purchased(
+                    Self.buy(id, offer: options.offer, plan: options.billingPlan, at: now, in: &state, catalogue: catalogue)))
             }
         }
         return try result.get()
@@ -658,10 +698,18 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
     /// the shared one, the store would call buying something the account owns
     /// `.notCounted`.
     private static func buy(
-        _ id: ProductID, offer: PurchaseOptions.Offer?, at now: Date, in state: inout State, catalogue: Catalogue
+        _ id: ProductID, offer: PurchaseOptions.Offer?, plan: BillingPlan? = nil, at now: Date, in state: inout State,
+        catalogue: Catalogue
     ) -> OwnedProduct {
         if let terms = catalogue.entry(for: id)?.subscriptionTerms {
-            return subscribe(id, terms, offer: offer, at: now, in: &state, catalogue: catalogue)
+            return subscribe(id, terms, offer: offer, plan: plan, at: now, in: &state, catalogue: catalogue)
+        }
+        if catalogue.entry(for: id)?.nonRenewingTerms != nil {
+            // Time bought, every time: a new transaction, listed late beside the others, as
+            // measured (spike/README.md, n02).
+            let product = OwnedProduct(id: id, originalPurchaseDate: now)
+            Self.hold(product, in: &state, alongside: true)
+            return product
         }
         let held = Self.held(id, in: state)
         if let held, held.ownership == .purchased { return held }
@@ -689,8 +737,8 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
     /// override whether or not it is; a promotional one bought by a current subscriber at
     /// the next renewal; and one bought with the plan already held, not at all.
     private static func subscribe(
-        _ id: ProductID, _ terms: SubscriptionTerms, offer asked: PurchaseOptions.Offer?, at now: Date,
-        in state: inout State, catalogue: Catalogue
+        _ id: ProductID, _ terms: SubscriptionTerms, offer asked: PurchaseOptions.Offer?, plan: BillingPlan? = nil,
+        at now: Date, in state: inout State, catalogue: Catalogue
     ) -> OwnedProduct {
         let period = state.behaviour.subscriptionPeriod.timeInterval
         let level = { (product: ProductID) in catalogue.entry(for: product)?.subscriptionTerms?.level ?? .max }
@@ -720,10 +768,13 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
             return owned(current)
         }
         if offer?.kind == .introductory { state.usedIntroductoryOffer.insert(terms.group) }
+        // On the monthly plan, a commitment of twelve periods of `subscriptionPeriod` each.
+        let commitment = plan == .monthly ? commitment(for: id, month: 1, startingAt: now, in: state) : nil
         let status = HeldSubscription(
             product: id, group: terms.group, state: .subscribed, firstSubscribed: current?.firstSubscribed ?? now,
             periodStarted: now, periodEnds: now.addingTimeInterval(period), offer: offer,
-            renewal: Renewal(willRenew: true, nextProduct: id))
+            renewal: Renewal(willRenew: true, nextProduct: id, commitment: commitment.map { renewal(of: $0, product: id) }),
+            commitment: commitment)
         if let current {
             // An upgrade: the plan left behind is no longer listed, and its status gives way.
             state.listed.removeAll { $0.id == current.product }
@@ -791,6 +842,20 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
     /// The win-back offers a lapse from `status` makes eligible: the product's own, as
     /// configured, and at once, as in Xcode's environment (measured). Only the account's
     /// own: access through Family Sharing does not count towards one `[Apple]`.
+    /// A commitment of twelve `subscriptionPeriod`s on the monthly plan, at the price the
+    /// product's plan states.
+    private static func commitment(for id: ProductID, month: Int, startingAt start: Date, in state: State) -> SubscriptionCommitment {
+        let period = state.behaviour.subscriptionPeriod.timeInterval
+        let price = state.products.first { $0.id == id }?.subscription?.billingPlans.first { $0.plan == .monthly }?.commitmentPrice
+        return SubscriptionCommitment(
+            plan: .monthly, billingPeriod: month, billingPeriods: 12,
+            endsAt: start.addingTimeInterval(period * TimeInterval(12 - month + 1)), price: price ?? 0)
+    }
+
+    private static func renewal(of commitment: SubscriptionCommitment, product: ProductID) -> CommitmentRenewal {
+        CommitmentRenewal(willRenew: true, nextProduct: product, plan: commitment.plan, renewsAt: commitment.endsAt, price: commitment.price)
+    }
+
     static func winBackOffers(after status: HeldSubscription, in products: [StoreProduct]) -> [OfferID] {
         guard status.ownership == .purchased else { return [] }
         let offers = products.first { $0.id == status.product }?.subscription?.winBackOffers ?? []
@@ -870,7 +935,8 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
             let expiredForBilling = ended(.expired(.billingError), lapsedRenewal)
             switch status.state {
             case .subscribed where now >= status.periodEnds:
-                if status.renewal?.willRenew == false {
+                let commitmentEnds = status.commitment.map { $0.billingPeriod >= $0.billingPeriods } ?? false
+                if status.renewal?.willRenew == false || (commitmentEnds && status.renewal?.commitment?.willRenew == false) {
                     let lapsed = ended(.expired(.autoRenewDisabled), lapsedRenewal)
                     unlist(status, in: &state)
                     state.subscriptions[index].status = lapsed
@@ -895,12 +961,25 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
                     var current = status
                     while current.periodEnds <= now {
                         let next = current.renewal?.nextProduct ?? current.product
+                        // A commitment moves on a month, and a new one begins where the last ended.
+                        let commitment = current.commitment.map { held in
+                            held.billingPeriod < held.billingPeriods
+                                ? SubscriptionCommitment(
+                                    plan: held.plan, billingPeriod: held.billingPeriod + 1, billingPeriods: held.billingPeriods,
+                                    endsAt: held.endsAt, price: held.price)
+                                : Self.commitment(for: next, month: 1, startingAt: current.periodEnds, in: state)
+                        }
                         // An offer waiting for the renewal is what it renews at.
                         current = HeldSubscription(
                             product: next, group: current.group, ownership: current.ownership, state: .subscribed,
                             firstSubscribed: current.firstSubscribed, periodStarted: current.periodEnds,
                             periodEnds: current.periodEnds.addingTimeInterval(period), offer: current.renewal?.offer,
-                            renewal: Renewal(willRenew: true, nextProduct: next))
+                            renewal: Renewal(
+                                willRenew: true, nextProduct: next,
+                                commitment: commitment.map { held in
+                                    Self.renewal(of: held, product: next).with(willRenew: current.renewal?.commitment?.willRenew ?? true)
+                                }),
+                            commitment: commitment)
                         renewals.append(current)
                     }
                     unlist(status, in: &state)
@@ -950,9 +1029,12 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
 
     /// Holds `product` in place of any copy of it this device has, listed late, as the
     /// real store lists it.
-    private static func hold(_ product: OwnedProduct, in state: inout State) {
-        state.listed.removeAll { $0.id == product.id }
-        state.unlisted.removeAll { $0.product.id == product.id }
+    /// - Parameter alongside: keep every other purchase of the product listed, as the real
+    ///   store keeps a non-renewing subscription's.
+    private static func hold(_ product: OwnedProduct, in state: inout State, alongside: Bool = false) {
+        let same = { (other: OwnedProduct) in other.id == product.id && (!alongside || other == product) }
+        state.listed.removeAll(where: same)
+        state.unlisted.removeAll { same($0.product) }
         let lag = state.behaviour.listsPurchasesAfterReads
         if lag <= 0 {
             state.listed.append(product)
@@ -997,7 +1079,13 @@ extension Renewal {
     func with(offer: AppliedOffer?) -> Renewal {
         Renewal(
             willRenew: willRenew, nextProduct: nextProduct, price: price, currencyCode: currencyCode,
-            priceIncrease: priceIncrease, winBackOffers: winBackOffers, offer: offer)
+            priceIncrease: priceIncrease, winBackOffers: winBackOffers, offer: offer, commitment: commitment)
+    }
+}
+
+extension CommitmentRenewal {
+    func with(willRenew: Bool) -> CommitmentRenewal {
+        CommitmentRenewal(willRenew: willRenew, nextProduct: nextProduct, plan: plan, renewsAt: renewsAt, price: price)
     }
 }
 
@@ -1006,14 +1094,14 @@ extension HeldSubscription {
         HeldSubscription(
             product: product, group: group, ownership: ownership, state: state, firstSubscribed: firstSubscribed,
             periodStarted: periodStarted, periodEnds: periodEnds, offer: offer, renewal: renewal,
-            transactionID: transactionID)
+            transactionID: transactionID, commitment: commitment, bundle: bundle)
     }
 
     func with(renewal: Renewal?) -> HeldSubscription {
         HeldSubscription(
             product: product, group: group, ownership: ownership, state: state, firstSubscribed: firstSubscribed,
             periodStarted: periodStarted, periodEnds: periodEnds, offer: offer, renewal: renewal,
-            transactionID: transactionID)
+            transactionID: transactionID, commitment: commitment, bundle: bundle)
     }
 }
 

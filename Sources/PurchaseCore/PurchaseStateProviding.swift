@@ -34,6 +34,12 @@ public protocol PurchaseStateProviding: AnyObject, Observable, Sendable {
 
     var activity: PurchaseActivity { get }
 
+    /// Purchases the person asked for outside the app — a promoted purchase on the App
+    /// Store — waiting for the app to go on with them (`purchase(_:options:)`, with the
+    /// request's `options`) or to let them go (`dismissRequestedPurchase(_:)`). For this
+    /// session: a request not acted on is not remembered past it.
+    var requestedPurchases: [RequestedPurchase] { get }
+
     /// Whether this person may have `id`'s introductory offer, and on what terms. `unknown`
     /// until the prices have loaded and the store has said: show the regular price then.
     func introductoryOffer(for id: ProductID) -> IntroductoryEligibility

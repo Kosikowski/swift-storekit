@@ -25,6 +25,7 @@ final class FakeStoreKitGateway: StoreKitGateway {
         var eligible: [SubscriptionGroupID: Bool] = [:]
         /// Every transaction the account has had in each group.
         var history: [SubscriptionGroupID: [TransactionSnapshot]] = [:]
+        var intents: AsyncStream<IntentSnapshot>.Continuation?
     }
 
     let state = Mutex(State())
@@ -111,6 +112,16 @@ final class FakeStoreKitGateway: StoreKitGateway {
         // As the listing and the statuses are: a cancelled task is told nothing.
         if Task.isCancelled { return [] }
         return state.withLock { $0.history[group] ?? [] }
+    }
+
+    func purchaseIntents() -> AsyncStream<IntentSnapshot> {
+        let (stream, continuation) = AsyncStream<IntentSnapshot>.makeStream()
+        state.withLock { $0.intents = continuation }
+        return stream
+    }
+
+    func request(_ intent: IntentSnapshot) {
+        state.withLock { $0.intents }?.yield(intent)
     }
 
     func statusUpdates() -> AsyncStream<StatusSnapshot> {
