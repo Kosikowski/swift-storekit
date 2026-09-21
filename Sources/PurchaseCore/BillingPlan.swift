@@ -59,10 +59,10 @@ public struct BillingPlanTerms: Hashable, Sendable {
 public struct SubscriptionCommitment: Hashable, Sendable {
     public let plan: BillingPlan
     /// Which billing period this is: 1 to `billingPeriods`.
-    public let billingPeriod: Int
+    public package(set) var billingPeriod: Int
     public let billingPeriods: Int
     /// When the commitment ends.
-    public let endsAt: Date
+    public package(set) var endsAt: Date
     /// What the commitment costs in all.
     public let price: Decimal
 
@@ -81,11 +81,11 @@ public struct SubscriptionCommitment: Hashable, Sendable {
 /// billing goes on — `willRenew` stays true, and rightly — and this says the commitment
 /// will not be renewed `[Apple]`. "Member until the commitment ends" is read from here.
 public struct CommitmentRenewal: Hashable, Sendable {
-    public let willRenew: Bool
+    public package(set) var willRenew: Bool
     /// The product it renews as, when it does.
     public let nextProduct: ProductID?
     public let plan: BillingPlan
-    public let renewsAt: Date
+    public package(set) var renewsAt: Date
     public let price: Decimal?
 
     public init(willRenew: Bool, nextProduct: ProductID?, plan: BillingPlan, renewsAt: Date, price: Decimal? = nil) {

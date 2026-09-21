@@ -69,7 +69,10 @@ extension SimulatedStoreFront {
 
         /// How long a subscription bought here runs before it is due to renew. A month, as
         /// near as a fixed length gets; a test that watches renewals sets it to seconds.
-        public var subscriptionPeriod: Duration = .seconds(30 * 86_400)
+        /// Longer than nothing: a period that ends as it begins renews for ever.
+        public var subscriptionPeriod: Duration = .seconds(30 * 86_400) {
+            didSet { precondition(subscriptionPeriod > .zero, "a subscription period must be longer than nothing") }
+        }
 
         /// How many reads of the statuses go by, once a subscription is listed, before its
         /// status is said. Zero: said with the listing. On the Mac both were measured empty

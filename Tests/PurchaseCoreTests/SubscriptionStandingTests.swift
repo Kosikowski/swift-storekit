@@ -42,6 +42,19 @@ struct SubscriptionStandingTests {
         resolver.subscription(in: group, statuses: statuses, listed: listed, catalogue: Plans.catalogue)
     }
 
+    @Test("on a commitment cancelled, it renews at every month's end but the last", arguments: [
+        (5, false, true), (12, false, false), (12, true, true), (11, false, true),
+    ])
+    func willRenewOnACommitment(month: Int, commitmentRenews: Bool, renews: Bool) {
+        let ends = now.addingTimeInterval(86_400)
+        var status = held()
+        status.commitment = SubscriptionCommitment(
+            plan: .monthly, billingPeriod: month, billingPeriods: 12, endsAt: ends, price: 179.88)
+        status.renewal?.commitment = CommitmentRenewal(
+            willRenew: commitmentRenews, nextProduct: Plans.monthly, plan: .monthly, renewsAt: ends)
+        #expect(status.willRenewAtPeriodEnd == renews)
+    }
+
     // MARK: - The catalogue
 
     @Test("a subscription names its group and level, and the catalogue knows its groups")

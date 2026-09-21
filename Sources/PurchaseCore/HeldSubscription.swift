@@ -49,36 +49,36 @@ public struct HeldSubscription: Hashable, Sendable {
         case unrecognised
     }
 
-    public let product: ProductID
+    public package(set) var product: ProductID
     public let group: SubscriptionGroupID
     public let ownership: Ownership
-    public let state: State
+    public package(set) var state: State
 
     /// When the account first subscribed: the same across renewals.
-    public let firstSubscribed: Date
-    public let periodStarted: Date
+    public package(set) var firstSubscribed: Date
+    public package(set) var periodStarted: Date
     /// When this period ends, or ended. In a grace period it is already past.
-    public let periodEnds: Date
+    public package(set) var periodEnds: Date
 
     /// The offer this period was bought with, if any.
-    public let offer: AppliedOffer?
+    public package(set) var offer: AppliedOffer?
 
     /// What happens next. **Nil when no status could be read** and this came from the
     /// listing alone: nothing is known of the renewal then.
-    public let renewal: Renewal?
+    public package(set) var renewal: Renewal?
 
     /// StoreKit's identifier for the transaction this status stands on: the latest in the
     /// group. For a server of the app's own, and for the signature of an offer. Nil when
     /// not known.
-    public let transactionID: UInt64?
+    public package(set) var transactionID: UInt64?
 
     /// On the monthly plan with a 12-month commitment: which month of how many, and when the
     /// commitment ends. Nil on the up-front plan, and before 26.4.
-    public let commitment: SubscriptionCommitment?
+    public package(set) var commitment: SubscriptionCommitment?
 
     /// The subscription bundle it is held through, if it is (27). Nil when not, and when
     /// nothing is known of the renewal.
-    public let bundle: BundleMembership?
+    public package(set) var bundle: BundleMembership?
 
     public init(
         product: ProductID, group: SubscriptionGroupID, ownership: Ownership = .purchased,

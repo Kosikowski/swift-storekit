@@ -27,6 +27,12 @@ private func parse(_ text: String) throws(ScenarioError) -> Scenario {
 struct SubscriptionScenarioTests {
     typealias Fault = ScenarioError.ScenarioFault
 
+    @Test("a period of no length is refused: it would renew for ever")
+    func periodOfNoLength() {
+        #expect(throws: ScenarioError.invalidScenario(clause: "period=0s", reason: .invalidAge("0s"))) { try parse("period=0s") }
+        #expect(throws: ScenarioError.invalidScenario(clause: "period=0d0h", reason: .invalidAge("0d0h"))) { try parse("period=0d0h") }
+    }
+
     @Test("each subscription clause holds its products in its state, with an age and an ownership")
     func clauses() throws {
         let scenario = try parse("subscribed=monthly@10d/family; grace=yearly@2d; lapsed=premium@40d")

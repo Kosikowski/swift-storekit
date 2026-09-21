@@ -305,6 +305,7 @@ struct PurchaseStoreOfferTests {
     @Test("a promotional offer for a former subscriber is signed by the app's server, and the signature is what the store gets")
     func promotionalSigned() async throws {
         try await lapsed()
+        let lapsedTransaction = try #require(group.current?.transactionID)
         let token = UUID()
         let options = PurchaseOptions(offer: .promotional("promo.returning"), appAccountToken: token)
         guard case let .subscribed(held) = try await store.purchase(Offers.monthly, options: options) else {
@@ -312,7 +313,9 @@ struct PurchaseStoreOfferTests {
             return
         }
         #expect(signer.requests == [
-            OfferSignatureRequest(product: Offers.monthly, kind: .promotional("promo.returning"), appAccountToken: token)
+            OfferSignatureRequest(
+                product: Offers.monthly, kind: .promotional("promo.returning"), appAccountToken: token,
+                transactionID: String(lapsedTransaction))
         ])
         #expect(front.lastPurchaseOptions?.signature == "signed for \(Offers.monthly)")
         #expect(held.offer == AppliedOffer(kind: .promotional, id: "promo.returning", paymentMode: .payAsYouGo))

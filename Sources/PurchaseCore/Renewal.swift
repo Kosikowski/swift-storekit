@@ -21,30 +21,31 @@ public struct Renewal: Hashable, Sendable {
 
     /// Whether it renews at the end of this period. False once the person has switched
     /// auto-renew off: access still lasts to the end of the period.
-    public let willRenew: Bool
+    public package(set) var willRenew: Bool
 
-    /// The product it will renew as. Differs from the one held while a downgrade, or a
-    /// crossgrade to another duration, waits for the renewal; nil if it will not renew.
-    public let nextProduct: ProductID?
+    /// The product it renews as — or would, were auto-renew on: StoreKit keeps the person's
+    /// choice when they switch it off. Differs from the one held while a downgrade, or a
+    /// crossgrade to another duration, waits for the renewal. Nil if the store did not say.
+    public package(set) var nextProduct: ProductID?
 
     /// The next charge, with any offer applied, in `currencyCode`. Nil if not said.
-    public let price: Decimal?
-    public let currencyCode: String?
+    public package(set) var price: Decimal?
+    public package(set) var currencyCode: String?
 
-    public let priceIncrease: PriceIncrease
+    public package(set) var priceIncrease: PriceIncrease
 
     /// The win-back offers Apple says this person may have now, best first. Empty while
     /// subscribed, and in a grace period or billing retry.
-    public let winBackOffers: [OfferID]
+    public package(set) var winBackOffers: [OfferID]
 
     /// The offer the next renewal is at, if one is waiting: a promotional offer bought by a
     /// current subscriber takes effect at the next billing event `[Apple]`.
-    public let offer: AppliedOffer?
+    public package(set) var offer: AppliedOffer?
 
     /// On a 12-month commitment, what happens when the commitment ends. **Read "will it
     /// end" from here, not from `willRenew`**: cancelled during a commitment, the monthly
     /// billing goes on and `willRenew` stays true `[Apple]`.
-    public let commitment: CommitmentRenewal?
+    public package(set) var commitment: CommitmentRenewal?
 
     public init(
         willRenew: Bool, nextProduct: ProductID?, price: Decimal? = nil, currencyCode: String? = nil,

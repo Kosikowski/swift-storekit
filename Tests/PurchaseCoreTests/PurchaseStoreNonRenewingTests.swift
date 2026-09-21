@@ -106,6 +106,14 @@ struct PurchaseStoreNonRenewingTests {
         #expect(running() == doubled)
     }
 
+    @Test("bought twice at the same instant, both purchases count")
+    func boughtTwiceAtOnce() async throws {
+        await store.start()
+        try await store.purchase(Seasons.season)
+        #expect(try await store.purchase(Seasons.season)
+            == .nonRenewing(NonRenewingPeriod(startedAt: Shop.epoch, endsAt: Shop.epoch.addingTimeInterval(60 * day))))
+    }
+
     @Test("it ends BY ITSELF at the end of its period, and says when it ended")
     func endsByItself() async throws {
         await store.start()

@@ -141,7 +141,9 @@ extension Scenario {
                     default: throw ScenarioFault.unknownValue(value)
                     }
                 case "period":
-                    behaviour.subscriptionPeriod = try Self.age(value)
+                    let period = try Self.age(value)
+                    guard period > .zero else { throw ScenarioFault.invalidAge(value) }
+                    behaviour.subscriptionPeriod = period
                 case "renewal":
                     switch value {
                     case "renews": behaviour.renewal = .renews

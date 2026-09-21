@@ -94,6 +94,45 @@ struct PurchaseStoreCommitmentTests {
         #expect(current?.state == .expired(.autoRenewDisabled))
     }
 
+    @Test("cancelled, it lapses at the commitment's end however far the clock jumps past it")
+    func cancelledThenAYearOn() async throws {
+        await store.start()
+        try await store.purchase(Plans.yearly, options: PurchaseOptions(billingPlan: .monthly))
+        front.listUnlisted()
+        await store.refresh()
+        front.cancelAutoRenew(Plans.yearly)
+        #expect(await waitUntil { current?.renewal?.commitment?.willRenew == false })
+        clock.advance(by: .seconds(Int64(13 * month)))
+        #expect(await waitUntil { store.standing.subscription(in: Plans.group).isActive == false })
+        #expect(current?.state == .expired(.autoRenewDisabled))
+        #expect(current?.periodEnds == Shop.epoch.addingTimeInterval(12 * month))
+    }
+
+    /// The months go on renewing after a cancellation, so each renewal's moment is doubted as
+    /// any renewal's is (D36): only the last month's end is believed.
+    @Test("CANCELLED during the commitment, a month's renewal is never taken for the end: no read locks the subscriber out")
+    func cancelledMonthRenews() async throws {
+        let front = SimulatedStoreFront(catalogue: Plans.catalogue, products: Plans.products, clock: clock)
+        let logger = RecordingPurchaseLogger()
+        let store = PurchaseStore(catalogue: Plans.catalogue, front: front, clock: clock, logger: logger)
+        let group = { store.standing.subscription(in: Plans.group) }
+        await store.start()
+        try await store.purchase(Plans.yearly, options: PurchaseOptions(billingPlan: .monthly))
+        front.listUnlisted()
+        await store.refresh()
+        front.cancelAutoRenew(Plans.yearly)
+        #expect(await waitUntil { group().current?.renewal?.commitment?.willRenew == false })
+        let ends = try #require(group().current?.periodEnds)
+        let from = logger.events.count
+        clock.advance(to: ends)
+        #expect(await waitUntil { (group().current?.periodEnds ?? ends) > ends })
+        let reads = logger.events.dropFirst(from).compactMap { event -> Set<ProductID>? in
+            if case let .standingResolved(owned) = event { owned } else { nil }
+        }
+        #expect(!reads.isEmpty)
+        #expect(reads.allSatisfy { $0.contains(Plans.yearly) })
+    }
+
     @Test("a plan the product does not have is refused as unsupported, and nothing is bought")
     func planNotOffered() async {
         await store.start()
