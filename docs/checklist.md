@@ -198,7 +198,7 @@ What a downgrade *does* is policy, and none of it is the package's.
 ### Handled by the package
 
 - [ ] **An app using the package links in Release.** With Xcode 27, a package's public function returning `some View` that ends in `.task` does not, generic or otherwise: the SDK emits that `task` into its caller, and its opaque type leaks into the package's public signature with no descriptor to link against. `purchaseStore(_:)` keeps its task inside a view modifier, and `make check` links the Demo in Release. [ran] ([decisions](10-decisions.md))
-- [ ] **One library for macOS and iOS.** AppKit and UIKit are kept out of the core entirely, and split behind `#if os(macOS)` / `#elseif canImport(UIKit)` in the adapter. **The iOS target is built in CI** (`make ios`, part of `make check`). A shared package elsewhere stopped compiling for iOS for eleven days because nothing built it. [ran]
+- [ ] **One library for macOS and iOS.** AppKit and UIKit are kept out of the core entirely, and split behind `#if os(macOS)` / `#elseif canImport(UIKit)` in the adapter. **The iOS target is built in CI** (`make ios`, part of `make check`), and so is Mac Catalyst (`make catalyst`), where the manage-subscriptions button takes a branch nothing else compiles. A shared package elsewhere stopped compiling for iOS for eleven days because nothing built it. [ran]
 - [ ] **Scene-based presentation on iOS and iPadOS** (see §4): `PurchaseButton` passes SwiftUI's `PurchaseAction`, which knows its own scene. [Apple]
 
 ### Your app's responsibility

@@ -112,10 +112,10 @@ if case .none = standing.access(to: "com.example.pro", at: .now) { showPaywall()
 
 ```
 make test             # everything that decides anything; offline, no test host
-make check            # layers, tests (debug and release), the iOS build, the Demo's builds
-                      # (needs XcodeGen), proof the simulated store is absent from release
-                      # (`swift package release-check`, also in Xcode's package menu), and
-                      # proof that an app which links the test kit does not build
+make check            # layers, tests (debug and release), the iOS and Mac Catalyst builds,
+                      # the Demo's builds (needs XcodeGen), proof the simulated store is absent
+                      # from release (`swift package release-check`, also in Xcode's package
+                      # menu), and proof that an app which links the test kit does not build
 make integration      # real StoreKit through the real adapter, hosted by Demo/ (needs XcodeGen)
 make integration-ios  # the same, in an iOS simulator
 make ui-tests         # the Demo launched with scenarios, as a screenshot run launches it

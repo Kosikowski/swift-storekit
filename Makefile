@@ -8,7 +8,7 @@ XCODEBUILD ?= xcodebuild
 TEST_TIMEOUT ?= 1200
 ALARM = perl -e 'alarm shift; exec @ARGV' $(TEST_TIMEOUT)
 
-.PHONY: test release-tests core ios layers release-check stress integration integration-ios ui-tests demo check
+.PHONY: test release-tests core ios catalyst layers release-check stress integration integration-ios ui-tests demo check
 
 ## Everything that decides anything. Offline, no test host, no StoreKit: the store is
 ## simulated, and the clock moves only when a test moves it.
@@ -34,6 +34,14 @@ core:
 ios:
 	$(XCODEBUILD) build -scheme swift-storekit-Package -destination 'generic/platform=iOS' \
 		-derivedDataPath build/ios -quiet
+
+## A Mac Catalyst app is an iOS build running on a Mac: `os(iOS)` holds there, and so does
+## `targetEnvironment(macCatalyst)`, where Apple asks for the manage-subscriptions page in
+## place of its sheet (docs/10-decisions.md, D43). Neither `swift build` nor `ios` compiles
+## that branch.
+catalyst:
+	$(XCODEBUILD) build -scheme swift-storekit-Package -destination 'generic/platform=macOS,variant=Mac Catalyst' \
+		-derivedDataPath build/catalyst -quiet
 
 ## PurchaseCore is one target, so the compiler does not keep its domain pure. This does.
 layers:
@@ -116,4 +124,4 @@ demo:
 	$(XCODEBUILD) build-for-testing -project Demo/Demo.xcodeproj -scheme DemoUI \
 		-destination 'generic/platform=iOS Simulator' -derivedDataPath build/demo-ui-ios -quiet
 
-check: layers test release-tests ios release-check demo
+check: layers test release-tests ios catalyst release-check demo
