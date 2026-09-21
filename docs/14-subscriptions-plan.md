@@ -1,6 +1,6 @@
 # Plan: subscriptions and offers
 
-**Status, 21 September 2026: every phase done.** Real StoreKit measured, the design below corrected by it ([what it found](#what-phase-0-found)), auto-renewable subscriptions built on it ([the guide](15-subscriptions.md)), their offers ([the guide](16-offers.md)), and phase 3. The decisions are [D35](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule) to [D57](10-decisions.md#d57-seats-and-retention-offers-need-nothing-new). Nothing is released yet: it all goes out together, as 0.3.0, once the hosted lane has given the Xcode 26.6 column and the sandbox rows have been run by hand. The research is [Subscriptions and offers in StoreKit](13-subscriptions-and-offers.md); this is what to build from it, in what order, and what to measure before any of it.
+**Status, 21 September 2026: every phase done.** Real StoreKit measured, the design below corrected by it ([what it found](#what-phase-0-found)), auto-renewable subscriptions built on it ([the guide](15-subscriptions.md)), their offers ([the guide](16-offers.md)), and phase 3. The decisions are [D35](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule) to [D57](10-decisions.md#d57-seats-and-retention-offers-need-nothing-new). Released together as 0.3.0 on 21 September 2026, once the hosted lane had given the Xcode 26.6 column ([spike](../spike/README.md#with-xcode-266)). The sandbox rows have not been run: they are tried by hand ([known limits](11-roadmap.md#known-limits)). The research is [Subscriptions and offers in StoreKit](13-subscriptions-and-offers.md); this is what to build from it, in what order, and what to measure before any of it.
 
 Evidence tags as in the research. Names in code sketches are placeholders, to be settled in phase 1; the shapes are the proposal.
 
@@ -74,7 +74,7 @@ Every question was put to real StoreKit on 19 September 2026, on macOS 26.6 with
 
 And five confirm it: a subscription purchase is listed late on the Mac and at once on iOS, as a non-consumable's is; a renewal arrives on `updates` before the listing has it, as an approved Ask to Buy does; an upgrade is immediate and the transaction left behind is `isUpgraded` and not listed; the grace period is listed and entitled; win-back offers are eligible on lapse and can be bought with `.winBackOffer(_:)` — on the Mac. **In the iOS 27 simulator, buying again after a lapse returns the old, expired transaction**, with or without an offer, so win-back purchases are tested on the Mac only.
 
-Still open: everything with Xcode 26.6, which only the hosted runner has; and the sandbox rows, by hand.
+With Xcode 26.6, on the hosted runner, the test environment renewed when told to fail a charge, gave no grace period when told to give one, and differed in three habits ([spike](../spike/README.md#with-xcode-266)). The package said what StoreKit said each time. Still open: the sandbox rows, by hand.
 
 ## The design
 
@@ -289,7 +289,7 @@ Every row of the research marked `[check]` that the design leans on, measured in
 
 **Done when** every row has an answer per OS and tool, or a written reason it could not be had, and the design above has been corrected by what was found.
 
-**Done**, for macOS 26.6 with Xcode 27.0 and the iOS 27.0 simulator: the probes are [`spike/subscriptions`](../spike/subscriptions), the answers in [`spike/README.md`](../spike/README.md#subscriptions--what-real-storekit-does-with-auto-renewable-subscriptions), and what they changed is [above](#what-phase-0-found). Left: row 16, by hand in the sandbox; and the Xcode 26.6 column, which the hosted runner will give when phase 1 turns the habits into tests in `Demo/Tests`. Row 12 was answered with a UI test in `spike/subscriptions`, and is finding 8 above.
+**Done**, for macOS 26.6 with Xcode 27.0 and the iOS 27.0 simulator: the probes are [`spike/subscriptions`](../spike/subscriptions), the answers in [`spike/README.md`](../spike/README.md#subscriptions--what-real-storekit-does-with-auto-renewable-subscriptions), and what they changed is [above](#what-phase-0-found). Left: row 16, by hand in the sandbox. The Xcode 26.6 column came from the hosted runner, once phase 1 had turned the habits into tests in `Demo/Tests` ([spike](../spike/README.md#with-xcode-266)). Row 12 was answered with a UI test in `spike/subscriptions`, and is finding 8 above.
 
 ### Phase 1: auto-renewable subscriptions
 
@@ -303,7 +303,7 @@ Every row of the research marked `[check]` that the design leans on, measured in
 - The simulated store's subscriptions and habits; scenarios; the debug panel; the `.storekit` checks.
 - Documentation: a subscriptions guide beside [trials](04-trials.md); the checklist; [App Store Connect](09-app-store-connect.md) for groups, levels, the grace period (turn it on) and Family Sharing; the roadmap and README.
 
-**Done**, with one measurement fewer than planned: the Xcode 26.6 column comes from the nightly hosted lane. What was learnt building it is in [D35–D45](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule), among them a store that spun while doubting a lapse, and a test that could not see a lock-out one read long. The last of it: `appAccountToken` on every purchase, through `PurchaseOptions`; `PurchaseAPITests`, which fails the build on a name StoreKit also has (D44); row 12, asked with a UI test, and the handover from Apple's views that it called for (D45); and the access rule under mutation.
+**Done**, with one measurement fewer than planned: the Xcode 26.6 column came from the hosted lane, run before the release. What was learnt building it is in [D35–D45](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule), among them a store that spun while doubting a lapse, and a test that could not see a lock-out one read long. The last of it: `appAccountToken` on every purchase, through `PurchaseOptions`; `PurchaseAPITests`, which fails the build on a name StoreKit also has (D44); row 12, asked with a UI test, and the handover from Apple's views that it called for (D45); and the access rule under mutation.
 
 **Done when** an app can sell a monthly and a yearly subscription in one group and, against the simulated store and a manual clock, a test can walk it through subscribe, renew, grace, billing retry, recovery, lapse, refund, upgrade and downgrade, with every rule in Core proven to bite ([D14](10-decisions.md#d14-every-regression-test-is-proven-to-bite)); and the hosted suite holds each measured habit on both platforms. Released as **0.3.0**, a minor bump: the API moves ([README](../README.md#using-it)).
 
