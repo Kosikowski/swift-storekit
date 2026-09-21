@@ -23,7 +23,9 @@ public enum PurchaseError: Error, Hashable, Sendable {
     case purchaseNotAllowed
     case notAvailableInStorefront
     case network
-    /// The system failed in a way that is nobody's fault here. Trying again is fair.
+    /// The system failed in a way that is nobody's fault here. Trying again is fair. Also
+    /// what a subscription purchase comes to when StoreKit hands back the old transaction,
+    /// already over, and buys nothing — as it was measured to right after a lapse.
     case system
     /// The store says the purchase was made and its signature does not check out.
     /// Nothing is unlocked and the transaction is left unfinished, so the store
@@ -38,7 +40,30 @@ public enum PurchaseError: Error, Hashable, Sendable {
     /// The window or scene the payment sheet was to appear over is not usable.
     case invalidConfirmation
     case unsupported
+    /// The store refused the offer asked for, and **nothing was bought**. Offer the plain
+    /// price, or nothing: the reasons are kept apart so that a bad signature — the app's
+    /// server — can be told from a person the offer is not for.
+    case offerRefused(OfferRefusal)
+    /// The offer needed a signature from the app's `OfferSigning`, and none came: the
+    /// signer failed, or the store has none. The purchase was **not attempted**.
+    case offerNotSigned
     /// Something this package does not recognise. The associated value is the
     /// error's *type name* and nothing else — never its description.
     case unknown(typeName: String)
+}
+
+extension PurchaseError {
+    /// Why the store refused an offer.
+    public enum OfferRefusal: Hashable, Sendable {
+        /// Not for this person: a promotional offer for someone who has never subscribed
+        /// in the group — refused here, before the signer is asked — or one Apple says
+        /// they may not have.
+        case notEligible
+        /// The app's server signed it, and the store does not accept the signature.
+        case invalidSignature
+        /// No such offer on this product.
+        case unknownOffer
+        case invalidPrice
+        case missingParameters
+    }
 }

@@ -13,7 +13,7 @@ Evidence tags: `[ran]` was measured by running it (macOS 26, Xcode 27), `[Apple]
 
 ## Create the products
 
-Everything this package sells is a **non-consumable**. In App Store Connect, open the app, then In-App Purchases under Monetization, and create one product per catalogue entry.
+An unlock and a trial are **non-consumables**; a subscription is an **auto-renewable subscription**, set up [below](#subscriptions). In App Store Connect, open the app, then In-App Purchases under Monetization, and create one product per catalogue entry that is not a subscription.
 
 | Field | The unlock | The trial |
 |---|---|---|
@@ -41,6 +41,37 @@ A family-shared transaction carries the purchaser's dates. A shared trial would 
 **The switch cannot be turned off once it is on** `[Apple]`. For that reason the package guards it in code regardless of how the switch is set: a trial counts only when this account bought it, and an unlock declared `.unlock(id, familySharing: .ignored)` does not count when shared. Setting the switch correctly is still worth doing, because it decides what the App Store shows and delivers to family members.
 
 If Family Sharing is switched on for a non-consumable that some people have already bought, their family members receive it only through a restore `[check]`. This is one of the few cases where the Restore Purchases button does real work.
+
+## Subscriptions
+
+Under Monetization, Subscriptions: create a **subscription group**, and the subscriptions in it. One group is right for most apps `[Apple]`: a person can hold one subscription per group, and moving between the group's plans is an upgrade, downgrade or crossgrade rather than a second subscription — which is what guideline 3.1.2(b) asks for `[Apple]`.
+
+| Field | Where it goes |
+|---|---|
+| The group's ID | The catalogue's `SubscriptionGroupID`, exactly |
+| Each subscription's Product ID | The catalogue's `ProductID`, exactly |
+| The ranking of the group's subscriptions | The catalogue's `level`. **1 is the highest** `[ran]` |
+| Duration, price | App Store Connect's alone; the package reads them from the store |
+| Family Sharing | As the catalogue's entry says; like a non-consumable's, it cannot be turned off again once on `[Apple]` |
+
+**Turn on the billing grace period** (Monetization, Subscriptions, Billing Grace Period): 3, 16 or 28 days, for all renewals or paid-to-paid only `[Apple]`. With it, a person whose payment fails keeps access while Apple retries, and the package grants it ([D35](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule)); without it, they are in billing retry at once, which is not access. It can be turned on for the sandbox alone first, and changes take up to 24 hours `[Apple]`.
+
+### Offers
+
+Offers are set on each subscription, under its Subscription Prices. What each does and who decides who gets it is in [the research](13-subscriptions-and-offers.md#offers), and how the app uses them is in [the offers guide](16-offers.md).
+
+| Offer | In App Store Connect | In the app |
+|---|---|---|
+| Introductory | Payment mode, duration, periods and price, per storefront. One current and one future per storefront, and it cannot be edited, only replaced `[Apple]` | Nothing to pass: a plain purchase applies it |
+| Win-back | Price and periods, and **who may have it**: how long they paid, how long ago they lapsed, how long before they may have one again `[Apple]` | `winBackOffers(in:)`, bought with `.winBack(id)` |
+| Promotional | An offer identifier, price and periods; up to 10 active `[Apple]` | `.promotional(id)`, signed by your server |
+| Offer codes | Codes, or a custom code, and who may redeem them `[Apple]` | Nothing: the redemption arrives as a transaction |
+
+**Monthly billing with a 12-month commitment** is a second billing plan on a yearly subscription, from 26.4; it is not offered in the United States or Singapore `[Apple]`. **A non-renewing subscription** is a product of its own type; its length is not set in App Store Connect but in the catalogue, `.nonRenewing(_:lasting:)`, and the file check wants a `NonRenewingSubscription`.
+
+**For promotional offers and the introductory override, create an In-App Purchase key** (Users and Access, Integrations, In-App Purchase) and keep it on your server. Apple's App Store Server Library signs with it. It is not the App Store Connect API key `[Apple]`. Put the offers in the `.storekit` file too, so that the simulated store and Xcode's environment sell them, and check the identifiers your code names against it: `expectNoProblems(against:offers:)`.
+
+App Review asks a subscription paywall for the plan's name, length and full renewal price, with the amount billed the most prominent price; links to the terms and the privacy policy; a way to restore; and an easy route to Apple's page to manage it `[Apple]` — `ManageSubscriptionsButton` ([subscriptions](15-subscriptions.md#managing)).
 
 ## Localisations and review information
 
@@ -137,10 +168,15 @@ com.example.app.pro is in the StoreKit configuration file and not in the catalog
 |---|---|
 | `.missing(ProductID)` | Every catalogue identifier is in the file |
 | `.unexpected(ProductID)` | Nothing else is |
-| `.notNonConsumable(ProductID, type:)` | Every one is a non-consumable, wherever in the file it was found |
+| `.notNonConsumable(ProductID, type:)` | Every unlock and trial is a non-consumable, wherever in the file it was found |
+| `.notAutoRenewable(ProductID, type:)` | Every subscription is a `RecurringSubscription` |
+| `.subscriptionGroupMismatch(ProductID, catalogue:, file:)` | A subscription is in the group the catalogue names |
+| `.subscriptionLevelMismatch(ProductID, catalogue:, file:)` | A subscription is at the level the catalogue names (`groupNumber` in the file) |
 | `.trialNotFree(ProductID, displayPrice:)` | A trial is priced at exactly zero. A price that cannot be read is not free |
 | `.trialFamilyShareable(ProductID)` | A trial is not family-shareable |
-| `.familySharingMismatch(ProductID, catalogueHonours:, fileShares:)` | An unlock is family-shareable exactly when its entry honours Family Sharing |
+| `.familySharingMismatch(ProductID, catalogueHonours:, fileShares:)` | An unlock or a subscription is family-shareable exactly when its entry honours Family Sharing |
+| `.notNonRenewing(ProductID, type:)` | Every non-renewing subscription is a `NonRenewingSubscription` |
+| `.offerMissing(OfferID, product:)` | An offer the app names — to `expectNoProblems(against:offers:)` — is on that product in the file |
 
 Finding the file from a test:
 

@@ -41,6 +41,7 @@ Measured on macOS 26.6 and in the iOS 27.0 simulator, with Xcode 27.0. **[ran]**
 | This package's logic | `SimulatedStoreFront` + `ManualClock` | `make test` |
 | The StoreKit adapter's decisions | a fake gateway | `make test` |
 | The StoreKit adapter against StoreKit's own transactions and errors | real StoreKit, `Demo.storekit` | `make integration`, `make integration-ios` (hosted by the Demo app) |
+| A purchase made in Apple's `ProductView` or `SubscriptionStoreView` reaching your store | real StoreKit, with an `SKTestSession` made in the UI-test runner, which governs the app under test `[ran]` | XCUITest; `make ui-tests` has the package's |
 | Your `.storekit` file against your catalogue | `StoreKitConfiguration` — no StoreKit | `swift test` |
 | Family Sharing, real products, real signatures, servers | Sandbox, then TestFlight | by hand |
 | **Where the payment sheet appears** — `PurchaseAction`, a window, a view controller | nothing automated: the hosted tests buy with `.automatic`, and no test here reaches `PurchaseButton`'s own path | by hand, with two windows open |
@@ -88,18 +89,17 @@ func trialRunsOut() async {
     await store.start()
     #expect(store.standing.access(to: Shop.pro) != .none)
 
-    await waitUntil { clock.sleeperCount == 1 }   // the store has scheduled its look
-    clock.advance(by: .seconds(300))              // five minutes, at once
-    await waitUntil { store.standing.access(to: Shop.pro) == .none }
-    #expect(store.standing.access(to: Shop.pro) == .none)
+    #expect(await waitUntil { clock.sleeperCount == 1 })   // the store has scheduled its look
+    clock.advance(by: .seconds(300))                       // five minutes, at once
+    #expect(await waitUntil { store.standing.access(to: Shop.pro) == .none })
 }
 ```
 
 Three rules keep such tests from flaking:
 
 - **Give the store and the simulated front the same clock**, so purchase dates and expiry agree.
-- **Wait on a condition, never on a duration.** `waitUntil` returns the moment its condition holds — or after its `timeout`, five seconds unless you say otherwise — and the `#expect` after it is what fails, so a failure says what was expected rather than "timed out".
-- **Before moving time, wait for the sleeper** (`clock.sleeperCount`), so the store has got as far as scheduling its look.
+- **Wait on a condition, never on a duration, and expect it.** `waitUntil` returns whether its condition held — at once, or false after its `timeout`, five seconds unless you say otherwise. Put it inside `#expect`: a wait whose answer nobody checks passes after five silent seconds, and whatever it was waiting for may never have happened.
+- **Before moving time, wait for the sleeper** (`clock.sleeperCount`), so the store has got as far as scheduling its look. `clock.deadlines` says when each sleeper wakes, for a test of *when* the store looks again.
 
 `ManualClock` does not race: deadlines are absolute, so advancing before a sleeper arrives and after it come to the same thing, and whether to park is decided under the lock that `advance` takes.
 
@@ -172,7 +172,7 @@ It checks that the file sells exactly the catalogue's identifiers, that each is 
 
 ## Real StoreKit, from a hosted test bundle
 
-`Demo/Tests/RealStoreKitTests.swift` runs the real `AppStoreFront` through `PurchaseStore` against `Demo.storekit`, on the Mac and in an iOS simulator. What it takes — little of which Apple writes down:
+`Demo/Tests/RealStoreKitTests.swift` runs the real `AppStoreFront` through `PurchaseStore` against `Demo.storekit`, on the Mac and in an iOS simulator; `RealSubscriptionTests.swift` does the same for subscriptions, with `SKTestSession.timeRate` renewing every ten seconds and `shouldEnterBillingRetryOnRenewal` and `billingGracePeriodIsEnabled` making a charge fail ([subscriptions](15-subscriptions.md#testing)). What it takes — little of which Apple writes down:
 
 ```swift
 import StoreKitTest
@@ -241,6 +241,7 @@ A green suite against `SimulatedStoreFront` says your app does the right thing *
 - **What is redelivered at launch.** Unfinished transactions, and purchases made while the app was not running, are StoreKit's to hand over. The adapter asks for the backlog; nothing here shows StoreKit giving it.
 - **The payment sheet**: that it appears, over which window, and what the person sees.
 - **Family Sharing's dates and revocations**, as the App Store really sends them. The simulated store takes your word for the ownership you seed.
+- **A renewal while a real device's app is closed, and a subscription shared by a family member.** Xcode's environment cannot make either; the sandbox can, by hand.
 - **Storefronts, currencies and price tiers.** It serves what your `.storekit` file says, or made-up prices.
 - **Your server**, App Store Server Notifications, and anything else downstream of a real transaction.
 

@@ -50,6 +50,9 @@ public final class ManualClock: TimeProviding {
     /// know the store has got as far as scheduling its re-read before it moves time.
     public var sleeperCount: Int { state.withLock { $0.sleepers.count } }
 
+    /// When each parked task wakes. None is ever one already gone: such a sleep returns at once.
+    public var deadlines: [Date] { state.withLock { $0.sleepers.map(\.deadline) } }
+
     public func sleep(until deadline: Date) async throws(CancellationError) {
         let id = state.withLock { state -> Int in
             state.nextID += 1

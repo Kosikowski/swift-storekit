@@ -89,6 +89,10 @@ targets:
     supportedDestinations: [macOS, iOS]
     sources:
       - path: UITests
+      # For the one test that buys from real StoreKit through Apple's own view: a session
+      # made in the runner governs the app under test (spike/README.md, q12).
+      - path: Demo.storekit
+        buildPhase: resources
     dependencies:
       - target: Demo
     settings:
@@ -122,6 +126,8 @@ schemes:
       targets:
         Demo: all
         DemoUITests: [test]
+    run:
+      storeKitConfiguration: Demo.storekit
     test:
       targets: [DemoUITests]
   Demo:

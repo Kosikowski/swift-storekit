@@ -1,0 +1,79 @@
+# Spike, not product: phase 0 of docs/14-subscriptions-plan.md. What real StoreKit does
+# with auto-renewable subscriptions and their offers, asked from a test bundle hosted by
+# an app — the only place SKTestSession answers (../README.md). Each probe prints what it
+# saw and asserts almost nothing: the answers are not known yet. One target for the Mac
+# and iOS, as the Demo has, so each question is asked of both.
+name: SubscriptionsSpike
+options:
+  bundleIdPrefix: spike.storekit.subscriptions
+  deploymentTarget:
+    macOS: "26.0"
+    iOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    GENERATE_INFOPLIST_FILE: YES
+targets:
+  Host:
+    type: application
+    supportedDestinations: [macOS, iOS]
+    sources: [Host]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: spike.storekit.subscriptions.host
+        CODE_SIGN_IDENTITY: "-"
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Host/Host.entitlements
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+  HostTests:
+    type: bundle.unit-test
+    supportedDestinations: [macOS, iOS]
+    sources:
+      - path: Tests
+        excludes: ["*.storekit"]
+      - path: Tests/Subscriptions.storekit
+        buildPhase: resources
+    dependencies:
+      - target: Host
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: spike.storekit.subscriptions.host.tests
+        CODE_SIGN_IDENTITY: "-"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Host.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Host"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+  # q12: Apple's SubscriptionStoreView, pressed as a person presses it.
+  HostUITests:
+    type: bundle.ui-testing
+    supportedDestinations: [macOS, iOS]
+    sources:
+      - path: UITests
+      - path: Tests/Subscriptions.storekit
+        buildPhase: resources
+    dependencies:
+      - target: Host
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: spike.storekit.subscriptions.host.uitests
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: NO
+        TEST_TARGET_NAME: Host
+schemes:
+  HostUI:
+    build:
+      targets:
+        Host: all
+        HostUITests: [test]
+    run:
+      storeKitConfiguration: Tests/Subscriptions.storekit
+    test:
+      targets: [HostUITests]
+  Host:
+    build:
+      targets:
+        Host: all
+        HostTests: [test]
+    test:
+      targets: [HostTests]

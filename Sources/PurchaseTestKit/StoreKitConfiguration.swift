@@ -91,18 +91,30 @@ public struct StoreKitConfiguration: Hashable, Sendable {
     /// catalogue declares it. Compare with `[]` rather than asking `isEmpty`, and a
     /// failure prints everything that is wrong at once rather than `false`.
     ///
-    /// The rules: every catalogue identifier is in the file; nothing else is; every
-    /// one of them is a non-consumable; a trial is priced at exactly zero and is not
-    /// family-shareable; an unlock is family-shareable exactly when its entry
-    /// honours Family Sharing. An identifier in the file twice is checked in both
+    /// The rules: every catalogue identifier is in the file; nothing else is; an unlock
+    /// or a trial is a non-consumable; a trial is priced at exactly zero and is not
+    /// family-shareable; an unlock is family-shareable exactly when its entry honours
+    /// Family Sharing; a subscription is an auto-renewable one, in the group and at the
+    /// level its entry names, and family-shareable exactly when its entry honours Family
+    /// Sharing. An identifier in the file twice is checked in both
     /// places, so one hiding under a subscription group as well is still caught.
-    public func problems(against catalogue: Catalogue) -> [StoreKitConfigurationProblem] {
+    ///
+    /// - Parameter offers: the promotional and win-back offers the app names in its own
+    ///   code, by the product they are for. Each must be in the file, on that product.
+    public func problems(
+        against catalogue: Catalogue, offers: [ProductID: Set<OfferID>] = [:]
+    ) -> [StoreKitConfigurationProblem] {
         var problems: [StoreKitConfigurationProblem] = []
+        for (id, named) in offers.sorted(by: { $0.key < $1.key }) {
+            let product = products.first { $0.id == id }
+            let known = Set(((product?.promotionalOffers ?? []) + (product?.winBackOffers ?? [])).compactMap(\.id))
+            problems += named.subtracting(known).sorted().map { .offerMissing($0, product: id) }
+        }
         for entry in catalogue.entries {
             let found = products.filter { $0.id == entry.id }
             if found.isEmpty { problems.append(.missing(entry.id)) }
             for product in found {
-                if product.type != "NonConsumable" {
+                if entry.subscriptionTerms == nil, entry.nonRenewingTerms == nil, product.type != "NonConsumable" {
                     problems.append(.notNonConsumable(entry.id, type: product.type))
                 }
                 switch entry.kind {
@@ -113,12 +125,21 @@ public struct StoreKitConfiguration: Hashable, Sendable {
                     }
                     if product.isFamilyShareable { problems.append(.trialFamilyShareable(entry.id)) }
                 case let .unlock(familySharing):
-                    let honours = familySharing == .honoured
-                    if product.isFamilyShareable != honours {
-                        problems.append(
-                            .familySharingMismatch(
-                                entry.id, catalogueHonours: honours,
-                                fileShares: product.isFamilyShareable))
+                    problems += Self.familySharing(of: product, honoured: familySharing == .honoured, entry: entry.id)
+                case let .subscription(terms):
+                    if product.type != "RecurringSubscription" {
+                        problems.append(.notAutoRenewable(entry.id, type: product.type))
+                    }
+                    if product.subscriptionGroupID != terms.group {
+                        problems.append(.subscriptionGroupMismatch(entry.id, catalogue: terms.group, file: product.subscriptionGroupID))
+                    }
+                    if product.groupLevel != terms.level {
+                        problems.append(.subscriptionLevelMismatch(entry.id, catalogue: terms.level, file: product.groupLevel))
+                    }
+                    problems += Self.familySharing(of: product, honoured: terms.familySharing == .honoured, entry: entry.id)
+                case .nonRenewing:
+                    if product.type != "NonRenewingSubscription" {
+                        problems.append(.notNonRenewing(entry.id, type: product.type))
                     }
                 }
             }
@@ -128,6 +149,11 @@ public struct StoreKitConfiguration: Hashable, Sendable {
         // Two identical entries have identical faults. Say each once.
         var seen: Set<StoreKitConfigurationProblem> = []
         return problems.filter { seen.insert($0).inserted }
+    }
+
+    private static func familySharing(of product: Product, honoured: Bool, entry id: ProductID) -> [StoreKitConfigurationProblem] {
+        guard product.isFamilyShareable != honoured else { return [] }
+        return [.familySharingMismatch(id, catalogueHonours: honoured, fileShares: product.isFamilyShareable)]
     }
 
     // MARK: - Serving
@@ -152,7 +178,18 @@ public struct StoreKitConfiguration: Hashable, Sendable {
                 // Not a number rather than zero: `StoreProduct.price` exists to be
                 // compared with zero, and an unreadable price must not pass for free.
                 price: product.price ?? .nan,
-                isFamilyShareable: product.isFamilyShareable)
+                isFamilyShareable: product.isFamilyShareable,
+                subscription: subscription(of: product, as: entry))
         }
+    }
+
+    /// A subscription's period and offers, as the file has them, for a catalogue
+    /// subscription the file also calls one.
+    private func subscription(of product: Product, as entry: CatalogueEntry) -> StoreProduct.Subscription? {
+        guard let terms = entry.subscriptionTerms, let period = product.subscriptionPeriod else { return nil }
+        return StoreProduct.Subscription(
+            group: product.subscriptionGroupID ?? terms.group, period: period,
+            introductoryOffer: product.introductoryOffer, promotionalOffers: product.promotionalOffers,
+            winBackOffers: product.winBackOffers)
     }
 }

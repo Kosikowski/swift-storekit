@@ -12,6 +12,9 @@
 
 /// Something worth logging.
 public enum PurchaseEvent: Hashable, Sendable {
+    /// The store read what is owned. `owned` is what the standing it holds grants: the
+    /// products owned, and the subscriptions that are active — logged at every read, so
+    /// that a moment in which a subscriber was not granted is in the log.
     case standingResolved(owned: Set<ProductID>)
     case catalogueLoaded(Set<ProductID>)
     /// The store returned **no products at all** for the identifiers asked for.
@@ -42,4 +45,13 @@ public enum PurchaseEvent: Hashable, Sendable {
     /// that product's to finish.
     case foreignTransactionIgnored(ProductID)
     case unrecognisedConfirmationAnchor(typeName: String)
+    /// The app's `OfferSigning` threw, so the purchase was not attempted. `typeName` is the
+    /// error's type, and nothing else.
+    case offerSignerFailed(ProductID, typeName: String)
+    /// A purchase asked for outside the app named an offer this package cannot ask for. The
+    /// request is kept, without it.
+    case requestedOfferUnrecognised(ProductID)
+    /// A subscription group's statuses could not be read. The listing stands in for it,
+    /// and nothing is known of its renewals until the next read.
+    case subscriptionStatusUnavailable(SubscriptionGroupID)
 }

@@ -69,8 +69,48 @@ public struct Scenario: Hashable, Sendable {
         }
     }
 
+    /// A subscription the account has at launch, and where it stands.
+    public struct Subscription: Hashable, Sendable {
+        public enum State: Hashable, Sendable {
+            /// Renewing. `age` is how long ago the current period began.
+            case subscribed
+            /// Auto-renew off: runs to the end of its period. `age` as for `subscribed`.
+            case cancelled
+            /// A charge failed and the grace period is running. `age` is how long ago the
+            /// period ended.
+            case inGracePeriod
+            /// A charge failed, no grace period. `age` is how long ago the period ended.
+            case inBillingRetry
+            /// Expired, auto-renew off. `age` is how long ago it lapsed.
+            case lapsed
+        }
+
+        public let id: ProductID
+        public let age: Duration
+        public let ownership: Ownership
+        public let state: State
+
+        public init(_ id: ProductID, _ state: State = .subscribed, age: Duration = .zero, ownership: Ownership = .purchased) {
+            self.id = id
+            self.state = state
+            self.age = age
+            self.ownership = ownership
+        }
+    }
+
+    /// Where the account stands with each subscription's introductory offer.
+    public enum IntroductoryOffer: Hashable, Sendable {
+        /// Every subscription has one, and the account may have it.
+        case eligible
+        /// Every subscription has one, and the account has used it in every group.
+        case used
+    }
+
     /// Owned and listed from launch, with no announcement.
     public var owns: [Holding]
+
+    /// Subscriptions at launch, said and — where entitled — listed, with no announcement.
+    public var subscriptions: [Subscription]
 
     /// Owned by the account and **unknown to this device**: bought elsewhere, or
     /// before a reinstall. Buying one, or a restore, brings it here with its age.
@@ -81,6 +121,18 @@ public struct Scenario: Hashable, Sendable {
     public var unverified: [ProductID]
 
     public var behaviour: SimulatedStoreFront.Behaviour
+
+    /// An introductory offer on every subscription that has none — a week free — and
+    /// whether the account may have it. Nil: the products as they are.
+    public var introductoryOffer: IntroductoryOffer?
+
+    /// Win-back offers with these identifiers on every subscription that lacks them — three
+    /// months at a discount — made eligible by a lapse, `lapsed=` included, as Xcode's
+    /// environment makes them.
+    public var winBackOffers: [OfferID]
+
+    /// Promotional offers with these identifiers on every subscription that lacks them.
+    public var promotionalOffers: [OfferID]
 
     /// The store has not yet said what is owned — how every launch begins, held
     /// open for as long as a screenshot of it takes.
@@ -100,18 +152,26 @@ public struct Scenario: Hashable, Sendable {
     /// owns nothing — which is also what the empty text parses to.
     public init(
         owns: [Holding] = [],
+        subscriptions: [Subscription] = [],
         earlier: [Holding] = [],
         unverified: [ProductID] = [],
         behaviour: SimulatedStoreFront.Behaviour = SimulatedStoreFront.Behaviour(),
+        introductoryOffer: IntroductoryOffer? = nil,
+        winBackOffers: [OfferID] = [],
+        promotionalOffers: [OfferID] = [],
         holdsOwnership: Bool = false,
         holdsCatalogue: Bool = false,
         holdsPurchase: Bool = false,
         holdsRestore: Bool = false
     ) {
         self.owns = owns
+        self.subscriptions = subscriptions
         self.earlier = earlier
         self.unverified = unverified
         self.behaviour = behaviour
+        self.introductoryOffer = introductoryOffer
+        self.winBackOffers = winBackOffers
+        self.promotionalOffers = promotionalOffers
         self.holdsOwnership = holdsOwnership
         self.holdsCatalogue = holdsCatalogue
         self.holdsPurchase = holdsPurchase

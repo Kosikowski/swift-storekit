@@ -32,11 +32,15 @@ extension StoreKitConfiguration {
     ///
     /// The default location is Swift Testing's own, as on `Issue.record`, so that a
     /// helper of your own can pass on where *it* was called.
+    ///
+    /// `offers` are the promotional and win-back offers the app names in its own code, by
+    /// the product they are for.
     public func expectNoProblems(
         against catalogue: Catalogue,
+        offers: [ProductID: Set<OfferID>] = [:],
         sourceLocation: SourceLocation = #_sourceLocation
     ) {
-        for problem in problems(against: catalogue) {
+        for problem in problems(against: catalogue, offers: offers) {
             Issue.record(Comment(rawValue: problem.description), sourceLocation: sourceLocation)
         }
     }

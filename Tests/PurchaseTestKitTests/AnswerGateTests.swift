@@ -18,7 +18,7 @@ struct AnswerGateTests {
     func closed() async {
         let gate = AnswerGate(closed: true)
         let waiting = Task { await gate.pass(); return true }
-        await waitUntil { gate.waiterCount == 1 }
+        #expect(await waitUntil { gate.waiterCount == 1 })
         #expect(gate.waiterCount == 1)
         gate.open()
         #expect(await waiting.value)
@@ -29,7 +29,7 @@ struct AnswerGateTests {
     func ignoresCancellation() async {
         let gate = AnswerGate(closed: true)
         let waiting = Task { await gate.pass() }
-        await waitUntil { gate.waiterCount == 1 }
+        #expect(await waitUntil { gate.waiterCount == 1 })
         waiting.cancel()
         try? await Task.sleep(for: .milliseconds(20))
         #expect(gate.waiterCount == 1)

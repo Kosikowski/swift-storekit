@@ -13,6 +13,7 @@
 
 import Foundation
 import PurchaseCore
+import StoreKit
 
 struct TransactionSnapshot: Sendable {
     enum Verification: Hashable, Sendable {
@@ -34,4 +35,21 @@ struct TransactionSnapshot: Sendable {
     /// Tells the store this transaction has been dealt with. Until it is called the
     /// store delivers the transaction again at every launch.
     let finish: @Sendable () async -> Void
+
+    /// StoreKit's identifier for it.
+    var id: UInt64? = nil
+    /// For a subscription, when the period this transaction bought ends.
+    var expirationDate: Date? = nil
+    /// When the store took it back, if it has.
+    var revocationDate: Date? = nil
+    /// A subscription transaction the person has upgraded away from. Apple: look for the
+    /// transaction with the higher level instead.
+    var isUpgraded: Bool = false
+    /// The offer this transaction was bought with, as StoreKit spells it.
+    var offerType: StoreKit.Transaction.OfferType? = nil
+    var offerID: String? = nil
+    var offerPaymentMode: StoreKit.Transaction.Offer.PaymentMode? = nil
+    /// On a 12-month commitment (26.4): which month of how many. Copied straight to the
+    /// package's own value, since a field newer than the deployment target cannot be stored.
+    var commitment: SubscriptionCommitment? = nil
 }

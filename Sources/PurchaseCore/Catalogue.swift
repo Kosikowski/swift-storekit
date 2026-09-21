@@ -20,8 +20,15 @@ public struct Catalogue: Hashable, Sendable {
         case trialWithoutTargets(ProductID)
         /// A trial names something that is not in the catalogue.
         case trialTargetMissing(trial: ProductID, target: ProductID)
-        /// A trial names another trial. A trial stands in for something kept.
+        /// A trial names another trial, or a subscription. A trial stands in for something
+        /// kept; a subscription has an introductory offer of its own for that.
         case trialTargetIsNotAnUnlock(trial: ProductID, target: ProductID)
+        /// App Store Connect ranks a group's subscriptions from 1, the highest.
+        case subscriptionLevelBelowOne(ProductID)
+        /// A subscription in a group with no identifier: its status could never be asked for.
+        case subscriptionWithoutGroup(ProductID)
+        /// A non-renewing subscription that lasts no time at all.
+        case nonRenewingWithoutDuration(ProductID)
     }
 
     public let entries: [CatalogueEntry]
@@ -53,9 +60,20 @@ public struct Catalogue: Hashable, Sendable {
                     problems.append(.trialTargetMissing(trial: entry.id, target: target))
                     continue
                 }
-                if found.trialTerms != nil {
+                if !found.isUnlock {
                     problems.append(.trialTargetIsNotAnUnlock(trial: entry.id, target: target))
                 }
+            }
+        }
+        for entry in entries {
+            if let terms = entry.subscriptionTerms, terms.level < 1 {
+                problems.append(.subscriptionLevelBelowOne(entry.id))
+            }
+            if let terms = entry.subscriptionTerms, terms.group.rawValue.allSatisfy(\.isWhitespace) {
+                problems.append(.subscriptionWithoutGroup(entry.id))
+            }
+            if let terms = entry.nonRenewingTerms, terms.duration <= .zero {
+                problems.append(.nonRenewingWithoutDuration(entry.id))
             }
         }
         return problems
@@ -66,6 +84,17 @@ public struct Catalogue: Hashable, Sendable {
     public func entry(for id: ProductID) -> CatalogueEntry? { index[id] }
 
     public func contains(_ id: ProductID) -> Bool { index[id] != nil }
+
+    /// The subscription groups, in the order the catalogue first names them.
+    public var subscriptionGroups: [SubscriptionGroupID] {
+        var seen: Set<SubscriptionGroupID> = []
+        return entries.compactMap { $0.subscriptionTerms?.group }.filter { seen.insert($0).inserted }
+    }
+
+    /// The subscriptions in `group`, in catalogue order.
+    public func subscriptions(in group: SubscriptionGroupID) -> [CatalogueEntry] {
+        entries.filter { $0.subscriptionTerms?.group == group }
+    }
 
     /// The trials that stand in for `id`, in catalogue order.
     public func trials(of id: ProductID) -> [CatalogueEntry] {

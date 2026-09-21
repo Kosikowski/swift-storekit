@@ -16,7 +16,9 @@
 //  **It is held for a moment and no longer.** A hold ends when the store lists the
 //  product *and that listing counts* (a family member's copy of something this account
 //  has just bought for itself does not take over from the hold), when the store
-//  withdraws it, or when its time is up — whichever is first.
+//  withdraws it, or when its time is up — whichever is first. A subscription's hold is
+//  let go by its status rather than the listing (docs/10-decisions.md, D36); the store
+//  decides which of the two it passes to `settle`.
 //  The time limit is what keeps the listing the last word: a grant the store never
 //  goes on to list (a shared purchase withdrawn without a date has been reported to
 //  arrive looking like one) lapses, rather than being vouched for all session.
@@ -28,6 +30,8 @@ struct UnlistedPurchases: Sendable {
     private struct Hold: Sendable {
         let product: OwnedProduct
         let until: Date
+        /// Held beside any other of the same product, and settled by its own date.
+        let alongside: Bool
     }
 
     private var holds: [Hold] = []
@@ -37,18 +41,33 @@ struct UnlistedPurchases: Sendable {
     /// When the hold that lapses soonest does so.
     var nextLapse: Date? { holds.map(\.until).min() }
 
-    mutating func hold(_ product: OwnedProduct, until deadline: Date) {
-        holds.removeAll { $0.product.id == product.id }
-        holds.append(Hold(product: product, until: deadline))
+    /// A hold of a later purchase of the product is kept in place of this one: renewals
+    /// missed while nothing ran arrive newest first (measured).
+    ///
+    /// - Parameter alongside: keep every other hold of the product. Each purchase of a
+    ///   non-renewing subscription is time bought, and the listing keeps them all
+    ///   (measured); a second one held in place of the first would lose the first.
+    mutating func hold(_ product: OwnedProduct, until deadline: Date, alongside: Bool = false) {
+        if alongside {
+            holds.removeAll { $0.product.id == product.id && $0.product.purchaseDate == product.purchaseDate }
+        } else {
+            guard !holds.contains(where: { $0.product.id == product.id && $0.product.purchaseDate > product.purchaseDate })
+            else { return }
+            holds.removeAll { $0.product.id == product.id }
+        }
+        holds.append(Hold(product: product, until: deadline, alongside: alongside))
     }
 
     /// The store has listed these, or their time is up: its listing speaks for itself.
     ///
     /// - Parameter listing: what the store lists **and the resolver counts**. A listing
-    ///   that has the product without counting it has not taken over from the hold.
+    ///   that has the product without counting it has not taken over from the hold. A hold
+    ///   kept alongside others is taken over only by the listing of that purchase.
     mutating func settle(listedIn listing: [OwnedProduct], at now: Date) {
-        let listed = Set(listing.map(\.id))
-        holds.removeAll { listed.contains($0.product.id) || $0.until <= now }
+        holds.removeAll { hold in
+            hold.until <= now
+                || listing.contains { $0.id == hold.product.id && (!hold.alongside || $0.purchaseDate == hold.product.purchaseDate) }
+        }
     }
 
     /// The store has withdrawn this product.

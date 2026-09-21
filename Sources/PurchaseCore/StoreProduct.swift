@@ -25,9 +25,12 @@ public struct StoreProduct: Hashable, Sendable, Identifiable {
 
     public let isFamilyShareable: Bool
 
+    /// For an auto-renewable subscription, its period and its offers. Nil for anything else.
+    public let subscription: Subscription?
+
     public init(
         id: ProductID, displayName: String, description: String = "", displayPrice: String,
-        price: Decimal, isFamilyShareable: Bool = false
+        price: Decimal, isFamilyShareable: Bool = false, subscription: Subscription? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -35,5 +38,43 @@ public struct StoreProduct: Hashable, Sendable, Identifiable {
         self.displayPrice = displayPrice
         self.price = price
         self.isFamilyShareable = isFamilyShareable
+        self.subscription = subscription
+    }
+}
+
+extension StoreProduct {
+    /// What the store says of an auto-renewable subscription: how long each period is, and
+    /// the offers it carries. `displayPrice` is per period.
+    ///
+    /// **An offer here is one the product has, not one this person may have.** Whether they
+    /// may have the introductory offer is `PurchaseStore.introductoryOffer(for:)`, and which
+    /// win-back offers they may have is `winBackOffers(in:)`: the store's answers, from Apple.
+    public struct Subscription: Hashable, Sendable {
+        public let group: SubscriptionGroupID
+        public let period: BillingPeriod
+        public let introductoryOffer: OfferTerms?
+        /// For current and former subscribers, as the app decides.
+        public let promotionalOffers: [OfferTerms]
+        /// For people who have lapsed, as Apple decides.
+        public let winBackOffers: [OfferTerms]
+        /// The plans it can be paid on: up front always, and monthly with a 12-month
+        /// commitment where it is offered (26.4). Empty before 26.4, where up front is all.
+        public let billingPlans: [BillingPlanTerms]
+        /// For a subscription bundle (27), the subscriptions it includes. Empty for any other.
+        public let bundledSubscriptions: [BundledSubscription]
+
+        public init(
+            group: SubscriptionGroupID, period: BillingPeriod, introductoryOffer: OfferTerms? = nil,
+            promotionalOffers: [OfferTerms] = [], winBackOffers: [OfferTerms] = [], billingPlans: [BillingPlanTerms] = [],
+            bundledSubscriptions: [BundledSubscription] = []
+        ) {
+            self.group = group
+            self.period = period
+            self.introductoryOffer = introductoryOffer
+            self.promotionalOffers = promotionalOffers
+            self.winBackOffers = winBackOffers
+            self.billingPlans = billingPlans
+            self.bundledSubscriptions = bundledSubscriptions
+        }
     }
 }

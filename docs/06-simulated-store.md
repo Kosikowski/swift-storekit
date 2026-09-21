@@ -52,7 +52,7 @@ Things that happen by themselves, announced on the updates stream so a running a
 ```swift
 front.deliver(Shop.pro)                  // bought on another device
 front.deliverTrial(Shop.trial, remaining: .seconds(300))
-front.approvePending(Shop.pro)           // a parent approves; false, and nothing granted, if it was not pending
+front.approvePending(Shop.pro)           // a parent approves the purchase asked for, offer and plan and all; false if nothing was pending
 front.declinePending(Shop.pro)           // …or declines: nothing is announced, as with the real store
 front.listUnlisted()                     // the listing catches up by itself, with nobody reading it
 front.revoke(Shop.pro)                   // a refund
@@ -124,8 +124,19 @@ Clauses are joined by `;`.
 | `catalogue=` `loads` \| `empty` \| `held` \| `fails:`error | `held` closes the catalogue gate |
 | `ownership=` `answers` \| `held` | `held` closes the ownership gate |
 | `lag=`N | Reads before a purchase is listed |
+| `subscribed=` holding, … | Subscribed and renewing. The age is how long ago the current period began |
+| `cancelled=` holding, … | Subscribed, auto-renew off: it runs to the end of its period. Age as for `subscribed=` |
+| `grace=` holding, … | A charge failed and the grace period is running. The age is how long ago the period ended |
+| `retry=` holding, … | A charge failed, no grace period: billing retry. Age as for `grace=` |
+| `lapsed=` holding, … | Expired. The age is how long ago it lapsed |
+| `period=`age | How long a subscription's period is: longer than nothing. A month by default. Products made up from the catalogue say it as their period; products given are kept as given, as Xcode's faster renewal rate keeps them |
+| `renewal=` `renews` \| `fails` \| `fails:`age | What the next renewal comes to; `fails:16d` with a grace period that long |
+| `intro=` `eligible` \| `used` | A week-free introductory offer on every subscription without one, and whether the account may have it |
+| `winback=` offer, … | Win-back offers with these identifiers on every subscription, eligible once it lapses — `lapsed=` included |
+| `promo=` offer, … | Promotional offers with these identifiers on every subscription |
+| `signatures=` `accepted` \| `rejected` | What the store makes of the app's signer |
 
-A **holding** is `product[@age][/purchased|family|assigned]`. The product is a full identifier or the unique last component of one, so `trial` means `Shop.trial`, whatever comes before its last dot. The age is how long *ago* it was bought: `13d23h55m`, `90s`. It becomes a date only against the clock of the store it is applied to, so the same text means the same thing tomorrow.
+An **offer** is an identifier: letters, digits, `.`, `-` and `_`. A **holding** is `product[@age][/purchased|family|assigned]`. The product is a full identifier or the unique last component of one, so `trial` means `Shop.trial`, whatever comes before its last dot. The age is how long *ago* it was bought: `13d23h55m`, `90s`. It becomes a date only against the clock of the store it is applied to, so the same text means the same thing tomorrow.
 
 Errors: `productUnavailable`, `purchaseNotAllowed`, `notAvailableInStorefront`, `network`, `system`, `unverified`, `revoked`, `unsupported`.
 
@@ -143,10 +154,50 @@ Errors: `productUnavailable`, `purchaseNotAllowed`, `notAvailableInStorefront`, 
 | A purchase under way, the sheet still up | `purchase=held`, then press Buy |
 | An owner, offline | `owns=pro; catalogue=fails:network` |
 | A build the store sells nothing to | `catalogue=empty` |
+| A member | `subscribed=monthly@3d` |
+| A member who has cancelled | `cancelled=monthly@25d` |
+| A member whose payment failed, still served | `grace=monthly@2d` |
+| A member whose payment failed, not served | `retry=monthly@2d` |
+| A former member | `lapsed=monthly@40d` |
+| A member through a renewal every half minute | `subscribed=monthly; period=30s` |
 
 `held` is for looking at, not for getting past. A key may be given once, so `purchase=held` cannot also say how the purchase ends: let go, it succeeds. And a UI test cannot let it go at all — only code in the app can open a gate, which in practice means the debug panel — so a test that holds a purchase ends with it still held. To test how a purchase *ends*, script it (`purchase=cancelled`, `purchase=fails:network`); to choose the ending of a held one, hold it from a unit test, where `front.behaviour.purchase` can be changed before `front.purchaseGate.open()`.
 
 **Crash on a scenario that does not parse.** A typo that quietly falls back to the real store produces screenshots of the wrong thing.
+
+## Subscriptions
+
+The simulated store runs subscriptions **by its own clock**. Each read first does what the clock has done since the last one: a period that has ended renews — as the plan a change was waiting for, if one was — or lapses if auto-renew was off, or, with `behaviour.renewal = .fails` (a `RenewalScript`: `.renews` or `.fails`), goes into the grace period if `behaviour.gracePeriod` is set, then billing retry for `behaviour.billingRetryPeriod`, then expires. With a `ManualClock` a year of renewals is twelve calls to `advance`.
+
+| Habit of the real store | macOS 26.6 | iOS 27.0 simulator | Held to it by | In the simulated one |
+|---|---|---|---|---|
+| A subscription is listed *after* `purchase()` returns | about 0.6 s after **[ran]** | at once **[ran]** | `habitListingLag` (subscriptions) | One read late, and its status said once it is listed — or `saysStatusAfterReads` reads later still, for the order nothing measured rules out |
+| A subscription bought here is also announced | yes, half a second later **[ran]** | no **[ran]** | `habitBoughtHereAnnounced` | No |
+| At a renewal, the status says expired for a moment | up to 0.7 s, still renewing **[ran]** | 0.03–0.3 s, "will not renew" **[ran]** | phase 0, q01 | **Yes, by default** (`showsTheRenewalMoment`): the renewal announced first, the status expired and not renewing, the listing empty, for one read more than `listsPurchasesAfterReads` |
+| Renewals missed while nothing ran arrive newest first | yes **[ran]** | yes **[ran]** | phase 0, q04 | Yes |
+| In billing retry the subscription is listed | no **[ran]** | yes, with a renewal transaction **[ran]** | `habitBillingRetryListing` | No |
+| A downgrade comes back as the plan already held | yes **[ran]** | yes **[ran]** | `habitDowngradeReturnsHeld` | Yes; an upgrade replaces the plan at once |
+| A status read from a cancelled task is empty | yes **[ran]** | yes **[ran]** | `canaryCancelledStatusRead` | The same (`answersNothingWhenCancelled`) |
+
+Things that happen by themselves, each announced as the real store announces it: `deliverSubscription(_:ownership:)` (started on another device, or shared by a family member), `renewNow`, `cancelAutoRenew`, `resumeAutoRenew`, `raisePrice(_:needsConsent:)`, `recoverBilling`, `lapse`, and `revoke` for a refund. `seedSubscription(_:)` arranges one at launch, and `changeSubscription(_:)` replaces a status and announces it, for a test that wants exactly the status the real store was seen to say.
+
+### Offers
+
+Products with offers sell them: pass them in `products:`, or build the store from the app's `.storekit` file, which is read with its offers. A plain purchase applies the introductory offer once per group. A lapse makes the product's win-back offers eligible at once, as Xcode's environment does. A promotional offer or the override is refused with StoreKit's reasons: `missingParameters` with no signature, `invalidSignature` when `behaviour.acceptsOfferSignatures` is off, and `notEligible` for someone who never subscribed. One bought by a current subscriber waits for the renewal. `lastPurchaseOptions` says what the last purchase asked for, the signature sent included.
+
+| Habit of the real store | macOS 26.6 | iOS 27.0 simulator | Held to it by | In the simulated one |
+|---|---|---|---|---|
+| Introductory eligibility keeps its first answer for the process | yes **[ran]** | yes **[ran]** | `introductoryUsed` (offers) | **Yes, by default** (`keepsFirstEligibilityAnswer`) |
+| A lapse makes win-back offers eligible at once | yes **[ran]** | yes **[ran]** | `winBack` (offers, the Mac) | Yes |
+| Buying again after a lapse returns the old transaction, and buys nothing | once, right after a lapse; two seconds later it bought **[ran]** | yes, with or without an offer **[ran]** | phase 0, q10; D51 | Only if told to (`handsBackTheLapsedTransaction`) |
+
+`useIntroductoryOffer(in:)` says the account has used a group's offer elsewhere, and `productsOnSale` puts an offer on sale, or takes one off, while the store runs. Scenarios add plausible offers to every subscription: `intro=eligible` or `intro=used` (a week free; `Scenario.IntroductoryOffer` in code), `winback=` and `promo=` with identifiers (three months at a discount), and `signatures=rejected`.
+
+### Non-renewing subscriptions, commitments, and requests
+
+A non-renewing subscription bought again is a new purchase, listed beside the others, as measured — never at the same instant as another, even on a clock that has not moved; `revoke(_:)` takes back the latest. A purchase on the monthly billing plan starts a commitment of twelve `subscriptionPeriod`s, each renewal moves it on a month, and a new one begins after the twelfth; `cancelAutoRenew(_:)` during one leaves the months billed and marks only the commitment as ending, and it lapses at the commitment's end however far the clock jumps, as Apple documents. A commitment has no grace period, and a failed charge on one is retried for 90 days. A billing plan's own offers are the ones a purchase on it has. `requestPurchase(_:offer:)` is a purchase asked for on the App Store, announced as a request — or, asked while nothing listens, handed to the first listener, as the system hands one to an app it has just launched.
+
+What else the clock and the controls do, as the real store does: an introductory offer paid as you go runs for as many periods as it says; a price rise not agreed lapses the subscription at the end of its period (`.didNotConsentToPriceIncrease`); a resubscription is still the subscription first subscribed; every subscription transaction has an identifier of its own. Switched off, a subscription keeps the plan it would renew as, as StoreKit keeps `autoRenewPreference`, so switching it on again keeps a downgrade waiting. The controls act on the account's own subscription before a family member's, and leave one that is over alone; every control, purchase and delivery first catches up with the clock. Ask to Buy is refused as a purchase would be, before anybody is asked.
 
 ## The debug panel
 

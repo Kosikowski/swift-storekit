@@ -13,7 +13,9 @@ private let catalogue: Catalogue = [.unlock(pro), .trial(trial, of: [pro], lasti
 private struct OwnsPro: StoreFront {
     func products() async throws(PurchaseError) -> [StoreProduct] { [] }
     func ownedProducts() async -> [OwnedProduct] { [OwnedProduct(id: pro, originalPurchaseDate: .distantPast)] }
-    func purchase(_ id: ProductID, confirmation: PurchaseConfirmation) async throws(PurchaseError) -> PurchaseOutcome { .cancelled }
+    func purchase(
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
+    ) async throws(PurchaseError) -> PurchaseOutcome { .cancelled }
     func restorePurchases() async throws(PurchaseError) -> RestoreOutcome { .completed }
     func transactionUpdates() -> AsyncStream<TransactionUpdate> { AsyncStream { _ in } }
 }

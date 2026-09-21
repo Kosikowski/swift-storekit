@@ -70,10 +70,12 @@ enum StoreKitErrorMapping {
         case .productUnavailable: .productUnavailable
         case .purchaseNotAllowed: .purchaseNotAllowed
         case .invalidQuantity: .system
-        // Offers belong to subscriptions, which this package does not sell.
-        case .ineligibleForOffer, .invalidOfferIdentifier, .invalidOfferPrice, .invalidOfferSignature,
-             .missingOfferParameters:
-            .unsupported
+        // Kept apart: a bad signature is the app's server, the others the offer or the person.
+        case .ineligibleForOffer: .offerRefused(.notEligible)
+        case .invalidOfferIdentifier: .offerRefused(.unknownOffer)
+        case .invalidOfferPrice: .offerRefused(.invalidPrice)
+        case .invalidOfferSignature: .offerRefused(.invalidSignature)
+        case .missingOfferParameters: .offerRefused(.missingParameters)
         // Plain, for the same reason as above: the 26.5 SDK added a case the 26.0 one lacks.
         default: .unknown(typeName: "Product.PurchaseError")
         }

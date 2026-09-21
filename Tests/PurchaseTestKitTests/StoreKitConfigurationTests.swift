@@ -165,6 +165,135 @@ struct StoreKitConfigurationTests {
         #expect(try fixture(name).problems(against: catalogue) == expected)
     }
 
+    // MARK: - Subscriptions
+
+    /// The spike's file (spike/subscriptions), which real StoreKit loaded: a group of three
+    /// plans, and a second group of one. None of them is family-shareable.
+    private static let plans: Catalogue = [
+        .subscription("probe.monthly", in: "5B1F2A01", level: 2, familySharing: .ignored),
+        .subscription("probe.yearly", in: "5B1F2A01", level: 2, familySharing: .ignored),
+        .subscription("probe.premium", in: "5B1F2A01", level: 1, familySharing: .ignored),
+        .subscription("probe.plain", in: "5B1F2A02", level: 1, familySharing: .ignored),
+    ]
+
+    @Test("a file with subscriptions agrees with a catalogue that names their groups and levels")
+    func soundSubscriptions() throws {
+        let file = try fixture("subscriptions")
+        #expect(file.problems(against: Self.plans) == [])
+        let monthly = try #require(file.products.first { $0.id == "probe.monthly" })
+        #expect(monthly.subscriptionGroupID == "5B1F2A01")
+        #expect(monthly.groupLevel == 2)
+    }
+
+    @Test("a non-renewing subscription must be one in the file, and one that is agrees")
+    func nonRenewing() throws {
+        let file = try configuration(products: """
+            {"productID": "season", "type": "NonRenewingSubscription", "displayPrice": "4.99"},
+            {"productID": "pro", "type": "NonConsumable", "displayPrice": "9.99"}
+            """)
+        let season: ProductID = "season"
+        #expect(file.problems(against: [.nonRenewing(season, lasting: .seconds(60)), .unlock("pro", familySharing: .ignored)]) == [])
+        #expect(file.problems(against: [.nonRenewing("pro", lasting: .seconds(60)), .unlock(season, familySharing: .ignored)]) == [
+            .notNonRenewing("pro", type: "NonConsumable"), .notNonConsumable(season, type: "NonRenewingSubscription"),
+        ])
+        #expect(StoreKitConfigurationProblem.notNonRenewing("pro", type: "NonConsumable").description.contains("NonRenewingSubscription"))
+    }
+
+    @Test("a subscription's period and offers are read as Xcode wrote them, and served to a simulated store")
+    func subscriptionOffers() throws {
+        let file = try fixture("subscriptions")
+        let monthly = try #require(file.products.first { $0.id == "probe.monthly" })
+        let tenNinetyNine = { (kind: OfferKind, id: OfferID?, count: Int) in
+            OfferTerms(
+                kind: kind, id: id, paymentMode: .payAsYouGo, period: .months(1), periodCount: count,
+                displayPrice: "10.99", price: Decimal(string: "10.99")!)
+        }
+        #expect(monthly.subscriptionPeriod == .months(1))
+        #expect(monthly.introductoryOffer == tenNinetyNine(.introductory, nil, 2))
+        #expect(monthly.promotionalOffers == [tenNinetyNine(.promotional, "promo.returning", 3)])
+        #expect(monthly.winBackOffers == [tenNinetyNine(.winBack, "winback.three", 3)])
+        let yearly = try #require(file.products.first { $0.id == "probe.yearly" })
+        #expect(yearly.subscriptionPeriod == .years(1))
+        #expect(yearly.introductoryOffer == nil)
+
+        let served = try #require(file.storeProducts(for: Self.plans).first { $0.id == "probe.monthly" })
+        #expect(served.subscription == StoreProduct.Subscription(
+            group: "5B1F2A01", period: .months(1), introductoryOffer: monthly.introductoryOffer,
+            promotionalOffers: monthly.promotionalOffers, winBackOffers: monthly.winBackOffers))
+    }
+
+    @Test("a free trial, which the file gives no price, is read as costing nothing")
+    func freeTrial() throws {
+        let url = try #require(Bundle.module.url(forResource: "subscriptions", withExtension: "storekit", subdirectory: "Fixtures"))
+        var json = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var groups = try #require(json["subscriptionGroups"] as? [[String: Any]])
+        var subscriptions = try #require(groups[0]["subscriptions"] as? [[String: Any]])
+        let yearly = try #require(subscriptions.firstIndex { $0["productID"] as? String == "probe.yearly" })
+        subscriptions[yearly]["introductoryOffer"] = ["internalID": "5B000299", "paymentMode": "free", "subscriptionPeriod": "P1W"]
+        groups[0]["subscriptions"] = subscriptions
+        json["subscriptionGroups"] = groups
+        let file = try StoreKitConfiguration(data: JSONSerialization.data(withJSONObject: json))
+        let offer = try #require(file.products.first { $0.id == "probe.yearly" }?.introductoryOffer)
+        #expect(offer == OfferTerms(
+            kind: .introductory, paymentMode: .freeTrial, period: .weeks(1), periodCount: 1, displayPrice: "0.00", price: 0))
+    }
+
+    @Test("a period is ISO 8601 with one unit, as Xcode writes it, or nothing", arguments: [
+        ("P1W", BillingPeriod.weeks(1)), ("P3D", .days(3)), ("P6M", .months(6)), ("P1Y", .years(1)),
+        ("P1M2D", nil), ("1M", nil), ("P0M", nil), ("P", nil),
+    ])
+    func periods(text: String, period: BillingPeriod?) {
+        #expect(StoreKitConfiguration.Product.period(text) == period)
+    }
+
+    @Test("an offer the app names and the file lacks, on that product, is a problem; one it has is not")
+    func namedOffers() throws {
+        let file = try fixture("subscriptions")
+        #expect(file.problems(against: Self.plans, offers: ["probe.monthly": ["promo.returning", "winback.three"]]) == [])
+        #expect(file.problems(against: Self.plans, offers: ["probe.yearly": ["winback.three"], "probe.monthly": ["promo.typo"]]) == [
+            .offerMissing("promo.typo", product: "probe.monthly"),
+            .offerMissing("winback.three", product: "probe.yearly"),
+        ])
+        #expect(StoreKitConfigurationProblem.offerMissing("promo.typo", product: "probe.monthly").description.contains("promo.typo"))
+    }
+
+    @Test("a subscription in another group, at another level, or shared when the catalogue says not, is each a problem")
+    func subscriptionMismatches() throws {
+        let wrong: Catalogue = [
+            .subscription("probe.monthly", in: "5B1F2A02", level: 2, familySharing: .ignored),
+            .subscription("probe.yearly", in: "5B1F2A01", level: 1, familySharing: .ignored),
+            .subscription("probe.premium", in: "5B1F2A01", level: 1),
+            .subscription("probe.plain", in: "5B1F2A02", level: 1, familySharing: .ignored),
+        ]
+        #expect(try fixture("subscriptions").problems(against: wrong) == [
+            .subscriptionGroupMismatch("probe.monthly", catalogue: "5B1F2A02", file: "5B1F2A01"),
+            .subscriptionLevelMismatch("probe.yearly", catalogue: 1, file: 2),
+            .familySharingMismatch("probe.premium", catalogueHonours: true, fileShares: false),
+        ])
+    }
+
+    @Test("a catalogue subscription the file sells as a non-consumable is not auto-renewable, and in no group")
+    func subscriptionAsNonConsumable() throws {
+        let file = try configuration(products: """
+            {"productID": "com.example.pro", "type": "NonConsumable", "familyShareable": true}
+            """)
+        #expect(file.problems(against: [.subscription(pro, in: "g", level: 1)]) == [
+            .notAutoRenewable(pro, type: "NonConsumable"),
+            .subscriptionGroupMismatch(pro, catalogue: "g", file: nil),
+            .subscriptionLevelMismatch(pro, catalogue: 1, file: nil),
+        ])
+    }
+
+    @Test("every subscription problem is said in words, naming the product")
+    func subscriptionWords() {
+        let problems: [StoreKitConfigurationProblem] = [
+            .notAutoRenewable(pro, type: "NonConsumable"),
+            .subscriptionGroupMismatch(pro, catalogue: "g", file: nil),
+            .subscriptionLevelMismatch(pro, catalogue: 1, file: 2),
+        ]
+        for problem in problems { #expect(problem.description.contains(pro.rawValue)) }
+    }
+
     @Test("Family Sharing on in the file and IGNORED by the catalogue is a mismatch too")
     func sharedButIgnored() throws {
         let ignoring: Catalogue = [

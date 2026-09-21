@@ -11,11 +11,12 @@
 //
 
 public import PurchaseCore
+import Synchronization
 
 /// The App Store.
 ///
 ///     let store = PurchaseStore(catalogue: catalogue, front: AppStoreFront(catalogue: catalogue))
-public struct AppStoreFront: StoreFront, StoreDiagnosing {
+public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusReading, IntroductoryEligibilityReading {
     public let catalogue: Catalogue
     private let gateway: any StoreKitGateway
     private let logger: any PurchaseLogging
@@ -71,7 +72,8 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
             switch TransactionTriage.verdict(for: snapshot, catalogue: catalogue) {
             case let .adopt(product): owned.append(product)
             case .unverified: logger.log(.unverifiedTransactionIgnored(snapshot.productID))
-            case .withdrawn, .foreign: break
+            // Upgraded away from, it is the higher plan's transaction that counts.
+            case .withdrawn, .pastPeriodWithdrawn, .superseded, .foreign: break
             }
         }
         return owned
@@ -80,21 +82,29 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
     // MARK: - ProductPurchasing
 
     public func purchase(
-        _ id: ProductID, confirmation: PurchaseConfirmation
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
     ) async throws(PurchaseError) -> PurchaseOutcome {
         guard catalogue.contains(id) else { throw .productUnavailable }
         let result: GatewayPurchaseResult?
         do {
-            result = try await gateway.purchase(id, confirmation: confirmation)
+            result = try await gateway.purchase(id, options: options, confirmation: confirmation)
         } catch {
             switch StoreKitErrorMapping.verdict(for: error) {
             case .cancelled: return .cancelled
             case let .failure(failure): throw failure
             }
         }
+        guard let result else { throw .productUnavailable }
+        return try await Self.outcome(of: result, catalogue: catalogue, logger: logger)
+    }
+
+    /// What a purchase came to, from what StoreKit handed back: to `purchase()` here, or
+    /// to one of Apple's views (`PurchaseStore.takePurchase(_:of:)`). One judgement for
+    /// both, so a purchase made in Apple's view is finished, and refused, as one made here.
+    static func outcome(
+        of result: GatewayPurchaseResult, catalogue: Catalogue, logger: any PurchaseLogging
+    ) async throws(PurchaseError) -> PurchaseOutcome {
         switch result {
-        case nil:
-            throw .productUnavailable
         case .userCancelled:
             return .cancelled
         case .pending:
@@ -105,10 +115,10 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
             throw .unknown(typeName: "Product.PurchaseResult")
         case let .success(snapshot):
             switch TransactionTriage.verdict(for: snapshot, catalogue: catalogue) {
-            case let .adopt(product):
+            case let .adopt(product), let .superseded(product):
                 await snapshot.finish()
                 return .purchased(product)
-            case .withdrawn:
+            case .withdrawn, .pastPeriodWithdrawn:
                 await snapshot.finish()
                 throw .revoked
             case .unverified:
@@ -161,6 +171,8 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
         // Subscribed first, so nothing falls between the backlog and the stream.
         let source = gateway.updates()
         let (stream, continuation) = AsyncStream<TransactionUpdate>.makeStream()
+        // Three sources, and the stream ends only when all of them have.
+        let sources = Countdown(3) { continuation.finish() }
         let task = Task { [catalogue, logger, gateway] in
             func take(_ snapshot: TransactionSnapshot) async {
                 switch TransactionTriage.verdict(for: snapshot, catalogue: catalogue) {
@@ -170,6 +182,10 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
                 case .withdrawn:
                     await snapshot.finish()
                     continuation.yield(.withdrawn(snapshot.productID))
+                case .pastPeriodWithdrawn, .superseded:
+                    // Dealt with, and nothing to announce: a period long over, or a plan
+                    // the person moved up from. The status says the rest.
+                    await snapshot.finish()
                 case .unverified:
                     logger.log(.unverifiedTransactionIgnored(snapshot.productID))
                 case .foreign:
@@ -178,10 +194,106 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
             }
             for snapshot in await gateway.unfinished() { await take(snapshot) }
             for await snapshot in source { await take(snapshot) }
-            continuation.finish()
+            sources.end()
         }
-        continuation.onTermination = { _ in task.cancel() }
+        // An expiry sends no transaction at all, and a cancellation or a grace period
+        // none either (measured, spike/README.md): a status change is how they are heard.
+        let statuses = gateway.statusUpdates()
+        let statusTask = Task { [catalogue, logger] in
+            for await status in statuses {
+                switch SubscriptionTriage.verdict(for: status, catalogue: catalogue) {
+                case let .status(held): continuation.yield(.subscriptionChanged(held))
+                case .unverified: logger.log(.unverifiedTransactionIgnored(status.transaction.productID))
+                case .foreign: break
+                }
+            }
+            sources.end()
+        }
+        // A purchase asked for outside the app: a request, for the app to act on. Only a
+        // catalogue product's.
+        let intents = gateway.purchaseIntents()
+        let intentTask = Task { [catalogue, logger] in
+            for await intent in intents where catalogue.contains(intent.productID) {
+                continuation.yield(.purchaseRequested(Self.request(from: intent, logger: logger)))
+            }
+            sources.end()
+        }
+        continuation.onTermination = { _ in
+            task.cancel()
+            statusTask.cancel()
+            intentTask.cancel()
+        }
         return stream
+    }
+
+    /// The offer the person chose goes with the request, so that buying it never charges the
+    /// regular price in its place. An introductory offer needs no asking.
+    static func request(from intent: IntentSnapshot, logger: any PurchaseLogging) -> RequestedPurchase {
+        guard let type = intent.offerType else { return RequestedPurchase(product: intent.productID) }
+        let kind = LiveStoreKitGateway.kind(type)
+        switch (kind, intent.offerID.map { OfferID(rawValue: $0) }) {
+        case (.introductory, _):
+            return RequestedPurchase(product: intent.productID)
+        case let (.winBack, id?):
+            return RequestedPurchase(product: intent.productID, offer: .winBack(id))
+        case let (.promotional, id?):
+            return RequestedPurchase(product: intent.productID, offer: .promotional(id))
+        default:
+            logger.log(.requestedOfferUnrecognised(intent.productID))
+            return RequestedPurchase(product: intent.productID)
+        }
+    }
+
+    // MARK: - SubscriptionStatusReading
+
+    /// Every status for each group, **in a task nobody cancels**: asked from a cancelled
+    /// task StoreKit answers with an empty array (measured, spike/README.md), which reads
+    /// as "never subscribed". A group StoreKit could not be asked about is left out, and
+    /// logged — never answered empty.
+    public func subscriptionStatuses(in groups: Set<SubscriptionGroupID>) async -> [SubscriptionGroupID: [HeldSubscription]] {
+        await Task { [catalogue, gateway, logger] () -> [SubscriptionGroupID: [HeldSubscription]] in
+            var answer: [SubscriptionGroupID: [HeldSubscription]] = [:]
+            for group in groups.sorted() {
+                do {
+                    var held: [HeldSubscription] = []
+                    for status in try await gateway.subscriptionStatuses(for: group) {
+                        switch SubscriptionTriage.verdict(for: status, catalogue: catalogue) {
+                        case let .status(subscription) where subscription.group == group: held.append(subscription)
+                        case .unverified: logger.log(.unverifiedTransactionIgnored(status.transaction.productID))
+                        case .status, .foreign: break
+                        }
+                    }
+                    answer[group] = held
+                } catch {
+                    logger.log(.subscriptionStatusUnavailable(group))
+                }
+            }
+            return answer
+        }.value
+    }
+
+    // MARK: - IntroductoryEligibilityReading
+
+    /// StoreKit's answer, **unless the group's own transactions say the offer was used.**
+    /// Measured, `isEligibleForIntroOffer(for:)` keeps its first answer for the life of the
+    /// process: true before a purchase with the offer and still true after it
+    /// (spike/README.md). A verified transaction bought with it is the better witness.
+    ///
+    /// In a task nobody cancels: a cancelled read of the transactions would find none, and
+    /// "none" would offer again an introductory offer already used.
+    public func introductoryEligibility(in groups: Set<SubscriptionGroupID>) async -> [SubscriptionGroupID: Bool] {
+        await Task { [gateway] () -> [SubscriptionGroupID: Bool] in
+            var answer: [SubscriptionGroupID: Bool] = [:]
+            for group in groups.sorted() {
+                // The Apple Account's own: a family member's purchase uses up nothing of this one's [Apple].
+                let used = await gateway.transactions(in: group).contains { snapshot in
+                    snapshot.verification == .verified && snapshot.ownership == .purchased
+                        && SubscriptionTriage.offer(of: snapshot)?.kind == .introductory
+                }
+                answer[group] = used ? false : await gateway.isEligibleForIntroductoryOffer(in: group)
+            }
+            return answer
+        }.value
     }
 
     // MARK: - StoreDiagnosing
@@ -214,5 +326,24 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing {
             unverifiedEntitlements: ours.filter { $0.verification == .unverified }.count,
             foreignEntitlements: entitlements.count - ours.count,
             environment: entitlements.compactMap(\.environment).first)
+    }
+}
+
+/// Calls `done` when the last of `count` things has ended.
+private final class Countdown: Sendable {
+    private let left: Mutex<Int>
+    private let done: @Sendable () -> Void
+
+    init(_ count: Int, then done: @escaping @Sendable () -> Void) {
+        left = Mutex(count)
+        self.done = done
+    }
+
+    func end() {
+        let last = left.withLock { left in
+            left -= 1
+            return left == 0
+        }
+        if last { done() }
     }
 }

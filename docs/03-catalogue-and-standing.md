@@ -67,7 +67,10 @@ static func catalogue(from entries: [CatalogueEntry]) -> Catalogue? {
 | `.duplicateIdentifier(ProductID)` | The same identifier twice |
 | `.trialWithoutTargets(ProductID)` | A trial of nothing |
 | `.trialTargetMissing(trial:target:)` | A trial names something the catalogue does not list |
-| `.trialTargetIsNotAnUnlock(trial:target:)` | A trial names another trial. A trial stands in for something kept |
+| `.trialTargetIsNotAnUnlock(trial:target:)` | A trial names another trial, or a subscription of either kind. A trial stands in for something kept |
+| `.subscriptionLevelBelowOne(ProductID)` | A subscription at level 0 or below. 1 is the highest |
+| `.subscriptionWithoutGroup(ProductID)` | A subscription whose group has no identifier: its status could never be asked for |
+| `.nonRenewingWithoutDuration(ProductID)` | A non-renewing subscription that lasts no time |
 
 ## `CatalogueEntry`
 
@@ -77,8 +80,10 @@ An entry is an identifier and the one thing about the product that the store can
 |---|---|
 | `.unlock(_ id:, familySharing:)` | `.unlock(familySharing:)`: a one-time purchase that is kept. `familySharing` defaults to `.honoured` |
 | `.trial(_ id:, of:, lasting:)` | `.trial(TrialTerms)`: a free non-consumable standing in for other unlocks for a while ([trials](04-trials.md)) |
+| `.subscription(_ id:, in:, level:, familySharing:)` | `.subscription(SubscriptionTerms)`: an auto-renewable subscription in a group, at a level — 1 is the highest ([subscriptions](15-subscriptions.md)) |
+| `.nonRenewing(_ id:, lasting:, stacking:)` | `.nonRenewing(NonRenewingTerms)`: time bought once and not renewed. How long a purchase lasts, and how a second one adds up — `.consecutive` by default, or `.fromEachPurchase` — are the app's to say ([non-renewing subscriptions](15-subscriptions.md#non-renewing-subscriptions)) |
 
-`entry.trialTerms` is the terms if the entry is a trial, and nil otherwise.
+`entry.trialTerms` is the terms if the entry is a trial, and nil otherwise; `entry.subscriptionTerms` and `entry.nonRenewingTerms` likewise. `catalogue.subscriptionGroups` lists the groups, and `catalogue.subscriptions(in:)` a group's entries. A trial may not name a subscription — a subscription has an introductory offer of its own for that — and a level below 1 is a problem.
 
 The trial's `targets` are the one relation between products that the package knows about. It is there because a store fact depends on it: a trial is not on offer to someone who already owns everything it would lend.
 
@@ -97,10 +102,12 @@ So whether a transaction *counts* is decided by `StandingResolver.counts(_:in:)`
 | `.unlock(familySharing: .honoured)` | counts | counts | counts | counts |
 | `.unlock(familySharing: .ignored)` | counts | no | counts | no |
 | `.trial` | counts | **no** | **no** | **no** |
+| `.subscription` | as the unlock with the same `familySharing` | | | |
+| `.nonRenewing` | counts | **no** | counts | **no** |
 
 `.assigned` is a purchase made in volume by an organisation. `.unrecognised` is an ownership type the App Store has added since the package was written; it is treated like `.familyShared`. A product the catalogue does not list never counts.
 
-A trial never honours Family Sharing, and there is no option to make it. The same rule is applied to the store's listing, to a purchase's own transaction and to a transaction that arrives on its own, so the three can never disagree.
+A trial never honours Family Sharing, and there is no option to make it. Nor does a non-renewing subscription: App Store Connect shares none, and one that arrived shared anyway would carry somebody else's dates. The same rule is applied to the store's listing, to a purchase's own transaction and to a transaction that arrives on its own, so the three can never disagree.
 
 ## `Standing`: a value about a moment
 
@@ -122,8 +129,11 @@ let known = await store.knownStanding()       // waits for the answer
 | `trial(_:at:)` | `TrialStatus` for one trial at a date ([trials](04-trials.md)) |
 | `ownedProducts` | `[OwnedProduct]` that count, in identifier order |
 | `ownership(of:)` | `OwnedProduct?` for one product |
-| `nextExpiry` | `Date?`: the next moment an answer changes by itself |
-| `access(to:)`, `trial(_:)` | The same questions, asked for `asOf` |
+| `subscription(in:)` | `SubscriptionStanding` for one group ([subscriptions](15-subscriptions.md#where-the-account-stands)) |
+| `nonRenewing(_:at:)` | `NonRenewingStatus` for one non-renewing subscription at a date |
+| `nextExpiry(after:)` | `Date?`: the next moment after a date an answer changes by itself |
+| `nextExpiry` | The same, after `asOf` |
+| `access(to:)`, `trial(_:)`, `nonRenewing(_:)` | The same questions, asked for `asOf` |
 
 The no-date overloads are right for a view that draws the current state. The store resolves again at the moment a trial ends, which replaces the standing, so a view reading `standing.access(to:)` redraws then. Pass a date when you hold a standing for a while, draw a countdown, or decide something: `knownStanding()` returns a snapshot, and a snapshot asked about *now* must be given now.
 
@@ -134,6 +144,8 @@ public enum ProductAccess: Hashable, Sendable {
     case unknown
     case owned(OwnedProduct)
     case onTrial(TrialPeriod, via: ProductID)
+    case subscribed(HeldSubscription)
+    case nonRenewing(NonRenewingPeriod)
     case none
 }
 ```
@@ -143,6 +155,8 @@ public enum ProductAccess: Hashable, Sendable {
 | `.unknown` | The store has not answered yet. **Not the same as `.none`** |
 | `.owned(OwnedProduct)` | Held, and counted for this account |
 | `.onTrial(TrialPeriod, via:)` | Lent by a trial that is still running at the date asked; `via` is the trial product |
+| `.subscribed(HeldSubscription)` | The subscription plan held, entitled by the store's last word: subscribed, or in a grace period. Another plan of the same group is `.none`; ask `subscription(in:)` for the group ([subscriptions](15-subscriptions.md#where-the-account-stands)) |
+| `.nonRenewing(NonRenewingPeriod)` | A non-renewing subscription running at the date asked: the period every purchase that reaches it makes |
 | `.none` | The store has answered, and there is no right to it |
 
 There is deliberately no `Bool`. (`isGranted` is the nearest thing, and is a `Bool?`: nil until the store has answered, so it cannot be tested with `if` until somebody has decided what nil means — [getting started](02-getting-started.md#derive-your-own-ispro).) Collapsing this to "is it unlocked" throws away `.unknown`, and `.unknown` read as "no" is the bug where a paying customer meets the paywall at every launch. An app that wants a `Bool` decides what `.unknown` means for the thing being asked, which is usually "wait", and says so itself:
@@ -157,7 +171,7 @@ enum Plan: Equatable {
     init?(_ standing: Standing, at date: Date) {
         switch standing.access(to: Shop.pro, at: date) {
         case .unknown: return nil
-        case .owned: self = .pro
+        case .owned, .subscribed, .nonRenewing: self = .pro
         case let .onTrial(period, _): self = .trial(endsAt: period.endsAt)
         case .none: self = .free
         }
@@ -186,13 +200,13 @@ Three details of `access(to:at:)`:
 
 An `OwnedProduct` is only ever built from a transaction the store has verified and has not taken back. A standing holds only the ones that count, by the table above.
 
-A trial product is in `ownedProducts` from the day it is taken and **stays there after it ends**. Holding the trial product is a fact; whether it still lends anything is `trial(_:at:)`'s answer.
+A trial product is in `ownedProducts` from the day it is taken and **stays there after it ends**. Holding the trial product is a fact; whether it still lends anything is `trial(_:at:)`'s answer. Subscriptions are not in `ownedProducts`: `subscription(in:)` answers for each group, with a `SubscriptionStanding`. A non-renewing subscription is, as its latest purchase; `nonRenewing(_:at:)` says where it stands.
 
 ### `nextExpiry`
 
-The end of the running trial that ends soonest after `asOf`, or nil when the standing is unknown or no trial is running.
+`nextExpiry(after:)` is the soonest moment after a date at which an answer changes by itself: a running trial ends, a non-renewing subscription's period begins or ends, or an active subscription's access ends. Nil when the standing is unknown or nothing is to come. For a subscription it is only when to *ask*: it may have renewed, and only the store can say ([D36](10-decisions.md#d36-a-lapse-at-a-periods-end-is-believed-only-when-it-lasts)). A period can begin after the moment asked about because a purchase's date is the App Store's, and this device's clock may be behind it.
 
-Nothing observable happens when a trial runs out: no transaction arrives. Whoever holds a standing therefore has to look again at that moment, or nothing locks until something unrelated redraws or the app is relaunched. `PurchaseStore` does this for the standing it publishes. `nextExpiry` is public for code that keeps a standing of its own.
+Nothing observable happens when a trial runs out: no transaction arrives. Whoever holds a standing therefore has to look again at that moment, or nothing locks until something unrelated redraws or the app is relaunched. `PurchaseStore` does this for the standing it publishes, asking for the next expiry after *now*: a standing that did not change is not republished, so its `asOf` can be long gone, and a moment between `asOf` and now would hide the ones after it. `nextExpiry(after:)` is public for code that keeps a standing of its own; `nextExpiry` asks after `asOf`.
 
 ### Building a standing without a store
 

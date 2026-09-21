@@ -1,8 +1,8 @@
 # swift-storekit
 
-One-time purchases and trials over StoreKit 2, for macOS 26 and iOS 26, with a simulated store for testing them.
+One-time purchases, trials and subscriptions over StoreKit 2, for macOS 26 and iOS 26, with a simulated store for testing them.
 
-> ⚠️ **Early.** Non-consumables and trials only. No subscriptions, no consumables. The API may still move.
+> ⚠️ **Early.** Non-consumables, trials, auto-renewable subscriptions with their offers, and non-renewing subscriptions. No consumables. The API may still move.
 
 Selling a non-consumable looks like sixty lines of StoreKit, and every app that writes those sixty lines gets a different handful of them wrong. Each of these was found in shipping code or measured against real StoreKit, and each has a test here:
 
@@ -112,10 +112,10 @@ if case .none = standing.access(to: "com.example.pro", at: .now) { showPaywall()
 
 ```
 make test             # everything that decides anything; offline, no test host
-make check            # layers, tests (debug and release), the iOS build, the Demo's builds
-                      # (needs XcodeGen), proof the simulated store is absent from release
-                      # (`swift package release-check`, also in Xcode's package menu), and
-                      # proof that an app which links the test kit does not build
+make check            # layers, tests (debug and release), the iOS and Mac Catalyst builds,
+                      # the Demo's builds (needs XcodeGen), proof the simulated store is absent
+                      # from release (`swift package release-check`, also in Xcode's package
+                      # menu), and proof that an app which links the test kit does not build
 make integration      # real StoreKit through the real adapter, hosted by Demo/ (needs XcodeGen)
 make integration-ios  # the same, in an iOS simulator
 make ui-tests         # the Demo launched with scenarios, as a screenshot run launches it
@@ -132,6 +132,8 @@ Test your own app against `SimulatedStoreFront` and a `ManualClock`, both from `
 | [Getting started](docs/02-getting-started.md) | From nothing to a working purchase |
 | [Catalogue and standing](docs/03-catalogue-and-standing.md) | The values an app reads |
 | [Trials](docs/04-trials.md) | The free non-consumable, its dates and its end |
+| [Subscriptions](docs/15-subscriptions.md) | Declaring them, where a subscriber stands, renewals, plan changes, managing, the 12-month commitment, bundles, purchases asked for on the App Store, Apple's messages, non-renewing subscriptions, testing |
+| [Offers](docs/16-offers.md) | Introductory, win-back and promotional offers, the override, codes, and a server that signs |
 | [Testing](docs/05-testing.md) | Apple's environments, and where the simulated store fits |
 | [The simulated store](docs/06-simulated-store.md) | Behaviour, scenarios, the debug panel, previews |
 | [Release safety](docs/07-release-safety.md) | Keeping the simulated store out of what ships |
@@ -139,6 +141,8 @@ Test your own app against `SimulatedStoreFront` and a `ManualClock`, both from `
 | [App Store Connect](docs/09-app-store-connect.md) | The setup that is not code |
 | [Decisions](docs/10-decisions.md) | Why, with the evidence for each |
 | [Not implemented, deliberately](docs/11-roadmap.md) | Subscriptions, consumables, and the rest |
+| [Subscriptions and offers in StoreKit](docs/13-subscriptions-and-offers.md) | Research: how the App Store runs subscriptions and offers, and what an app can see |
+| [Plan: subscriptions and offers](docs/14-subscriptions-plan.md) | What was built, in what order, what was measured first, and what is next |
 | [Migrating an existing app](docs/12-migrating-an-existing-app.md) | From hand-written StoreKit 2 |
 | [Checklist](docs/checklist.md) | Everything to get right, and who handles it |
 

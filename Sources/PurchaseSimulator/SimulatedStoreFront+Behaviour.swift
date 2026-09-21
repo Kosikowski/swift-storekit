@@ -28,6 +28,15 @@ extension SimulatedStoreFront {
             case fails(PurchaseError)
         }
 
+        /// What happens when a subscription that is to renew reaches the end of its period.
+        public enum RenewalScript: Hashable, Sendable {
+            /// It renews: a new transaction, for the plan it was to renew as.
+            case renews
+            /// The charge fails: into the grace period, if `gracePeriod` is set, then
+            /// billing retry for `billingRetryPeriod`, then expired.
+            case fails
+        }
+
         public enum CatalogueScript: Hashable, Sendable {
             case loads
             /// Only some products come back: the rest are misspelt or not yet
@@ -57,6 +66,54 @@ extension SimulatedStoreFront {
         /// a restore completes and finds nothing, which is what "Restore did not bring
         /// my purchase back" looks like to an app.
         public var restoreListsEarlierPurchases = true
+
+        /// How long a subscription bought here runs before it is due to renew. A month, as
+        /// near as a fixed length gets; a test that watches renewals sets it to seconds.
+        /// Longer than nothing: a period that ends as it begins renews for ever.
+        public var subscriptionPeriod: Duration = .seconds(30 * 86_400) {
+            didSet { precondition(subscriptionPeriod > .zero, "a subscription period must be longer than nothing") }
+        }
+
+        /// How many reads of the statuses go by, once a subscription is listed, before its
+        /// status is said. Zero: said with the listing. On the Mac both were measured empty
+        /// for about 0.6 s after a purchase, and nothing says which catches up first; a test
+        /// of the moment the listing has a new subscription and the status does not sets this.
+        public var saysStatusAfterReads = 0
+
+        /// What happens at a renewal. Change it before the period ends.
+        public var renewal: RenewalScript = .renews
+
+        /// The billing grace period, as App Store Connect sets it: nil is off, which is
+        /// App Store Connect's default too. 3, 16 or 28 days there.
+        public var gracePeriod: Duration?
+
+        /// How long Apple goes on retrying a failed charge before the subscription expires.
+        public var billingRetryPeriod: Duration = .seconds(60 * 86_400)
+
+        /// **The moment at a renewal**, as measured against the real store: the status
+        /// says the subscription has expired — will not renew, no reason — and the listing
+        /// has nothing, until the renewal is listed; the renewal itself is announced first.
+        /// On by default, like every awkward habit here: an app that is right through it
+        /// is right when it is shorter. Its length is counted in reads, one more than
+        /// `listsPurchasesAfterReads`.
+        public var showsTheRenewalMoment = true
+
+        /// **Buying again after a lapse hands back the old transaction, already over, and buys
+        /// nothing** — as the iOS 27 simulator did every time, with an offer or without, and the
+        /// Mac did right after a lapse (spike/README.md, q10). Off by default: the Mac was also
+        /// seen to buy, and a test of buying after a lapse would otherwise test only this.
+        public var handsBackTheLapsedTransaction = false
+
+        /// Whether the store accepts the signatures the app's signer makes. The real store
+        /// checks them against the key App Store Connect has; here a test decides. Off, a
+        /// promotional offer or the introductory override is refused as `invalidSignature`.
+        public var acceptsOfferSignatures = true
+
+        /// **StoreKit's introductory eligibility keeps its first answer for the life of the
+        /// process**, before and after the offer is used (measured, spike/README.md). So
+        /// does this, unless told not to: an app that asks it again after a purchase must
+        /// not take "eligible" for the truth.
+        public var keepsFirstEligibilityAnswer = true
 
         /// The three scripts, for a store that misbehaves from its first line. The rest
         /// are properties, and the defaults are the real store on a good day.

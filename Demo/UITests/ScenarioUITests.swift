@@ -52,6 +52,26 @@ final class ScenarioUITests: XCTestCase {
         XCTAssertTrue(status(in: app).hasPrefix("Trial until"))
     }
 
+    @MainActor
+    func testAMemberSeesTheirMembership() {
+        let app = launch("subscribed=monthly@3d")
+        // Waited for: until the store has answered the same text says "Membership: …".
+        let status = app.staticTexts["membership-status"]
+        expectation(for: NSPredicate(format: "label BEGINSWITH 'Monthly member; renews'"), evaluatedWith: status)
+        waitForExpectations(timeout: 10)
+    }
+
+    /// Billing retry is not access, and the app says why rather than showing a paywall.
+    @MainActor
+    func testAMemberWhosePaymentFailedIsToldSo() {
+        let app = launch("retry=monthly@2d")
+        let status = app.staticTexts["membership-status"]
+        expectation(
+            for: NSPredicate(format: "label == %@", "Membership paused: the App Store couldn't take payment"),
+            evaluatedWith: status)
+        waitForExpectations(timeout: 10)
+    }
+
     /// The state a person looks at for longest: the payment sheet is up. Both buttons
     /// must be out of reach for as long as it is.
     @MainActor

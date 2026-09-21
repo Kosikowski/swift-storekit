@@ -96,6 +96,34 @@ struct StandingTests {
         #expect(standing.access(to: Shop.pro) == .owned(pro))
     }
 
+    @Test("the next expiry after a moment is the next still to come, however long ago the standing was read")
+    func nextExpiryAfter() {
+        let catalogue: Catalogue = [
+            .unlock("a"), .unlock("b"),
+            .trial("short", of: ["a"], lasting: .seconds(10 * 86_400)),
+            .trial("long", of: ["b"], lasting: .seconds(30 * 86_400)),
+        ]
+        let read = now.addingTimeInterval(-20 * 86_400)
+        let standing = resolver.standing(
+            owned: [
+                OwnedProduct(id: "short", originalPurchaseDate: read), OwnedProduct(id: "long", originalPurchaseDate: read),
+            ], catalogue: catalogue, asOf: read)
+        #expect(standing.nextExpiry == read.addingTimeInterval(10 * 86_400))
+        #expect(standing.nextExpiry(after: now) == read.addingTimeInterval(30 * 86_400))
+        #expect(standing.nextExpiry(after: read.addingTimeInterval(30 * 86_400)) == nil)
+    }
+
+    @Test("a non-renewing subscription dated ahead of the clock is looked at when it begins, and when it ends")
+    func nextExpiryNonRenewing() {
+        let catalogue: Catalogue = [.nonRenewing("season", lasting: .seconds(30 * 86_400))]
+        let starts = now.addingTimeInterval(60)
+        let standing = resolver.standing(
+            owned: [OwnedProduct(id: "season", originalPurchaseDate: starts)], catalogue: catalogue, asOf: now)
+        #expect(standing.access(to: "season") == .none)
+        #expect(standing.nextExpiry == starts)
+        #expect(standing.nextExpiry(after: starts) == starts.addingTimeInterval(30 * 86_400))
+    }
+
     @Test("a sub-second trial keeps its fraction")
     func subSecond() {
         let period = TrialTerms(duration: .milliseconds(300), targets: [Shop.pro]).period(startingAt: now)
@@ -150,11 +178,32 @@ struct OwnershipRuleTests {
         #expect(resolver.counts(owned, in: catalogue) == counts)
     }
 
+    @Test("a non-renewing subscription counts when bought, or assigned as a seat, and not when shared", arguments: [
+        (Ownership.purchased, true), (.assigned, true), (.familyShared, false), (.unrecognised, false),
+    ])
+    func nonRenewing(ownership: Ownership, counts: Bool) {
+        let catalogue: Catalogue = [.nonRenewing("season", lasting: .seconds(60))]
+        let owned = OwnedProduct(id: "season", originalPurchaseDate: now, ownership: ownership)
+        #expect(resolver.counts(owned, in: catalogue) == counts)
+    }
+
     @Test("listed twice, this account's own purchase wins, then the earlier")
     func duplicates() {
         let shared = OwnedProduct(id: Shop.pro, originalPurchaseDate: now.addingTimeInterval(-100), ownership: .familyShared)
         let own = OwnedProduct(id: Shop.pro, originalPurchaseDate: now)
         let standing = resolver.standing(owned: [shared, own], catalogue: Shop.catalogue, asOf: now)
         #expect(standing.ownership(of: Shop.pro) == own)
+        let later = OwnedProduct(id: Shop.pro, originalPurchaseDate: now.addingTimeInterval(100), ownership: .familyShared)
+        #expect(resolver.standing(owned: [later, shared], catalogue: Shop.catalogue, asOf: now).ownership(of: Shop.pro) == shared)
+    }
+
+    @Test("a non-renewing subscription bought twice is held as its latest purchase, and both count")
+    func nonRenewingTwice() {
+        let catalogue: Catalogue = [.nonRenewing("season", lasting: .seconds(60))]
+        let first = OwnedProduct(id: "season", originalPurchaseDate: now)
+        let second = OwnedProduct(id: "season", originalPurchaseDate: now.addingTimeInterval(30))
+        let standing = resolver.standing(owned: [second, first], catalogue: catalogue, asOf: now)
+        #expect(standing.ownership(of: "season") == second)
+        #expect(standing.nonRenewing("season", at: now) == .active(NonRenewingPeriod(startedAt: now, endsAt: now.addingTimeInterval(120))))
     }
 }

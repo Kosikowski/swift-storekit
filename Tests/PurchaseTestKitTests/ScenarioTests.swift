@@ -435,7 +435,7 @@ struct ScenarioTests {
 
         let owned = Task { await store.ownedProducts().map(\.id) }
         let prices = Task { try? await store.products().count }
-        await waitUntil { store.ownershipGate.waiterCount == 1 && store.catalogueGate.waiterCount == 1 }
+        #expect(await waitUntil { store.ownershipGate.waiterCount == 1 && store.catalogueGate.waiterCount == 1 })
         #expect(store.ownershipGate.waiterCount == 1)
         #expect(store.catalogueGate.waiterCount == 1)
         store.ownershipGate.open()
@@ -453,7 +453,7 @@ struct ScenarioTests {
         store.apply(try parse("purchase=held;restore=held"))
         let bought = Task { try await store.purchase(pro, confirmation: .automatic) }
         let restored = Task { try await store.restorePurchases() }
-        await waitUntil { store.purchaseGate.waiterCount == 1 && store.restoreGate.waiterCount == 1 }
+        #expect(await waitUntil { store.purchaseGate.waiterCount == 1 && store.restoreGate.waiterCount == 1 })
         #expect(store.purchaseGate.waiterCount == 1)
         #expect(store.restoreGate.waiterCount == 1)
         #expect(store.snapshot.unlisted.isEmpty)

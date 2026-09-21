@@ -26,7 +26,7 @@ struct ManualClockTests {
         let clock = ManualClock()
         let deadline = clock.now.addingTimeInterval(300)
         let sleeper = Task { try? await clock.sleep(until: deadline); return clock.now }
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
         clock.advance(by: .seconds(299))
         #expect(clock.sleeperCount == 1)
         clock.advance(by: .seconds(1))
@@ -48,7 +48,7 @@ struct ManualClockTests {
         let parked = Task { () -> Bool in
             do { try await clock.sleep(until: .distantFuture); return false } catch { return true }
         }
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
         parked.cancel()
         #expect(await parked.value)
         #expect(clock.sleeperCount == 0)
@@ -66,7 +66,7 @@ struct ManualClockTests {
         let clock = ManualClock()
         let start = clock.now
         let sleeper = Task { try? await clock.sleep(until: .distantFuture) }
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
         clock.wakeSleepers()
         await sleeper.value
         #expect(clock.now == start)

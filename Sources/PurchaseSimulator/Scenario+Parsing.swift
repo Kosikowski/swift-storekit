@@ -18,10 +18,22 @@
 //              | "catalogue=" ("loads" | "empty" | "held" | "fails:" error)
 //              | "ownership=" ("answers" | "held")
 //              | "lag=" 1*DIGIT                      ; reads before a purchase is listed
+//              | "subscribed=" holding *("," holding)  ; renewing; age: since the period began
+//              | "cancelled=" holding *("," holding)   ; auto-renew off; age likewise
+//              | "grace=" holding *("," holding)       ; a charge failed, grace running; age: since the period ended
+//              | "retry=" holding *("," holding)       ; a charge failed, no grace; age likewise
+//              | "lapsed=" holding *("," holding)      ; expired; age: since it lapsed
+//              | "period=" age                         ; how long a subscription's period is
+//              | "renewal=" ("renews" | "fails" | "fails:" age)   ; at a period's end; the age a grace period
+//              | "intro=" ("eligible" | "used")          ; a week free on every subscription, and whether it is had
+//              | "winback=" offer *("," offer)           ; win-back offers on every subscription, eligible on a lapse
+//              | "promo=" offer *("," offer)             ; promotional offers on every subscription
+//              | "signatures=" ("accepted" | "rejected") ; what the store makes of the app's signer
 //      holding = product [ "@" age ] [ "/" ("purchased" | "family" | "assigned") ]
 //      age     = 1*( 1*DIGIT ("d" | "h" | "m" | "s") )    ; how long AGO: 13d23h55m
 //      product = a catalogue identifier in full, or the last dot-separated component
 //                of exactly one — `trial` for `com.example.trial`
+//      offer   = an offer identifier: letters, digits, "." "-" "_"
 //      error   = "productUnavailable" | "purchaseNotAllowed" | "notAvailableInStorefront"
 //              | "network" | "system" | "unverified" | "revoked" | "unsupported"
 //
@@ -99,6 +111,48 @@ extension Scenario {
                     case "held": holdsOwnership = true
                     default: throw ScenarioFault.unknownValue(value)
                     }
+                case "subscribed", "cancelled", "grace", "retry", "lapsed":
+                    let state: Subscription.State =
+                        switch key {
+                        case "subscribed": .subscribed
+                        case "cancelled": .cancelled
+                        case "grace": .inGracePeriod
+                        case "retry": .inBillingRetry
+                        default: .lapsed
+                        }
+                    for holding in try Self.holdings(value, in: catalogue) {
+                        guard catalogue.entry(for: holding.id)?.subscriptionTerms != nil else {
+                            throw ScenarioFault.notASubscription(holding.id)
+                        }
+                        subscriptions.append(Subscription(holding.id, state, age: holding.age, ownership: holding.ownership))
+                    }
+                case "intro":
+                    switch value {
+                    case "eligible": introductoryOffer = .eligible
+                    case "used": introductoryOffer = .used
+                    default: throw ScenarioFault.unknownValue(value)
+                    }
+                case "winback": winBackOffers = try Self.offers(value)
+                case "promo": promotionalOffers = try Self.offers(value)
+                case "signatures":
+                    switch value {
+                    case "accepted": behaviour.acceptsOfferSignatures = true
+                    case "rejected": behaviour.acceptsOfferSignatures = false
+                    default: throw ScenarioFault.unknownValue(value)
+                    }
+                case "period":
+                    let period = try Self.age(value)
+                    guard period > .zero else { throw ScenarioFault.invalidAge(value) }
+                    behaviour.subscriptionPeriod = period
+                case "renewal":
+                    switch value {
+                    case "renews": behaviour.renewal = .renews
+                    case "fails": behaviour.renewal = .fails
+                    default:
+                        guard value.hasPrefix("fails:") else { throw ScenarioFault.unknownValue(value) }
+                        behaviour.renewal = .fails
+                        behaviour.gracePeriod = try Self.age(Self.trimmed(value.dropFirst("fails:".count)))
+                    }
                 default:
                     // "lag", the last of `Self.keys`.
                     guard value.allSatisfy(Self.isDigit), let reads = Int(value) else {
@@ -113,8 +167,12 @@ extension Scenario {
             // Across both lists, and after every clause, so that the clause named is
             // the one that brought the second holding in.
             var held: Set<ProductID> = []
-            for holding in owns + earlier where !held.insert(holding.id).inserted {
-                throw invalid(.repeatedProduct(holding.id))
+            for id in (owns + earlier).map(\.id) + subscriptions.map(\.id) where !held.insert(id).inserted {
+                throw invalid(.repeatedProduct(id))
+            }
+            // A subscription is arranged with its state, not as a thing owned.
+            for holding in owns + earlier where catalogue.entry(for: holding.id)?.subscriptionTerms != nil {
+                throw invalid(.subscriptionHeldAsPurchase(holding.id))
             }
         }
     }
@@ -124,7 +182,9 @@ extension Scenario {
     private typealias ScenarioFault = ScenarioError.ScenarioFault
 
     private static let keys: Set<String> = [
-        "owns", "earlier", "unverified", "purchase", "restore", "catalogue", "ownership", "lag",
+        "owns", "earlier", "unverified", "purchase", "restore", "catalogue", "ownership",
+        "subscribed", "cancelled", "grace", "retry", "lapsed", "period", "renewal",
+        "intro", "winback", "promo", "signatures", "lag",
     ]
 
     private static let errors: [String: PurchaseError] = [
@@ -205,6 +265,20 @@ extension Scenario {
         let name = trimmed(value.dropFirst("fails:".count))
         guard let error = errors[name] else { throw .unknownError(name) }
         return error
+    }
+
+    /// `come-back,come-back-long`. Empty pieces are kept, so that `a,,b` is an error, and
+    /// so is an identifier App Store Connect would not take.
+    private static func offers(_ value: String) throws(ScenarioFault) -> [OfferID] {
+        var offers: [OfferID] = []
+        for piece in value.split(separator: ",", omittingEmptySubsequences: false) {
+            let name = trimmed(piece)
+            let allowed = { (c: Character) in c.isASCII && (c.isLetter || c.isNumber || ".-_".contains(c)) }
+            guard !name.isEmpty, name.allSatisfy(allowed) else { throw .invalidOffer(name) }
+            guard !offers.contains(OfferID(name)) else { throw .repeatedOffer(OfferID(name)) }
+            offers.append(OfferID(name))
+        }
+        return offers
     }
 
     private static func holdings(

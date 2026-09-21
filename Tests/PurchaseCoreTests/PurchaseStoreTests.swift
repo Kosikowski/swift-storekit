@@ -59,7 +59,7 @@ struct PurchaseStoreTests {
         front.seed(Shop.pro)
         front.ownershipGate.close()
         let asked = Task { await store.knownStanding() }
-        await waitUntil { front.ownershipGate.waiterCount == 1 }
+        #expect(await waitUntil { front.ownershipGate.waiterCount == 1 })
         #expect(!store.standing.isKnown)
         front.ownershipGate.open()
         let standing = await asked.value
@@ -74,7 +74,7 @@ struct PurchaseStoreTests {
         front.seed(Shop.pro)
         front.ownershipGate.close()
         let asked = Task { await store.knownStanding() }
-        await waitUntil { front.ownershipGate.waiterCount == 1 }
+        #expect(await waitUntil { front.ownershipGate.waiterCount == 1 })
         asked.cancel()
         front.ownershipGate.open()
         let standing = await asked.value
@@ -86,7 +86,7 @@ struct PurchaseStoreTests {
     func singleFlight() async {
         front.ownershipGate.close()
         let callers = (0 ..< 5).map { _ in Task { await store.knownStanding() } }
-        await waitUntil { front.ownershipGate.waiterCount == 1 }
+        #expect(await waitUntil { front.ownershipGate.waiterCount == 1 })
         try? await Task.sleep(for: .milliseconds(20))
         #expect(front.ownershipGate.waiterCount == 1)
         front.ownershipGate.open()
@@ -104,13 +104,13 @@ struct PurchaseStoreTests {
 
         front.ownershipGate.close()
         let first = Task { await store.refresh() }
-        await waitUntil { front.ownershipGate.waiterCount == 1 }
+        #expect(await waitUntil { front.ownershipGate.waiterCount == 1 })
         // Arrives mid-pass, and asks. Logged before it asks, with nothing awaited between.
         front.deliver(Shop.pro)
-        await waitUntil { logger.events.contains(.transactionUpdated(Shop.pro)) }
+        #expect(await waitUntil { logger.events.contains(.transactionUpdated(Shop.pro)) })
         front.ownershipGate.open()
         await first.value
-        await waitUntil { resolved() == 3 }
+        #expect(await waitUntil { resolved() == 3 })
         #expect(resolved() == 3)        // the pass that was under way, and one more
     }
 
@@ -130,7 +130,7 @@ struct PurchaseStoreTests {
 
         // The control: the same watch does hear a real change.
         front.revoke(Shop.pro)
-        await waitUntil { told.isRaised }
+        #expect(await waitUntil { told.isRaised })
         #expect(told.isRaised)
     }
 
@@ -142,9 +142,9 @@ struct PurchaseStoreTests {
         await store.start()
         let told = Flag()
         withObservationTracking { _ = store.standing } onChange: { told.raise() }
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
         clock.advance(by: .seconds(300))
-        await waitUntil { told.isRaised }
+        #expect(await waitUntil { told.isRaised })
         #expect(told.isRaised)
         #expect(store.standing.access(to: Shop.pro) == .none)
     }
@@ -171,7 +171,7 @@ struct PurchaseStoreTests {
         await store.start()
         try await store.purchase(Shop.pro)
         front.revoke(Shop.pro)
-        await waitUntil { store.standing.access(to: Shop.pro) == .none }
+        #expect(await waitUntil { store.standing.access(to: Shop.pro) == .none })
         #expect(store.standing.access(to: Shop.pro) == .none)
     }
 
@@ -182,7 +182,7 @@ struct PurchaseStoreTests {
         await store.refresh()
         #expect(front.snapshot.listed.map(\.id) == [Shop.pro])
         front.revoke(Shop.pro)
-        await waitUntil { store.standing.access(to: Shop.pro) == .none }
+        #expect(await waitUntil { store.standing.access(to: Shop.pro) == .none })
         #expect(store.standing.access(to: Shop.pro) == .none)
     }
 
@@ -194,7 +194,7 @@ struct PurchaseStoreTests {
         front.behaviour.listsPurchasesAfterReads = 5
         await store.start()
         front.deliver(Shop.pro)
-        await waitUntil { store.standing.ownership(of: Shop.pro) != nil }
+        #expect(await waitUntil { store.standing.ownership(of: Shop.pro) != nil })
         #expect(store.standing.ownership(of: Shop.pro) != nil)
         #expect(front.snapshot.listed.isEmpty)
     }
@@ -206,7 +206,7 @@ struct PurchaseStoreTests {
         let completion = try await store.purchase(Shop.pro)
         guard case let .owned(owned) = completion else { return }
         front.announceWithoutListing(owned)
-        await waitUntil { logger.events.contains(.transactionUpdated(Shop.pro)) }
+        #expect(await waitUntil { logger.events.contains(.transactionUpdated(Shop.pro)) })
         await store.refresh()
         #expect(store.standing.ownership(of: Shop.pro) != nil)
     }
@@ -218,13 +218,13 @@ struct PurchaseStoreTests {
     func unlistedGrantLapses() async {
         await store.start()
         front.announceWithoutListing(OwnedProduct(id: Shop.pro, originalPurchaseDate: clock.now))
-        await waitUntil { store.standing.ownership(of: Shop.pro) != nil }
+        #expect(await waitUntil { store.standing.ownership(of: Shop.pro) != nil })
         #expect(store.standing.ownership(of: Shop.pro) != nil)
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
         clock.advance(by: .seconds(29))
         #expect(store.standing.ownership(of: Shop.pro) != nil)
         clock.advance(by: .seconds(1))
-        await waitUntil { store.standing.access(to: Shop.pro) == .none }
+        #expect(await waitUntil { store.standing.access(to: Shop.pro) == .none })
         #expect(store.standing.access(to: Shop.pro) == .none)
     }
 
@@ -233,7 +233,7 @@ struct PurchaseStoreTests {
         await store.start()
         try await store.purchase(Shop.pro)
         clock.advance(by: .seconds(3_600))
-        await waitUntil { clock.sleeperCount == 0 }
+        #expect(await waitUntil { clock.sleeperCount == 0 })
         await store.refresh()
         #expect(store.standing.ownership(of: Shop.pro) != nil)
     }
@@ -246,7 +246,7 @@ struct PurchaseStoreTests {
         #expect(store.pendingApprovals == [Shop.pro])
         #expect(store.standing.access(to: Shop.pro) == .none)
         front.approvePending(Shop.pro)
-        await waitUntil { store.pendingApprovals.isEmpty }
+        #expect(await waitUntil { store.pendingApprovals.isEmpty })
         #expect(store.pendingApprovals.isEmpty)
         #expect(store.standing.ownership(of: Shop.pro) != nil)
     }
@@ -283,8 +283,46 @@ struct PurchaseStoreTests {
         try await store.purchase(Shop.pro)
         #expect(front.listenerCount == 1)
         front.revoke(Shop.pro)
-        await waitUntil { store.standing.access(to: Shop.pro) == .none }
+        #expect(await waitUntil { store.standing.access(to: Shop.pro) == .none })
         #expect(store.standing.access(to: Shop.pro) == .none)
+    }
+
+    @Test("an account token of the app's own reaches the store untouched")
+    func accountToken() async throws {
+        let token = UUID()
+        try await store.purchase(Shop.pro, options: PurchaseOptions(appAccountToken: token))
+        #expect(front.lastPurchaseOptions == PurchaseOptions(appAccountToken: token))
+        try await store.purchase(Shop.trial)
+        #expect(front.lastPurchaseOptions == PurchaseOptions())
+    }
+
+    // MARK: - Asked for outside the app
+
+    @Test("a purchase asked for OUTSIDE THE APP waits for the app, once, and buys nothing by itself")
+    func requested() async throws {
+        await store.start()
+        front.requestPurchase(Shop.pro)
+        front.requestPurchase(Shop.pro)
+        // A third, to know the two before it have been heard: the stream keeps its order.
+        front.requestPurchase(Shop.trial)
+        #expect(await waitUntil { store.requestedPurchases.contains(RequestedPurchase(product: Shop.trial)) })
+        #expect(store.requestedPurchases == [RequestedPurchase(product: Shop.pro), RequestedPurchase(product: Shop.trial)])
+        #expect(store.standing.access(to: Shop.pro) == .none)
+        #expect(front.lastPurchaseOptions == nil)
+    }
+
+    @Test("bought here, however it ends, the request is dealt with; dismissed, it is let go")
+    func requestedThenBought() async throws {
+        await store.start()
+        front.requestPurchase(Shop.pro)
+        front.requestPurchase(Shop.trial)
+        #expect(await waitUntil { store.requestedPurchases.count == 2 })
+        let request = store.requestedPurchases[0]
+        front.behaviour.purchase = .cancelled
+        try await store.purchase(request.product, options: request.options)
+        #expect(store.requestedPurchases == [RequestedPurchase(product: Shop.trial)])
+        store.dismissRequestedPurchase(RequestedPurchase(product: Shop.trial))
+        #expect(store.requestedPurchases.isEmpty)
     }
 
     @Test("something the catalogue does not sell cannot be bought")
@@ -297,7 +335,7 @@ struct PurchaseStoreTests {
         await store.start()
         front.purchaseGate.close()              // the payment sheet is up
         let first = Task { try await store.purchase(Shop.pro) }
-        await waitUntil { front.purchaseGate.waiterCount == 1 }
+        #expect(await waitUntil { front.purchaseGate.waiterCount == 1 })
         #expect(store.activity == .purchasing(Shop.pro))
         await #expect(throws: PurchaseError.alreadyInProgress) { try await store.purchase(Shop.trial) }
         await #expect(throws: PurchaseError.alreadyInProgress) { try await store.restorePurchases() }
@@ -326,13 +364,13 @@ struct PurchaseStoreTests {
         front.seedTrial(Shop.trial, remaining: .seconds(300))
         await store.start()
         #expect(store.standing.nextExpiry == clock.now.addingTimeInterval(300))
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
 
         clock.advance(by: .seconds(299))
         #expect(store.standing.access(to: Shop.pro) != .none)
 
         clock.advance(by: .seconds(1))
-        await waitUntil { store.standing.access(to: Shop.pro) == .none }
+        #expect(await waitUntil { store.standing.access(to: Shop.pro) == .none })
         #expect(store.standing.access(to: Shop.pro) == .none)
         if case .used = store.standing.trial(Shop.trial) {} else { Issue.record("the trial should be used") }
         #expect(clock.sleeperCount == 0)
@@ -342,9 +380,9 @@ struct PurchaseStoreTests {
     func earlyWake() async {
         front.seedTrial(Shop.trial, remaining: .seconds(300))
         await store.start()
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
         clock.wakeSleepers()
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
         #expect(clock.sleeperCount == 1)
         #expect(store.standing.access(to: Shop.pro) != .none)
     }
@@ -369,7 +407,7 @@ struct PurchaseStoreTests {
         await store.start()
         let started = clock.now.addingTimeInterval(-86_400)
         front.deliver(OwnedProduct(id: Shop.trial, originalPurchaseDate: started))
-        await waitUntil { store.standing.access(to: Shop.pro) != .none }
+        #expect(await waitUntil { store.standing.access(to: Shop.pro) != .none })
         #expect(store.standing.nextExpiry == started.addingTimeInterval(14 * 86_400))
     }
 
@@ -379,7 +417,7 @@ struct PurchaseStoreTests {
     func familySharedTrial() async throws {
         await store.start()
         front.deliver(OwnedProduct(id: Shop.trial, originalPurchaseDate: clock.now, ownership: .familyShared))
-        await waitUntil { logger.events.contains(.transactionUpdated(Shop.trial)) }
+        #expect(await waitUntil { logger.events.contains(.transactionUpdated(Shop.trial)) })
         await store.refresh()
         #expect(store.standing.access(to: Shop.pro) == .none)
 
@@ -400,7 +438,7 @@ struct PurchaseStoreTests {
             return
         }
         front.deliver(Shop.trial, ownership: .familyShared)
-        await waitUntil { logger.events.contains(.transactionUpdated(Shop.trial)) }
+        #expect(await waitUntil { logger.events.contains(.transactionUpdated(Shop.trial)) })
         await store.refresh()
         await store.refresh()
         #expect(front.snapshot.listed.map(\.ownership) == [.purchased])
@@ -420,7 +458,7 @@ struct PurchaseStoreTests {
 
         let own = OwnedProduct(id: Shop.trial, originalPurchaseDate: clock.now)
         front.announceWithoutListing(own)
-        await waitUntil { store.standing.ownership(of: Shop.trial) == own }
+        #expect(await waitUntil { store.standing.ownership(of: Shop.trial) == own })
         #expect(store.standing.ownership(of: Shop.trial) == own)
         if case .onTrial = store.standing.access(to: Shop.pro) {} else { Issue.record("the trial should lend the unlock") }
     }
@@ -431,7 +469,7 @@ struct PurchaseStoreTests {
         await store.start()
         try await store.purchase(Shop.pro)
         clock.advance(by: .seconds(301))
-        await waitUntil { clock.sleeperCount == 0 }
+        #expect(await waitUntil { clock.sleeperCount == 0 })
         if case .owned = store.standing.access(to: Shop.pro) {} else { Issue.record("the unlock should be owned") }
     }
 
@@ -494,7 +532,7 @@ struct PurchaseStoreTests {
         front.seed(Shop.pro)
         front.catalogueGate.close()
         let prices = Task { await store.loadProducts() }
-        await waitUntil { front.catalogueGate.waiterCount == 1 }
+        #expect(await waitUntil { front.catalogueGate.waiterCount == 1 })
         let standing = await store.knownStanding()
         #expect(standing.ownership(of: Shop.pro) != nil)
         #expect(store.productLoad == .loading)
@@ -522,7 +560,7 @@ struct PurchaseStoreTests {
     func loadsAreSingleFlight() async {
         front.catalogueGate.close()
         let first = Task { await store.loadProducts() }
-        await waitUntil { front.catalogueGate.waiterCount == 1 }
+        #expect(await waitUntil { front.catalogueGate.waiterCount == 1 })
         let second = Task { await store.loadProducts() }
         // Long enough for a second request to have reached the gate, had one been made.
         await waitUntil(timeout: .milliseconds(50)) { front.catalogueGate.waiterCount == 2 }
@@ -542,7 +580,7 @@ struct PurchaseStoreTests {
     func cancelledLoad() async {
         front.catalogueGate.close()
         let asked = Task { await store.loadProducts() }
-        await waitUntil { front.catalogueGate.waiterCount == 1 }
+        #expect(await waitUntil { front.catalogueGate.waiterCount == 1 })
         asked.cancel()
         front.catalogueGate.open()
         await asked.value
@@ -603,7 +641,7 @@ struct PurchaseStoreLifetimeTests {
             await store.start()
             #expect(front.listenerCount == 1)
         }
-        await waitUntil { front.listenerCount == 0 }
+        #expect(await waitUntil { front.listenerCount == 0 })
         #expect(front.listenerCount == 0)
     }
 
@@ -619,7 +657,7 @@ struct PurchaseStoreLifetimeTests {
             return
         }
         #expect(store.standing.access(to: Shop.pro) != .none)
-        await waitUntil(timeout: .seconds(5)) { store.standing.access(to: Shop.pro) == .none }
+        #expect(await waitUntil(timeout: .seconds(5)) { store.standing.access(to: Shop.pro) == .none })
         #expect(store.standing.access(to: Shop.pro) == .none)
     }
 

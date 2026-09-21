@@ -148,6 +148,14 @@ private struct PanelContent: View {
             ForEach(store.catalogue.entries) { entry in
                 row(entry.id.rawValue, describe(entry, at: date))
             }
+            ForEach(store.catalogue.subscriptionGroups, id: \.self) { group in
+                row("Group \(group)", describe(store.standing.subscription(in: group), at: date))
+                let winBack = store.winBackOffers(in: group)
+                row("Win-back offers, \(group)", winBack.isEmpty ? "none" : winBack.map(\.id.rawValue).joined(separator: ", "))
+            }
+            ForEach(store.catalogue.entries.filter { $0.subscriptionTerms != nil }) { entry in
+                row("Introductory offer, \(entry.id)", describe(store.introductoryOffer(for: entry.id)))
+            }
             row("Pending approval", store.pendingApprovals.isEmpty ? "none" : list(store.pendingApprovals))
             row("Activity", String(describing: store.activity))
         }
@@ -156,6 +164,32 @@ private struct PanelContent: View {
             ForEach(store.products) { product in
                 row(product.displayName, product.displayPrice)
             }
+        }
+    }
+
+    private func describe(_ group: SubscriptionStanding, at date: Date) -> String {
+        switch group {
+        case .unknown: return "unknown"
+        case .none: return "never subscribed"
+        case let .active(held, _), let .inactive(held, _):
+            let renewal: String
+            switch held.renewal?.willRenew {
+            case true?:
+                let next = held.renewal?.nextProduct.map { $0 == held.product ? "" : " as \($0)" } ?? ""
+                renewal = "renews\(next) \(held.accessEnds.formatted(date: .abbreviated, time: .standard))"
+            case false?: renewal = "ends \(held.accessEnds.formatted(date: .abbreviated, time: .standard))"
+            case nil: renewal = "renewal not known"
+            }
+            return "\(group.isActive == true ? "ACTIVE" : "inactive"): \(held.product) \(held.state), \(renewal)"
+        }
+    }
+
+    private func describe(_ offer: IntroductoryEligibility) -> String {
+        switch offer {
+        case .unknown: "unknown: the regular price is shown"
+        case .noOffer: "none on the product"
+        case let .eligible(terms): "eligible: \(terms.displayPrice) × \(terms.periodCount) \(terms.period.unit)"
+        case .ineligible: "used, or not for this person"
         }
     }
 
@@ -169,10 +203,15 @@ private struct PanelContent: View {
             case .notOffered: return "not offered"
             }
         }
+        if entry.nonRenewingTerms != nil, case let .ended(period) = store.standing.nonRenewing(entry.id, at: date) {
+            return "ended \(period.endsAt.formatted(date: .abbreviated, time: .standard))"
+        }
         switch store.standing.access(to: entry.id, at: date) {
         case .unknown: return "unknown"
         case let .owned(owned): return "owned (\(owned.ownership))"
         case let .onTrial(period, via): return "on trial via \(via), \(remaining(period, at: date)) left"
+        case let .subscribed(held): return "subscribed (\(held.state)), until \(held.accessEnds.formatted(date: .abbreviated, time: .standard))"
+        case let .nonRenewing(period): return "running until \(period.endsAt.formatted(date: .abbreviated, time: .standard))"
         case .none: return "none"
         }
     }
@@ -204,10 +243,26 @@ private struct PanelContent: View {
                     Button("Trial through Family Sharing (must not count)") {
                         simulated.deliver(entry.id, ownership: .familyShared)
                     }
+                } else if entry.subscriptionTerms != nil {
+                    Button("Subscribed on another device") { simulated.deliverSubscription(entry.id) }
+                    Button("Shared by a family member") { simulated.deliverSubscription(entry.id, ownership: .familyShared) }
+                    Button("Renew now") { simulated.renewNow(entry.id) }
+                    Button("Switch auto-renew off") { simulated.cancelAutoRenew(entry.id) }
+                    Button("Switch auto-renew on") { simulated.resumeAutoRenew(entry.id) }
+                    Button("Price rise awaiting consent") { simulated.raisePrice(entry.id, needsConsent: true) }
+                    Button("The failed charge goes through") { simulated.recoverBilling(entry.id) }
+                    if let group = entry.subscriptionTerms?.group {
+                        Button("Introductory offer used elsewhere") {
+                            simulated.useIntroductoryOffer(in: group)
+                            Task { await store.loadProducts() }
+                        }
+                    }
+                    Button("Lapse now (win-back offers become eligible)", role: .destructive) { simulated.lapse(entry.id) }
                 } else {
                     Button("Bought on another device") { simulated.deliver(entry.id) }
                     Button("Shared by a family member") { simulated.deliver(entry.id, ownership: .familyShared) }
                 }
+                Button("Promoted on the App Store: asked for there") { simulated.requestPurchase(entry.id) }
                 Button("Approve Ask to Buy") { simulated.approvePending(entry.id) }
                 Button("Refund", role: .destructive) { simulated.revoke(entry.id) }
             }
@@ -235,6 +290,20 @@ private struct PanelContent: View {
             scriptButton("Catalogue loads", simulated) { $0.catalogue = .loads }
             scriptButton("Catalogue is empty (unknown build)", simulated) { $0.catalogue = .loadsOnly([]) }
             scriptButton("Catalogue fails: network", simulated) { $0.catalogue = .fails(.network) }
+            if !store.catalogue.subscriptionGroups.isEmpty {
+                scriptButton("Renewals go through", simulated) { $0.renewal = .renews }
+                scriptButton("Renewals fail, no grace period", simulated) {
+                    $0.renewal = .fails
+                    $0.gracePeriod = nil
+                }
+                scriptButton("Renewals fail, 16-day grace period", simulated) {
+                    $0.renewal = .fails
+                    $0.gracePeriod = .seconds(16 * 86_400)
+                }
+                scriptButton("Subscriptions renew every 2 minutes", simulated) { $0.subscriptionPeriod = .seconds(120) }
+                scriptButton("The app's offer signatures are accepted", simulated) { $0.acceptsOfferSignatures = true }
+                scriptButton("The app's offer signatures are rejected", simulated) { $0.acceptsOfferSignatures = false }
+            }
             scriptButton("Restore fails: network", simulated) { $0.restore = .fails(.network) }
             scriptButton("Restore succeeds", simulated) { $0.restore = .succeeds }
             Button("Hold restores open (asking for a password)") { simulated.restoreGate.close() }

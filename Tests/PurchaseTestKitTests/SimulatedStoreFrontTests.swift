@@ -350,7 +350,7 @@ struct SimulatedStoreFrontTests {
             task.cancel()
             await task.value
         }
-        await waitUntil { store.listenerCount == 0 }
+        #expect(await waitUntil { store.listenerCount == 0 })
         #expect(store.listenerCount == 0)
     }
 
@@ -404,7 +404,7 @@ struct SimulatedStoreFrontTests {
         store.seed(pro)
         store.catalogueGate.close()
         let prices = Task { try? await store.products() }
-        await waitUntil { store.catalogueGate.waiterCount == 1 }
+        #expect(await waitUntil { store.catalogueGate.waiterCount == 1 })
         #expect(await store.ownedProducts().map(\.id) == [pro])
         store.catalogueGate.open()
         #expect(await prices.value?.count == 2)
