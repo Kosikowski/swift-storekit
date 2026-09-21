@@ -75,6 +75,13 @@ struct SubscriptionStandingTests {
         #expect(problems == [.trialTargetIsNotAnUnlock(trial: "t", target: "s"), .subscriptionLevelBelowOne("s")])
     }
 
+    @Test("a subscription in a group with no identifier is a problem: its status could never be asked for")
+    func catalogueGroupless() {
+        #expect(Catalogue.problems(in: [.subscription("s", in: "", level: 1), .subscription("t", in: " ", level: 1)])
+            == [.subscriptionWithoutGroup("s"), .subscriptionWithoutGroup("t")])
+        #expect(Catalogue.problems(in: [.subscription("s", in: "g", level: 1)]).isEmpty)
+    }
+
     // MARK: - Access follows Apple's rule
 
     @Test("subscribed is active; so is a GRACE PERIOD whose period has already ended")
