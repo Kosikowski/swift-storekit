@@ -260,6 +260,23 @@ Nothing in this section is the package's.
 - [ ] **Check the offers your code names against the `.storekit` file**: `expectNoProblems(against:offers:)`. [ran]
 - [ ] **Try a promotional offer in the sandbox, by hand**, signed by your server: Xcode's environment cannot check a real key's signature. [ran]
 
-## 12. The shape of the library
+## 12. Non-renewing subscriptions, commitments, and what arrives from outside
+
+### Handled by the package
+
+- [ ] **A non-renewing subscription's end is the catalogue's**, and every purchase counts: the listing keeps every one, and StoreKit gives them no end. [ran] ([D52](10-decisions.md#d52-a-non-renewing-subscriptions-end-is-the-catalogues-and-every-purchase-counts))
+- [ ] **A purchase handed back that was already counted is not reported as bought.** [ran]
+- [ ] **On a 12-month commitment, "will it end" is read from the commitment**, not from `willRenew`, which stays true after a cancellation. [Apple] ([D54](10-decisions.md#d54-on-a-12-month-commitment-whether-it-will-renew-and-whether-it-will-end-are-two-facts))
+- [ ] **A purchase asked for on the App Store waits for the app**, in `requestedPurchases`: nothing is bought until the app buys it. [Apple]
+
+### Your app's responsibility
+
+- [ ] **Say how long a non-renewing subscription lasts, and whether purchases add up** — `lasting:` and `stacking:` in the catalogue — and say it on the paywall.
+- [ ] **Show a 12-month commitment's monthly price and what the commitment comes to**, as App Review asks. [Apple]
+- [ ] **Act on `requestedPurchases`**: buy with the request's options, or let it go. [Apple]
+- [ ] **Decide when Apple's messages may be shown** (`storeMessages(deferredWhile:)`), on iOS. [Apple]
+- [ ] **In the sandbox, by hand**: a promoted purchase tapped on the App Store, the monthly plan in a storefront that offers it, a price rise shown as a message, and a subscription bundle. Xcode's environment produces none of them. [ran]
+
+## 13. The shape of the library
 
 The package's targets, layers, protocols and the reasons behind them are in [architecture](01-architecture.md) and [decisions](10-decisions.md). To move an app that already has hand-written StoreKit code onto it, see [migrating an existing app](12-migrating-an-existing-app.md).

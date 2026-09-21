@@ -266,7 +266,7 @@ A downgrade, and a crossgrade to another duration, come back from `purchase()` a
 
 The same holds for an Ask to Buy. Approved, a downgrade arrives as the plan already held, and the plan asked for is not active until the renewal. So `pendingApprovals` lets go of a plan when the status names it as the next one, not when it is active. Otherwise "waiting for approval" stays up for as long as a whole period after someone has approved it.
 
-Asked in the same instant as the first purchase, before StoreKit had listed it, a downgrade on the Mac came back as the new plan instead — seen once, and not pinned. **[check]** No person downgrades within half a second of subscribing.
+Asked in the same instant as the first purchase, before StoreKit had listed it, a downgrade on the Mac came back as the new plan instead — seen once, and not pinned. **[check]** No person downgrades within half a second of subscribing. It came back as the new plan once more, in a full hosted run on the Mac after the first purchase had been listed, and never when the test ran alone. The hosted test now accepts that one outcome as an intermittent known issue, and fails on any other.
 
 ## D38. What is held is chosen by date; a past period refunded takes nothing away
 
@@ -339,3 +339,35 @@ StoreKit's refusals keep their reasons (`PurchaseError.offerRefused`): a bad sig
 ## D51. A subscription handed back already over was not bought
 
 Buying the monthly plan again moments after `expireSubscription` had lapsed it, the hosted suite on the Mac got `.success` from StoreKit with the **old transaction**, its period already over, and nothing bought **[ran]**. Phase 0 had seen the same in the iOS simulator every time, with an offer or without (q10), and on the Mac a purchase two seconds after a lapse went through. Taken at its word, the store answered `.subscribed` with a period that had ended. The override asked for then looked applied, because the old transaction had been bought with the introductory offer a month before. So `purchase()` now judges a subscription transaction that is over by the store's clock as a purchase that did not happen. It throws `.system`, which means nobody's fault and trying again is fair, holds nothing, and reads again. The simulated store can do the same (`handsBackTheLapsedTransaction`), off by default because the Mac was also seen to buy.
+
+## D52. A non-renewing subscription's end is the catalogue's, and every purchase counts
+
+StoreKit gives a non-renewing subscription no end: its transaction has no expiration date, and the product no subscription info **[ran]**. How long one lasts is the app's to say, as a trial's is, and it is said once, in the catalogue: `.nonRenewing(id, lasting:)`. Measured, buying one again makes a new transaction, and **the listing keeps every purchase** **[ran]**, where the research had taken Apple's word that only the latest stays. So the standing keeps every counted purchase's date, and the terms turn them into periods.
+
+How purchases made while one runs add up is policy, and the app declares it. `.consecutive`, the default, adds the time: nothing paid for is lost. `.fromEachPurchase` runs each from its own date, as Apple's sample does. Each purchase is held beside the others until the listing has that one, since a second purchase held in place of the first would lose the first for a moment. A refund takes back one purchase and leaves the others **[ran]**. And a purchase that hands back one already counted bought nothing: the iOS simulator did that in two runs of three **[ran]**, so `purchase()` throws `.system`, as D51 does for a subscription. The hosted suite holds both habits, and met the second.
+
+## D53. A purchase asked for outside the app is a request, and the app decides
+
+A promoted in-app purchase tapped on the App Store, and a win-back offer taken there with streamlined purchasing off, reach the app as StoreKit's `PurchaseIntent` `[Apple]`. Nothing has been bought. Apple says the app may go on at once, later, or not at all — after onboarding, say, or not for something already owned — and that is policy. So the store announces it (`TransactionUpdate.purchaseRequested`) and keeps it in `requestedPurchases`. The app buys it with the request's own options, or lets it go (`dismissRequestedPurchase(_:)`). A purchase of the product, however it ends, deals with the request. The name is `RequestedPurchase`, because StoreKit has `PurchaseIntent` at the top level (D44).
+
+Not measured: in Xcode's environment no intent arrived on either platform, whether the `itms-services://` URL was opened by the app or, in the iOS simulator, by the system **[ran]**. It is tried in the sandbox, on a device, by hand.
+
+## D54. On a 12-month commitment, whether it will renew and whether it will end are two facts
+
+A yearly subscription can be billed monthly with a 12-month commitment, from 26.4 `[Apple]`. The terms are on the product (`billingPlans`), the plan is a purchase option (`billingPlan`), and the transaction says which month of the commitment it is (`HeldSubscription.commitment`). Asked for where the system is older than 26.4, a plan is a failure, `unsupported`, never a purchase billed up front instead.
+
+Apple documents the trap. Cancelled during a commitment, the renewal still says it will renew, because the monthly billing does go on, and only the commitment's own renewal says it ends `[Apple]`. So `Renewal.commitment` carries that apart. `HeldSubscription.willRenewAtPeriodEnd` is false in the last month of a commitment that will not be renewed, whatever `willRenew` says. The test of the simulated store found that D36's doubt read `willRenew`, and so doubted, for ever, a lapse that was certain. It reads `willRenewAtPeriodEnd` now, and the test failed without it. **[ran]**
+
+Not measured: no `.storekit` file with a billing plan could be written that `SKTestSession` would load. Eighteen shapes were tried, and the same file without the plan loaded every time **[ran]**. So the fields are copied as the SDK names them, behind `#available(26.4)`, and tried in the sandbox, in a storefront that offers the plan, by hand.
+
+## D55. Apple's own messages wait while the app says so
+
+A price rise to agree to, a billing problem and a win-back offer are sheets StoreKit shows by itself, and on iOS an app may hold them back `[Apple]`. When to show them is policy. `.storeMessages(deferredWhile:showing:)` in `PurchaseUI` is the mechanism: messages wait while the app says so, are shown in order when it stops, and a reason the app never wants shown, the win-back sheet of an app with its own say, is not shown. The Mac has no messages, and there it does nothing. Not measured: no purchase could be made from a UI-test runner to ask a price rise of **[ran]**.
+
+## D56. A subscription bundle is facts, behind the 27 SDK
+
+From 27, a subscription can be held through a bundle, perhaps of another app's `[Apple]`. Access is decided by the status, as it always is. The renewal info's bundle fields become `HeldSubscription.bundle`, a lapse for leaving a bundle is `Lapse.unbundled`, and a bundle product's `bundledSubscriptions` are on its terms. The names exist only in the 27 SDK, back-deployed, so they are behind `#if canImport(StoreKit, _version: 816)`, and the reason is matched by its value (6), as `.assigned` is (D17). Not measured: Xcode's environment could not be made to sell one.
+
+## D57. Seats and retention offers need nothing new
+
+A seat bought by an organisation arrives as `.assigned` and counts, for subscriptions as for unlocks and now non-renewing subscriptions. The plan asked whether it should, and the answer is yes: an app that would rather not sell to organisations switches it off in App Store Connect `[Apple]`. A retention offer, shown by the system in the cancellation flow, has no name in the 27 SDK's offer types. Whatever value StoreKit sends is reported as `OfferKind.unrecognised`, and the purchase is counted as any other.

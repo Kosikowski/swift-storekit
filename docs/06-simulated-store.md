@@ -193,6 +193,10 @@ Products with offers sell them: pass them in `products:`, or build the store fro
 
 `useIntroductoryOffer(in:)` says the account has used a group's offer elsewhere, and `productsOnSale` puts an offer on sale, or takes one off, while the store runs. Scenarios add plausible offers to every subscription: `intro=eligible` or `intro=used` (a week free), `winback=` and `promo=` with identifiers (three months at a discount), and `signatures=rejected`.
 
+### Non-renewing subscriptions, commitments, and requests
+
+A non-renewing subscription bought again is a new purchase, listed beside the others, as measured; `revoke(_:)` takes back the latest. A purchase on the monthly billing plan starts a commitment of twelve `subscriptionPeriod`s, each renewal moves it on a month, and `cancelAutoRenew(_:)` during one leaves the months billed and marks only the commitment as ending, as Apple documents. `requestPurchase(_:offer:)` is a purchase asked for on the App Store, announced as a request.
+
 ## The debug panel
 
 `PurchaseDebugPanel(launch)` takes the `StoreLaunch` the app was started with. **Its name is in every build, and in a release build it draws nothing**, so nothing about it needs an `#if` — except a `Window` scene, because a scene cannot be conditional and an empty window would still have its place in the Window menu:

@@ -67,6 +67,8 @@ Offers are set on each subscription, under its Subscription Prices. What each do
 | Promotional | An offer identifier, price and periods; up to 10 active `[Apple]` | `.promotional(id)`, signed by your server |
 | Offer codes | Codes, or a custom code, and who may redeem them `[Apple]` | Nothing: the redemption arrives as a transaction |
 
+**Monthly billing with a 12-month commitment** is a second billing plan on a yearly subscription, from 26.4; it is not offered in the United States or Singapore `[Apple]`. **A non-renewing subscription** is a product of its own type; its length is not set in App Store Connect but in the catalogue, `.nonRenewing(_:lasting:)`, and the file check wants a `NonRenewingSubscription`.
+
 **For promotional offers and the introductory override, create an In-App Purchase key** (Users and Access, Integrations, In-App Purchase) and keep it on your server. Apple's App Store Server Library signs with it. It is not the App Store Connect API key `[Apple]`. Put the offers in the `.storekit` file too, so that the simulated store and Xcode's environment sell them, and check the identifiers your code names against it: `expectNoProblems(against:offers:)`.
 
 App Review asks a subscription paywall for the plan's name, length and full renewal price, with the amount billed the most prominent price; links to the terms and the privacy policy; a way to restore; and an easy route to Apple's page to manage it `[Apple]` — `ManageSubscriptionsButton` ([subscriptions](15-subscriptions.md#managing)).

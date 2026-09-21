@@ -1,6 +1,6 @@
 # Subscriptions
 
-Auto-renewable subscriptions: declaring them, reading where a subscriber stands, buying and changing plan, sending people to Apple's page to manage them, and testing all of it in no time. Offers — the introductory one, win-back, promotional, codes — have [a guide of their own](16-offers.md).
+Auto-renewable subscriptions: declaring them, reading where a subscriber stands, buying and changing plan, sending people to Apple's page to manage them, and testing all of it in no time. Then the rest: monthly billing with a 12-month commitment, bundles, seats, purchases asked for outside the app, Apple's own messages, and non-renewing subscriptions. Offers — the introductory one, win-back, promotional, codes — have [a guide of their own](16-offers.md).
 
 **The package reports store facts and performs store actions; the app owns product policy.** A subscription's state, its dates, whether it will renew and to what, are facts, and they are here. What a membership unlocks, what a lapse locks, and every word the person reads are the app's.
 
@@ -151,6 +151,75 @@ ManageSubscriptionsButton("Manage Membership", group: Shop.membership)
 
 On iOS it presents Apple's sheet. **macOS has none**, because `manageSubscriptionsSheet` and `AppStore.showManageSubscriptions` are unavailable there `[Apple]`. So on the Mac it opens `https://apps.apple.com/account/subscriptions` in the App Store, and so does an iPhone or iPad app running on a Mac, where Apple says not to show the sheet. Either way the store reads again when the person comes back: when the sheet closes, or when the app becomes active again after the link. A cancellation made there sends the app nothing.
 
+## Monthly, with a 12-month commitment
+
+From iOS and macOS 26.4 a yearly subscription can have a second billing plan: billed every month, and committed to for twelve. It has no grace period, retries a failed charge for 90 days, and is not offered in the United States or Singapore `[Apple]`.
+
+```swift
+let plans = store.products.first { $0.id == Shop.yearly }?.subscription?.billingPlans   // [BillingPlanTerms]
+try await store.purchase(Shop.yearly, options: PurchaseOptions(billingPlan: .monthly))
+```
+
+Each `BillingPlanTerms` has the price per billing period, and what the whole commitment comes to and how long it lasts. Show both, as App Review asks `[Apple]`. A plan asked for where the system is older than 26.4 fails as `unsupported`, and nothing is billed some other way. Held, `HeldSubscription.commitment` says which month of how many it is, and when the commitment ends.
+
+**Cancelled during a commitment, the months are still billed.** `renewal.willRenew` stays true, correctly, and only `renewal.commitment?.willRenew` says the commitment ends `[Apple]`. Word "member until the commitment ends" from `willRenewAtPeriodEnd`, which is false in the last month of a commitment that will not be renewed, or from `renewal.commitment`. The store's own doubt at a period's end reads it too ([D54](10-decisions.md#d54-on-a-12-month-commitment-whether-it-will-renew-and-whether-it-will-end-are-two-facts)). Xcode's environment could not be made to sell a plan, so it is tried in the sandbox, by hand.
+
+## Held through a bundle
+
+From 27 a subscription can be held through a subscription bundle, perhaps sold by another app `[Apple]`. Its status decides access, as any status does. `HeldSubscription.bundle` names the bundle and says whether the subscription leaves it at its next renewal, and a lapse for leaving it is `.expired(.unbundled)`. A bundle's own terms list what it includes (`bundledSubscriptions`). Built with the 27 SDK only ([D56](10-decisions.md#d56-a-subscription-bundle-is-facts-behind-the-27-sdk)).
+
+## Seats
+
+A seat bought for someone by an organisation arrives as `ownership == .assigned`, and counts, as a purchase does. An app that would rather not sell to organisations switches it off in App Store Connect `[Apple]` ([D57](10-decisions.md#d57-seats-and-retention-offers-need-nothing-new)).
+
+## Purchases asked for outside the app
+
+A promoted in-app purchase tapped on the App Store, or a win-back offer taken there with streamlined purchasing off, reaches the app as a request, and **nothing has been bought** `[Apple]`. The store keeps it in `requestedPurchases`. When to go on is the app's call — at once, after onboarding, or not at all for something already owned:
+
+```swift
+if let request = store.requestedPurchases.first, !isOnboarding {
+    try await store.purchase(request.product, options: request.options)   // with its win-back offer, if it came with one
+}
+store.dismissRequestedPurchase(request)   // or let it go
+```
+
+A purchase of the product, however it ends, deals with the request. Xcode's environment delivered no request on either platform, so this is tried in the sandbox, on a device ([D53](10-decisions.md#d53-a-purchase-asked-for-outside-the-app-is-a-request-and-the-app-decides)).
+
+## Apple's own messages
+
+On iOS, StoreKit shows its own sheets — a price rise to agree to, a billing problem, a win-back offer — over whatever is on screen. An app can hold them back until it is ready:
+
+```swift
+ContentView()
+    .storeMessages(deferredWhile: model.isOnboarding)
+
+// Or, for an app with win-back offers of its own, which never wants Apple's sheet for them:
+ContentView()
+    .storeMessages(deferredWhile: model.isOnboarding, showing: { $0 != .winBackOffer })
+```
+
+Held messages are shown in order when the condition turns false. A reason `showing` declines is never shown. The Mac has no such messages `[Apple]`, and there the modifier does nothing ([D55](10-decisions.md#d55-apples-own-messages-wait-while-the-app-says-so)).
+
+## Non-renewing subscriptions
+
+Bought for a length of time, and bought again to go on. **StoreKit gives one no end** `[ran]`: its length is the app's to say, in the catalogue, as a trial's is.
+
+```swift
+.nonRenewing(Shop.season, lasting: .seconds(30 * 86_400))                              // purchases while one runs add up
+.nonRenewing(Shop.pass, lasting: .seconds(30 * 86_400), stacking: .fromEachPurchase)  // each runs from its own date
+```
+
+```swift
+switch store.standing.nonRenewing(Shop.season) {    // NonRenewingStatus
+case .unknown: …
+case .none: "No season pass"
+case let .active(period): "Season pass until \(period.endsAt)"
+case let .ended(period): "Season pass ended \(period.endsAt)"
+}
+```
+
+`access(to:)` is `.nonRenewing(period)` while one runs, and it ends by itself at `endsAt`, as a trial does. Every purchase counts, since the listing keeps every one `[ran]`. A refund takes back that purchase's time and leaves the rest `[ran]`. A purchase completes as `.nonRenewing(period)`. One that hands back a purchase already counted bought nothing, and throws `.system`: the iOS simulator did this in two runs of three `[ran]` ([D52](10-decisions.md#d52-a-non-renewing-subscriptions-end-is-the-catalogues-and-every-purchase-counts)). Family Sharing does not apply to them.
+
 ## Testing
 
 The simulated store renews by its own clock, so a year of renewals is a clock advanced twelve times ([simulated store](06-simulated-store.md#subscriptions)):
@@ -186,6 +255,6 @@ The debug panel has a line for each group and the same controls, for a debug bui
 
 Against real StoreKit, `SKTestSession.timeRate` renews every ten seconds, and `shouldEnterBillingRetryOnRenewal` and `billingGracePeriodIsEnabled` make a charge fail. It works only in a test bundle hosted by an app ([testing](05-testing.md)); `Demo/Tests` has the package's. Family Sharing, and a renewal while a real device's app is closed, need the sandbox.
 
-## Not yet
+## Tried by hand
 
-- **Non-renewing subscriptions, the 12-month commitment, Bundles and Suites** — [phase 3](14-subscriptions-plan.md#phase-3-on-demand).
+Xcode's environment cannot do these, and they are tried in the sandbox before a release ([checklist](checklist.md)): Family Sharing; a renewal while the app is closed; a promotional offer signed by a real key; a purchase asked for on the App Store; the 12-month commitment; a price rise shown as a message; a subscription bundle.

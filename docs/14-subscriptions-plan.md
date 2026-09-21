@@ -1,6 +1,6 @@
 # Plan: subscriptions and offers
 
-**Status, 19 September 2026: phases 0, 1 and 2 done.** Real StoreKit measured, the design below corrected by it ([what it found](#what-phase-0-found)), auto-renewable subscriptions built on it ([the guide](15-subscriptions.md)), and their offers ([the guide](16-offers.md)). The decisions are [D35](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule) to [D51](10-decisions.md#d51-a-subscription-handed-back-already-over-was-not-bought). Nothing is released yet: 1 and 2 go out together, as 0.3.0, once the hosted lane has given the Xcode 26.6 column and the sandbox rows have been run by hand. The research is [Subscriptions and offers in StoreKit](13-subscriptions-and-offers.md); this is what to build from it, in what order, and what to measure before any of it.
+**Status, 21 September 2026: every phase done.** Real StoreKit measured, the design below corrected by it ([what it found](#what-phase-0-found)), auto-renewable subscriptions built on it ([the guide](15-subscriptions.md)), their offers ([the guide](16-offers.md)), and phase 3. The decisions are [D35](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule) to [D57](10-decisions.md#d57-seats-and-retention-offers-need-nothing-new). Nothing is released yet: it all goes out together, as 0.3.0, once the hosted lane has given the Xcode 26.6 column and the sandbox rows have been run by hand. The research is [Subscriptions and offers in StoreKit](13-subscriptions-and-offers.md); this is what to build from it, in what order, and what to measure before any of it.
 
 Evidence tags as in the research. Names in code sketches are placeholders, to be settled in phase 1; the shapes are the proposal.
 
@@ -316,11 +316,25 @@ Every row of the research marked `[check]` that the design leans on, measured in
 
 **Done when** a test can take a person through an introductory offer, a lapse, and a win-back offer bought in the app, and a promotional offer signed by a fake signer, refused by a rejecting one, and never attempted for someone who never subscribed. ~~Released as 0.4.0~~: released with phase 1, as 0.3.0.
 
-**Done.** `PurchaseStoreOfferTests` takes a person through each of those against the simulated store, and every rule in it was watched to fail against its mutant. `Demo/Tests` reads the terms from real StoreKit and holds the introductory answer StoreKit keeps. On the Mac it also buys a win-back offer and shows an override StoreKit could not check going through at the full price, which is what `.offerNotApplied` is for. What building it found is in [D46–D49](10-decisions.md#d46-introductory-eligibility-has-four-states-and-a-used-offer-is-known-from-what-was-seen) and [D51](10-decisions.md#d51-a-subscription-handed-back-already-over-was-not-bought). Among them, the Mac handed back a lapsed transaction for a purchase made the moment the lapse was read, and the store had called that "subscribed". The status's memory of an offer used did not survive an upgrade, so the store remembers too. Apple's library requires a transaction for the override's signature, so the signer is given one. A promotional offer waiting for the renewal is applied, not missing. Not measured: a promotional offer signed with a real key, which Xcode's environment cannot check. That is for the sandbox, by hand. Open: `gracePeriod`, a phase-1 hosted test, failed in two of five full Mac runs after phase 2 and never alone. It now reports what it saw when it fails.
+**Done.** `PurchaseStoreOfferTests` takes a person through each of those against the simulated store, and every rule in it was watched to fail against its mutant. `Demo/Tests` reads the terms from real StoreKit and holds the introductory answer StoreKit keeps. On the Mac it also buys a win-back offer and shows an override StoreKit could not check going through at the full price, which is what `.offerNotApplied` is for. What building it found is in [D46–D49](10-decisions.md#d46-introductory-eligibility-has-four-states-and-a-used-offer-is-known-from-what-was-seen) and [D51](10-decisions.md#d51-a-subscription-handed-back-already-over-was-not-bought). Among them, the Mac handed back a lapsed transaction for a purchase made the moment the lapse was read, and the store had called that "subscribed". The status's memory of an offer used did not survive an upgrade, so the store remembers too. Apple's library requires a transaction for the override's signature, so the signer is given one. A promotional offer waiting for the renewal is applied, not missing. Not measured: a promotional offer signed with a real key, which Xcode's environment cannot check. That is for the sandbox, by hand. `gracePeriod`, a phase-1 hosted test, failed now and then in a full Mac run and never alone. Made to say what it saw, it showed that StoreKit's test environment had renewed the subscription and ignored `shouldEnterBillingRetryOnRenewal` for that renewal. The store had read it rightly. That case is now an intermittent known issue, and anything else still fails the test.
 
 ### Phase 3: on demand
 
-Each is small once phase 1 exists, and none is started without an app that needs it.
+Each is small once phase 1 exists. The plan said none would be started without an app that needed it; they were all built with phases 1 and 2, so that the release has the whole of the plan.
+
+**Done**, measured first where Xcode's environment allowed ([spike](../spike/README.md#phase-3-what-else-storekit-does-and-what-xcodes-environment-could-not-be-made-to-do)), and built on Apple's documented API where it did not. The decisions are [D52–D57](10-decisions.md#d52-a-non-renewing-subscriptions-end-is-the-catalogues-and-every-purchase-counts):
+
+| | Built | Measured |
+|---|---|---|
+| **Non-renewing subscriptions** | `.nonRenewing(_:lasting:stacking:)`, `nonRenewing(_:at:)`, `.nonRenewing` access and completion; the Demo sells a season pass | Yes: no end, every purchase listed, a refund of one, a purchase handed back |
+| **12-month commitment** | Billing plans on the product, `PurchaseOptions.billingPlan`, `HeldSubscription.commitment`, `Renewal.commitment`, `willRenewAtPeriodEnd` | No: no `.storekit` file with a plan would load. Sandbox |
+| **Bundles and Suites** | `HeldSubscription.bundle`, `Lapse.unbundled`, `bundledSubscriptions`, behind the 27 SDK | No. Sandbox |
+| **Seats** | Counted, as for unlocks; a decision | Not by Xcode, which cannot make one |
+| **Retention offers** | Nothing: `OfferKind.unrecognised` | — |
+| **`PurchaseIntent`** | `requestedPurchases`, `dismissRequestedPurchase(_:)`, the simulated store's `requestPurchase` | No: no intent arrived. Sandbox, on a device |
+| **The `Message` API** | `.storeMessages(deferredWhile:showing:)`, iOS | No: no purchase could be made to ask consent of. Sandbox |
+
+What the table below said before any of it was built:
 
 | | Why wait |
 |---|---|

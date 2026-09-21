@@ -129,6 +129,10 @@ With the 27 SDK the sheet also hands the transaction back, and the store takes i
 }
 ```
 
+## Retention offers
+
+Shown by the system in the cancellation flow, from autumn 2026 `[Apple]`. There is nothing to present and nothing to buy with. A subscription bought with one is counted like any other, and its offer, which the 27 SDK does not name, is `OfferKind.unrecognised` ([D57](10-decisions.md#d57-seats-and-retention-offers-need-nothing-new)).
+
 ## The returning-subscriber discount, end to end
 
 The example the subscription work began from: 10.99 a month for the first two months, then 15.99; and, for someone who cancels and comes back, 10.99 for three months, then 15.99 again.
