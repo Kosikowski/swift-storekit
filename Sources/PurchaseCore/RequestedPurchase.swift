@@ -15,7 +15,8 @@
 /// A purchase the person asked for outside the app, waiting for the app to go on with it.
 public struct RequestedPurchase: Hashable, Sendable, Identifiable {
     public let product: ProductID
-    /// The offer it came with: a win-back offer, when streamlined purchasing is off.
+    /// The offer the person chose with it: a win-back offer taken with streamlined purchasing
+    /// off, or a promotional one.
     public let offer: PurchaseOptions.Offer?
 
     public init(product: ProductID, offer: PurchaseOptions.Offer? = nil) {

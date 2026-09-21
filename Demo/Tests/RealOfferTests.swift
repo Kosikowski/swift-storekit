@@ -62,7 +62,7 @@ private let lapsesOnDemand = true
 private let lapsesOnDemand = false
 #endif
 
-extension RealSubscriptionTests {
+extension RealStoreKit.RealSubscriptionTests {
     /// Subscribed to the monthly plan — with its introductory offer — and lapsed from it.
     private func lapsedMonthly(_ store: PurchaseStore, in session: SKTestSession) async throws {
         await store.start()

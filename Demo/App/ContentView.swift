@@ -21,6 +21,8 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(\.purchaseState) private var purchases
+    @Environment(\.purchaseCommands) private var commands
+    @Environment(\.scenePhase) private var scenePhase
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #else
@@ -61,6 +63,7 @@ struct ContentView: View {
                     if case let .failure(error) = result { notice = Self.words(for: error) }
                 }
             }
+            requested
             Divider()
             membership
             seasonPass
@@ -77,6 +80,26 @@ struct ContentView: View {
         #if os(macOS)
         .frame(minWidth: 520, alignment: .leading)
         #endif
+        // Nothing announces an expiry, or a cancellation made in Settings: read again on coming back.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await commands?.refresh() } }
+        }
+        // Apple's sheets — a price rise to agree to, a billing problem — not over Apple's store.
+        .storeMessages(deferredWhile: showsAppleStore)
+    }
+
+    /// Purchases asked for on the App Store, which the app goes on with or lets go: the
+    /// Demo asks the person.
+    private var requested: some View {
+        ForEach(purchases?.requestedPurchases ?? []) { request in
+            HStack {
+                PurchaseButton(request.product, options: request.options) { notice = Self.words(for: $0) } label: {
+                    Text("Asked for on the App Store: \(Self.name(of: request.product))")
+                }
+                Button("Not now") { commands?.dismissRequestedPurchase(request) }
+            }
+            .accessibilityIdentifier("requested-purchase")
+        }
     }
 
     /// A window of its own on the Mac; a sheet on iOS, which has no `Window` scenes. Not
@@ -100,12 +123,10 @@ struct ContentView: View {
         case nil, .unknown?:
             // Not "free": the store has not answered, and nothing is judged yet.
             ProgressView()
-        case .owned?:
+        case .owned?, .subscribed?, .nonRenewing?:
             Label("Pro", systemImage: "checkmark.seal.fill").font(.title2)
         case let .onTrial(period, _)?:
             Label("Trial until \(Self.moment(period.endsAt))", systemImage: "hourglass").font(.title2)
-        case .subscribed?, .nonRenewing?:
-            Label("Pro", systemImage: "checkmark.seal.fill").font(.title2)
         case .none?:
             Label("Free", systemImage: "lock").font(.title2)
         }
@@ -243,6 +264,8 @@ struct ContentView: View {
         case Shop.monthly: "Monthly"
         case Shop.yearly: "Yearly"
         case Shop.plus: "Plus"
+        case Shop.pro: "Pro"
+        case Shop.season: "Season pass"
         default: plan.rawValue
         }
     }
@@ -277,7 +300,7 @@ struct ContentView: View {
         case let .success(.planChangeScheduled(_, at)):
             "Your plan changes at your next renewal\(at.map { ", on \(moment($0))" } ?? "")."
 
-        case .success(.pending): "Waiting for approval. Pro unlocks as soon as it is given."
+        case .success(.pending): "Waiting for approval. It's yours as soon as it is given."
         case let .success(.trialUsed(period)): "Your trial ended on \(moment(period.endsAt))."
         case .success(.notCounted): "That purchase was completed, but it does not unlock anything for this account."
         case let .failure(error): words(for: error)
