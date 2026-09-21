@@ -268,6 +268,20 @@ struct SubscriptionAdapterTests {
 
     // MARK: - Purchases asked for outside the app
 
+    @Test("the updates go on while any source does: transactions ending leaves status changes and requests heard")
+    func updatesOutliveOneSource() async {
+        var updates = front.transactionUpdates().makeAsyncIterator()
+        await Task.yield()
+        gateway.endUpdates()
+        gateway.announce(status(.subscribed))
+        guard case .subscriptionChanged? = await updates.next() else {
+            Issue.record("a status change should still be heard")
+            return
+        }
+        gateway.endEverything()
+        #expect(await updates.next() == nil)
+    }
+
     @Test("a purchase asked for outside the app is announced as a request, a win-back offer with it; somebody else's is not")
     func purchaseRequested() async {
         var updates = front.transactionUpdates().makeAsyncIterator()

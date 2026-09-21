@@ -11,6 +11,7 @@
 //
 
 public import PurchaseCore
+import Synchronization
 
 /// The App Store.
 ///
@@ -170,6 +171,8 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusRead
         // Subscribed first, so nothing falls between the backlog and the stream.
         let source = gateway.updates()
         let (stream, continuation) = AsyncStream<TransactionUpdate>.makeStream()
+        // Three sources, and the stream ends only when all of them have.
+        let sources = Countdown(3) { continuation.finish() }
         let task = Task { [catalogue, logger, gateway] in
             func take(_ snapshot: TransactionSnapshot) async {
                 switch TransactionTriage.verdict(for: snapshot, catalogue: catalogue) {
@@ -191,7 +194,7 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusRead
             }
             for snapshot in await gateway.unfinished() { await take(snapshot) }
             for await snapshot in source { await take(snapshot) }
-            continuation.finish()
+            sources.end()
         }
         // An expiry sends no transaction at all, and a cancellation or a grace period
         // none either (measured, spike/README.md): a status change is how they are heard.
@@ -204,6 +207,7 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusRead
                 case .foreign: break
                 }
             }
+            sources.end()
         }
         // A purchase asked for outside the app: a request, for the app to act on. Only a
         // catalogue product's.
@@ -212,6 +216,7 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusRead
             for await intent in intents where catalogue.contains(intent.productID) {
                 continuation.yield(.purchaseRequested(Self.request(from: intent, logger: logger)))
             }
+            sources.end()
         }
         continuation.onTermination = { _ in
             task.cancel()
@@ -321,5 +326,24 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusRead
             unverifiedEntitlements: ours.filter { $0.verification == .unverified }.count,
             foreignEntitlements: entitlements.count - ours.count,
             environment: entitlements.compactMap(\.environment).first)
+    }
+}
+
+/// Calls `done` when the last of `count` things has ended.
+private final class Countdown: Sendable {
+    private let left: Mutex<Int>
+    private let done: @Sendable () -> Void
+
+    init(_ count: Int, then done: @escaping @Sendable () -> Void) {
+        left = Mutex(count)
+        self.done = done
+    }
+
+    func end() {
+        let last = left.withLock { left in
+            left -= 1
+            return left == 0
+        }
+        if last { done() }
     }
 }

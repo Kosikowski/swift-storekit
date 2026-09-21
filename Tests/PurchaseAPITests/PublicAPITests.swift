@@ -68,6 +68,8 @@ struct PublicAPITests {
     ]
     #endif
 
+    /// The work is done by the compiler, which must find each name in `named` unqualified
+    /// beside StoreKit; the count only says the list was not emptied.
     @Test("every public type is nameable beside StoreKit")
     func names() {
         #expect(Self.named.count > 50)
@@ -123,7 +125,7 @@ struct PublicAPITests {
         let this = try String(contentsOf: here, encoding: .utf8)
         let sources = here.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "Sources")
-        let declaration = /^public (?:final )?(?:struct|enum|class|protocol|actor|typealias) (\w+)/
+        let declaration = /^(?:@\w+(?:\([^)]*\))?\s+)*(?:public|open)\s+(?:final\s+)?(?:indirect\s+)?(?:struct|enum|class|protocol|actor|typealias)\s+(\w+)/
             .anchorsMatchLineEndings()
         var declared: Set<String> = []
         let files = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)
@@ -133,8 +135,9 @@ struct PublicAPITests {
             for match in text.matches(of: declaration) { declared.insert(String(match.1)) }
         }
         #expect(declared.count > 50, "the sources were not found at \(sources.path)")
-        let missing = declared.filter { name in
-            !["\(name).self", "any \(name)).self", "\(name)<"].contains { this.contains($0) }
+        // Whole names: `Standing` is not named by `SubscriptionStanding.self`.
+        let missing = try declared.filter { name in
+            try !this.contains(Regex("\\b\(name)(?:\\.self|<)|any \(name)\\)\\.self"))
         }
         #expect(missing.isEmpty, "public, and not named here: \(missing.sorted())")
     }

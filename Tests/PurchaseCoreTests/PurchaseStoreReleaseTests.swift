@@ -82,7 +82,7 @@ struct PurchaseStoreReleaseTests {
         front.hold()
         let store = store()
         let asked = Task { await store.knownStanding() }
-        await waitUntil { front.waiterCount == 1 }
+        #expect(await waitUntil { front.waiterCount == 1 })
         asked.cancel()
         front.release()
         #expect(await asked.value.ownership(of: Shop.pro) != nil)
@@ -93,7 +93,7 @@ struct PurchaseStoreReleaseTests {
         front.hold()
         let store = store()
         let callers = (0 ..< 20).map { _ in Task { await store.knownStanding() } }
-        await waitUntil { front.waiterCount == 1 }
+        #expect(await waitUntil { front.waiterCount == 1 })
         front.release()
         for caller in callers { #expect(await caller.value.isKnown) }
         // The pass that was held, and at most the one re-run the late callers asked for.
@@ -107,9 +107,9 @@ struct PurchaseStoreReleaseTests {
         let store = store()
         await store.start()
         if case .onTrial = store.standing.access(to: Shop.pro) {} else { Issue.record("the trial should lend the unlock") }
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
         clock.advance(by: .seconds(300))
-        await waitUntil { store.standing.access(to: Shop.pro) == .none }
+        #expect(await waitUntil { store.standing.access(to: Shop.pro) == .none })
         #expect(store.standing.access(to: Shop.pro) == .none)
     }
 }

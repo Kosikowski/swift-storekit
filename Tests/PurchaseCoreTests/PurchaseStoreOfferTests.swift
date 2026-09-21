@@ -338,7 +338,7 @@ struct PurchaseStoreOfferTests {
         #expect(held.renewal?.offer == promotional)
         let ends = held.periodEnds
         clock.advance(to: ends)
-        await waitUntil { group.current?.periodStarted == ends }
+        #expect(await waitUntil { group.current?.periodStarted == ends })
         #expect(group.current?.offer == promotional)
     }
 

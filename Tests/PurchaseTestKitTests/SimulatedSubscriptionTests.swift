@@ -245,11 +245,11 @@ struct YearOfRenewalsTests {
         for month in 1 ... 12 {
             clock.advance(to: ends)
             // Watched while it renews, not only once it has: a moment's lock-out is one.
-            await waitUntil {
+            #expect(await waitUntil {
                 let standing = store.standing.subscription(in: group)
                 if standing.isActive != true { lockedOut.append(month) }
                 return standing.current?.periodEnds ?? ends > ends
-            }
+            })
             #expect(store.standing.subscription(in: group).isActive == true, "locked out at renewal \(month)")
             ends = try #require(store.standing.subscription(in: group).current?.periodEnds)
         }

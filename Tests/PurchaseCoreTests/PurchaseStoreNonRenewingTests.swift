@@ -123,7 +123,7 @@ struct PurchaseStoreNonRenewingTests {
         await store.refresh()
         let ends = Shop.epoch.addingTimeInterval(30 * day)
         clock.advance(to: ends)
-        await waitUntil { store.standing.access(to: Seasons.season) == .none }
+        #expect(await waitUntil { store.standing.access(to: Seasons.season) == .none })
         #expect(store.standing.nonRenewing(Seasons.season) == .ended(NonRenewingPeriod(startedAt: Shop.epoch, endsAt: ends)))
     }
 

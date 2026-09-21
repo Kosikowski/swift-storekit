@@ -84,7 +84,7 @@ struct PurchaseStoreSubscriptionTests {
 
         let grace = status(.inGracePeriod(until: clock.now.addingTimeInterval(3 * 86_400)), ends: -3_600)
         front.changeSubscription(grace)
-        await waitUntil { group.isActive == true }
+        #expect(await waitUntil { group.isActive == true })
         #expect(store.standing.access(to: Plans.monthly) == .subscribed(grace))
         #expect(store.standing.nextExpiry == clock.now.addingTimeInterval(3 * 86_400))
     }
@@ -214,7 +214,7 @@ struct PurchaseStoreSubscriptionTests {
         #expect(try await store.purchase(Plans.monthly) == .pending)
         #expect(store.pendingApprovals == [Plans.monthly])
         front.approvePending(Plans.monthly)
-        await waitUntil { group.isActive == true }
+        #expect(await waitUntil { group.isActive == true })
         #expect(store.pendingApprovals.isEmpty)
     }
 
@@ -229,8 +229,8 @@ struct PurchaseStoreSubscriptionTests {
         #expect(try await store.purchase(Plans.monthly) == .pending)
         #expect(store.pendingApprovals == [Plans.monthly])
         front.approvePending(Plans.monthly)
-        await waitUntil { group.current?.renewal?.nextProduct == Plans.monthly }
-        await waitUntil { store.pendingApprovals.isEmpty }
+        #expect(await waitUntil { group.current?.renewal?.nextProduct == Plans.monthly })
+        #expect(await waitUntil { store.pendingApprovals.isEmpty })
         #expect(store.pendingApprovals.isEmpty)
         #expect(group.current?.product == Plans.premium)
     }
@@ -246,12 +246,13 @@ struct PurchaseStoreSubscriptionTests {
         front.seedSubscription(renewing)
         await store.start()
         #expect(store.standing.nextExpiry == renewing.periodEnds)
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
 
         // What the real store says in that moment: expired, will not renew, no reason.
         front.seedSubscription(status(.expired(.unstated), ends: 60, willRenew: false))
         clock.advance(by: .seconds(60))
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
+        #expect(clock.deadlines == [clock.now.addingTimeInterval(2)])
         #expect(group.isActive == true)
         #expect(group.current == renewing)
 
@@ -260,7 +261,7 @@ struct PurchaseStoreSubscriptionTests {
             id: Plans.monthly, originalPurchaseDate: renewing.firstSubscribed, purchaseDate: clock.now,
             expirationDate: clock.now.addingTimeInterval(30 * 86_400))
         front.deliver(renewal)
-        await waitUntil { group.current?.periodEnds == renewal.expirationDate }
+        #expect(await waitUntil { group.current?.periodEnds == renewal.expirationDate })
         #expect(group.isActive == true)
     }
 
@@ -268,15 +269,15 @@ struct PurchaseStoreSubscriptionTests {
     func lastingLapseBelieved() async {
         front.seedSubscription(status(ends: 60))
         await store.start()
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
         front.seedSubscription(status(.expired(.unstated), ends: 60, willRenew: false))
         clock.advance(by: .seconds(60))
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
         #expect(group.isActive == true)
 
         // Nothing is announced: only the store's own looks can find the lapse.
         clock.advance(by: .seconds(30))
-        await waitUntil { group.isActive == false }
+        #expect(await waitUntil { group.isActive == false })
         #expect(group.current?.state == .expired(.unstated))
         #expect(store.standing.access(to: Plans.monthly) == .none)
     }
@@ -285,10 +286,10 @@ struct PurchaseStoreSubscriptionTests {
     func cancelledLapsesAtOnce() async {
         front.seedSubscription(status(ends: 60, willRenew: false))
         await store.start()
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
         front.seedSubscription(status(.expired(.autoRenewDisabled), ends: 60, willRenew: false))
         clock.advance(by: .seconds(60))
-        await waitUntil { group.isActive == false }
+        #expect(await waitUntil { group.isActive == false })
         #expect(group.current?.state == .expired(.autoRenewDisabled))
     }
 
@@ -305,7 +306,7 @@ struct PurchaseStoreSubscriptionTests {
         front.deliver(OwnedProduct(
             id: Plans.monthly, originalPurchaseDate: clock.now.addingTimeInterval(-90 * 86_400),
             purchaseDate: clock.now.addingTimeInterval(-61 * 86_400), expirationDate: clock.now.addingTimeInterval(-31 * 86_400)))
-        await waitUntil { logger.events.contains(.transactionUpdated(Plans.monthly)) }
+        #expect(await waitUntil { logger.events.contains(.transactionUpdated(Plans.monthly)) })
         await store.refresh()
         #expect(store.standing.subscription(in: Plans.group).isActive == false)
     }
@@ -314,18 +315,18 @@ struct PurchaseStoreSubscriptionTests {
     /// expiry is a moment already gone. A look scheduled for that moment woke at once, and
     /// again, for ever.
     @Test("a lapse being doubted does not make the store read over and over")
-    func doubtDoesNotSpin() async throws {
+    func doubtDoesNotSpin() async {
         let logger = RecordingPurchaseLogger()
         let store = PurchaseStore(catalogue: Plans.catalogue, front: front, clock: clock, logger: logger)
         front.seedSubscription(status(ends: 60))
         await store.start()
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
         front.seedSubscription(status(.expired(.unstated), ends: 60, willRenew: false))
         clock.advance(by: .seconds(60))
-        await waitUntil { clock.sleeperCount == 1 }
-        try await Task.sleep(for: .milliseconds(100))
+        #expect(await waitUntil { clock.sleeperCount == 1 })
+        #expect(clock.deadlines.allSatisfy { $0 > clock.now })
         let reads = logger.events.filter { if case .standingResolved = $0 { true } else { false } }.count
-        #expect(reads <= 3)
+        #expect(reads == 2)
         #expect(store.standing.subscription(in: Plans.group).isActive == true)
     }
 
@@ -345,7 +346,7 @@ struct PurchaseStoreSubscriptionTests {
             periodStarted: renewal.purchaseDate, periodEnds: renewal.expirationDate!,
             renewal: Renewal(willRenew: true, nextProduct: Plans.monthly))
         front.changeSubscription(retrying)
-        await waitUntil { group.isActive == false }
+        #expect(await waitUntil { group.isActive == false })
         #expect(group.current?.state == .inBillingRetry)
     }
 
@@ -362,13 +363,13 @@ struct PurchaseStoreSubscriptionTests {
             restorer: front, observer: front, subscriptionStatuses: said, clock: clock)
         let group = { store.standing.subscription(in: Plans.group) }
         await store.start()
-        await waitUntil { clock.sleeperCount == 1 }
+        #expect(await waitUntil { clock.sleeperCount == 1 })
         clock.advance(by: .seconds(61))
-        await waitUntil { clock.sleeperCount == 1 && group().current?.accessEnds ?? .distantFuture <= clock.now }
+        #expect(await waitUntil { clock.sleeperCount == 1 && group().current?.accessEnds ?? .distantFuture <= clock.now })
         #expect(group().isActive == true)
         said.say(status(.expired(.autoRenewDisabled), ends: -1, willRenew: false))
         clock.advance(by: .seconds(60))
-        await waitUntil { group().isActive == false }
+        #expect(await waitUntil { group().isActive == false })
         #expect(group().isActive == false)
     }
 

@@ -123,7 +123,7 @@ struct RealStoreKitTests {
         try await store.purchase(Self.pro)
         let bought = try #require(session.allTransactions().first { $0.productIdentifier == Self.pro.rawValue })
         try session.refundTransaction(identifier: bought.identifier)
-        await waitUntil(timeout: .seconds(10)) { store.standing.access(to: Self.pro) == .none }
+        #expect(await waitUntil(timeout: .seconds(10)) { store.standing.access(to: Self.pro) == .none })
         #expect(store.standing.access(to: Self.pro) == .none)
         withExtendedLifetime(session) {}
     }
@@ -139,7 +139,7 @@ struct RealStoreKitTests {
 
         let waiting = try #require(session.allTransactions().first { $0.productIdentifier == Self.pro.rawValue })
         try session.approveAskToBuyTransaction(identifier: waiting.identifier)
-        await waitUntil(timeout: .seconds(10)) { store.standing.ownership(of: Self.pro) != nil }
+        #expect(await waitUntil(timeout: .seconds(10)) { store.standing.ownership(of: Self.pro) != nil })
         #expect(store.standing.ownership(of: Self.pro) != nil)
         #expect(store.pendingApprovals.isEmpty)
         withExtendedLifetime(session) {}
@@ -157,7 +157,7 @@ struct RealStoreKitTests {
             return
         }
         #expect(store.standing.access(to: Self.pro) == .onTrial(period, via: Self.trial))
-        await waitUntil(timeout: .seconds(10)) { store.standing.access(to: Self.pro) == .none }
+        #expect(await waitUntil(timeout: .seconds(10)) { store.standing.access(to: Self.pro) == .none })
         #expect(store.standing.access(to: Self.pro) == .none)
         #expect(store.standing.trial(Self.trial) == .used(period))
         withExtendedLifetime(session) {}
@@ -173,7 +173,7 @@ struct RealStoreKitTests {
             Issue.record("expected the trial to be running")
             return
         }
-        await waitUntil(timeout: .seconds(10)) { store.standing.trial(Self.trial) == .used(first) }
+        #expect(await waitUntil(timeout: .seconds(10)) { store.standing.trial(Self.trial) == .used(first) })
         #expect(try await store.purchase(Self.trial) == .trialUsed(first))
         withExtendedLifetime(session) {}
     }
@@ -237,7 +237,7 @@ struct RealStoreKitTests {
         // The listing has it, unverified; it is not counted, and the diagnosis says why
         // a customer who paid is looking at the paywall.
         let front = AppStoreFront(catalogue: Self.catalogue())
-        await waitUntil(timeout: .seconds(10)) { await front.diagnose().unverifiedEntitlements == 1 }
+        #expect(await waitUntil(timeout: .seconds(10)) { await front.diagnose().unverifiedEntitlements == 1 })
         let diagnosis = await front.diagnose()
         #expect(diagnosis.unverifiedEntitlements == 1)
         #expect(diagnosis.hints == [.unverifiedEntitlementsPresent(1)])
@@ -294,10 +294,10 @@ struct RealStoreKitTests {
         let bought = Date(timeIntervalSinceNow: -(14 * 86_400 - 300))
         try await withKnownIssue("with Xcode 27 on macOS 26, buyProduct throws StoreKitError.unknown") {
             _ = try await session.buyProduct(identifier: Self.trial.rawValue, options: [.purchaseDate(bought)])
-            await waitUntil(timeout: .seconds(10)) {
+            #expect(await waitUntil(timeout: .seconds(10)) {
                 await store.refresh()
                 return store.standing.ownership(of: Self.trial) != nil
-            }
+            })
             guard case let .running(period) = store.standing.trial(Self.trial) else {
                 Issue.record("expected the trial to be running, got \(store.standing.trial(Self.trial))")
                 return
@@ -574,7 +574,7 @@ struct RealStoreKitTests {
         let store = store()
         try await store.purchase(Self.pro)
         let front = AppStoreFront(catalogue: Self.catalogue())
-        await waitUntil(timeout: .seconds(10)) { await front.diagnose().verifiedEntitlements == 1 }
+        #expect(await waitUntil(timeout: .seconds(10)) { await front.diagnose().verifiedEntitlements == 1 })
         let diagnosis = await front.diagnose()
         #expect(diagnosis.received == Self.catalogue().identifiers)
         #expect(diagnosis.hints.isEmpty)

@@ -65,14 +65,30 @@ final class FakeStoreKitGateway: StoreKitGateway {
         state.withLock { $0.updates }?.yield(snapshot)
     }
 
+    /// StoreKit's transaction updates end, as they never have been seen to.
+    func endUpdates() {
+        state.withLock { $0.updates }?.finish()
+    }
+
+    /// Every source of updates ends: transactions, statuses and intents.
+    func endEverything() {
+        let (updates, statuses, intents) = state.withLock { ($0.updates, $0.statusUpdates, $0.intents) }
+        updates?.finish()
+        statuses?.finish()
+        intents?.finish()
+    }
+
     // MARK: - StoreKitGateway
 
+    /// As measured of the real store: asked from a cancelled task, it answers with nothing.
     func products(for identifiers: Set<ProductID>) async throws -> [StoreProduct] {
-        try state.withLock { $0.products }.get()
+        if Task.isCancelled { return [] }
+        return try state.withLock { $0.products }.get()
     }
 
     func currentEntitlements() async -> [TransactionSnapshot] {
-        state.withLock { $0.entitlements }
+        if Task.isCancelled { return [] }
+        return state.withLock { $0.entitlements }
     }
 
     func unfinished() async -> [TransactionSnapshot] {
