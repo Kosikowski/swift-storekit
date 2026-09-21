@@ -8,8 +8,11 @@
 //  StoreKit shows these sheets by itself, over whatever is on screen: in the middle of
 //  onboarding, a game, a form half filled. An app may hold them back and show them later
 //  (`Message.messages`, iOS only) `[Apple]`. When is the app's policy, so this is only the
-//  mechanism: messages wait while the app says so, and are shown when it stops saying so.
-//  The Mac has no such messages `[Apple]`, and there this does nothing.
+//  mechanism: messages wait while the app says so, and are shown when it stops saying so
+//  (`MessageQueue`). The Mac has no such messages `[Apple]`, and there this does nothing.
+//
+//  A view-layer StoreKit call, as the manage-subscriptions sheet is: a message can only be
+//  shown by the view it reached, so it cannot be moved behind `PurchaseStoreKit`.
 //
 //  In a `ViewModifier`, for the reason `purchaseStore(_:)`'s task is: a public function
 //  returning `some View` built straight from SwiftUI's emitted-into-client modifiers has
@@ -57,30 +60,50 @@ private struct StoreMessages: ViewModifier {
 
     #if os(iOS)
     @Environment(\.displayStoreKitMessage) private var display
-    @State private var waiting: [Message] = []
-    #endif
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var latest = Latest()
 
     func body(content: Content) -> some View {
-        #if os(iOS)
-        content
+        // A task started once reads the modifier it started with; these are read through
+        // `latest` so that it sees what the app says now.
+        latest.isDeferred = isDeferred
+        latest.showing = showing
+        latest.display = display
+        return content
             .task {
-                for await message in Message.messages {
-                    guard showing(Self.reason(message.reason)) else { continue }
-                    if isDeferred { waiting.append(message) } else { try? display(message) }
+                for await message in Message.messages where latest.showing(Self.reason(message.reason)) {
+                    latest.queue.receive(message, deferred: latest.isDeferred, display: latest.show)
                 }
             }
             .onChange(of: isDeferred) { _, deferred in
-                guard !deferred else { return }
-                let ready = waiting
-                waiting = []
-                for message in ready { try? display(message) }
+                if !deferred { latest.queue.release(display: latest.show) }
             }
-        #else
-        content
-        #endif
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active, !latest.isDeferred { latest.queue.release(display: latest.show) }
+            }
     }
+    #else
+    func body(content: Content) -> some View {
+        content
+    }
+    #endif
 
     #if os(iOS)
+    @MainActor
+    private final class Latest {
+        var isDeferred = false
+        var showing: @MainActor (StoreMessageReason) -> Bool = { _ in true }
+        var display: DisplayMessageAction?
+        var queue = MessageQueue<Message>()
+
+        func show(_ message: Message) throws {
+            guard let display else { throw CannotShow() }
+            try display(message)
+        }
+
+        private struct CannotShow: Error {}
+    }
+
     /// An open set, as every StoreKit one is (D40).
     private static func reason(_ reason: Message.Reason) -> StoreMessageReason {
         switch reason {

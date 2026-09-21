@@ -24,8 +24,10 @@
 //  does not work in a package test target at all (see spike/README.md).
 //
 //  `PurchaseStoreKit` is the App Store behind those protocols, and the only place a
-//  static StoreKit call is made. `PurchaseUI` is a few SwiftUI conveniences and no
-//  paywall. Neither depends on the other; they meet in Core.
+//  static StoreKit call is made that decides anything. `PurchaseUI` is a few SwiftUI
+//  conveniences and no paywall; the StoreKit it uses is the view layer's own — the
+//  purchase action, the manage-subscriptions sheet, Apple's messages — which only a view
+//  can show. Neither depends on the other; they meet in Core.
 //
 //  **An app imports modules that do something in every build, and nothing else.**
 //  `PurchaseLaunch` gives an app its store: in a DEBUG build a `-PurchaseScenario`
@@ -127,6 +129,7 @@ let package = Package(
         .testTarget(
             name: "PurchaseStoreKitTests", dependencies: ["PurchaseCore", "PurchaseStoreKit"],
             swiftSettings: strict),
+        .testTarget(name: "PurchaseUITests", dependencies: ["PurchaseUI"], swiftSettings: strict),
         // Every module an app can import, beside StoreKit and SwiftUI, and nothing
         // `@testable`: a public name StoreKit also has, or a public type an app cannot
         // make, fails this target's build and not an app's.
