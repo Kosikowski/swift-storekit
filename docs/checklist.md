@@ -86,7 +86,7 @@ Each item says how it is known:
 - [ ] **`Transaction.updates` is listened to from launch, for the app's whole life.** It carries Ask to Buy approvals, purchases on other devices and refunds. It does not carry purchases made with `purchase()` in this process. [Apple] The listener starts with `start()`, which `.purchaseStore(_:)` calls.
     - **The stream carries the transaction's facts, not only a product ID**: `TransactionUpdate.granted(OwnedProduct)` or `.withdrawn(ProductID)`. An update for a grant arrives *before* the listing has it: when an approved Ask to Buy arrives, the listing at that instant is still empty, and has the product about half a second later. A listener that re-reads the listing on the update finds nothing, and has no reason ever to look again. A refund's update does not lag: the listing is already empty when it arrives. So a grant is held exactly as a purchase is, and a withdrawal drops the hold at once. [ran]
     - Verified transactions for catalogue products are finished. Unverified ones are not, because the App Store offers them again. [Apple] Transactions for products the catalogue does not list are left alone, for whoever owns them. ([the adapter](08-storekit-adapter.md))
-- [ ] **The outcomes are told apart by type.** `PurchaseCompletion` has `.owned`, `.trialRunning`, `.trialUsed`, `.notCounted`, `.subscribed`, `.offerNotApplied`, `.planChangeScheduled`, `.pending` and `.cancelled`; what went wrong is a thrown `PurchaseError`. An unverified purchase is `PurchaseError.unverified` and is never a cancellation. A cancellation that arrives *thrown*, as `StoreKitError.userCancelled`, is still a cancellation. [review]
+- [ ] **The outcomes are told apart by type.** `PurchaseCompletion` has `.owned`, `.trialRunning`, `.trialUsed`, `.notCounted`, `.subscribed`, `.nonRenewing`, `.offerNotApplied`, `.planChangeScheduled`, `.pending` and `.cancelled`; what went wrong is a thrown `PurchaseError`. An unverified purchase is `PurchaseError.unverified` and is never a cancellation. A cancellation that arrives *thrown*, as `StoreKitError.userCancelled`, is still a cancellation. [review]
 - [ ] **Errors carry no text.** `PurchaseError` is typed, and an unrecognised error crosses as the name of its type, because some StoreKit errors echo App Store account identifiers in `localizedDescription`. [review]
 - [ ] **Buying an already-owned non-consumable returns the original transaction.** For a used trial the purchase returns `PurchaseCompletion.trialUsed(TrialPeriod)`, and `TrialStatus.used(TrialPeriod)` says when it ended. [ran]
 - [ ] **Restore is `AppStore.sync()` followed by a fresh read.** `restorePurchases()` and `RestorePurchasesButton`. A restore that fails reads again and never downgrades. [Apple]
@@ -249,7 +249,7 @@ Nothing in this section is the package's.
 - [ ] **Win-back offers are Apple's to allow**: the eligible offers on the account's own status, in Apple's order, with their terms. [ran] ([offers](16-offers.md#win-back-offers))
 - [ ] **A promotional offer is never attempted without a signature**, and never asked of the signer for someone who has never subscribed in the group. [review] ([D48](10-decisions.md#d48-the-package-never-signs-a-signer-the-app-supplies-is-asked-only-when-it-must-be))
 - [ ] **An offer that was not applied is said**, as `.offerNotApplied`: StoreKit let an override through at the full price and said nothing. [ran] ([D47](10-decisions.md#d47-an-offer-that-was-not-applied-is-said))
-- [ ] **A redeemed offer code reaches the store**, from the updates stream, or from the 27 SDK's sheet through `takeRedemption(_:)`. [ran]
+- [ ] **A redeemed offer code reaches the store** from the updates stream. [ran] From the 27 SDK's sheet, through `takeRedemption(_:)`, which takes what the sheet hands back as a purchase is taken. [Apple]
 
 ### Your app's responsibility
 
@@ -265,9 +265,12 @@ Nothing in this section is the package's.
 ### Handled by the package
 
 - [ ] **A non-renewing subscription's end is the catalogue's**, and every purchase counts: the listing keeps every one, and StoreKit gives them no end. [ran] ([D52](10-decisions.md#d52-a-non-renewing-subscriptions-end-is-the-catalogues-and-every-purchase-counts))
-- [ ] **A purchase handed back that was already counted is not reported as bought.** [ran]
+- [ ] **A purchase handed back that was already counted is not reported as bought**, whether from `purchase()` or from one of Apple's views. [ran]
+- [ ] **An Ask to Buy for a non-renewing subscription bought before stays pending until it is approved.** [review]
+- [ ] **A purchase dated ahead of this device's clock is looked at when it begins.** [review]
 - [ ] **On a 12-month commitment, "will it end" is read from the commitment**, not from `willRenew`, which stays true after a cancellation. [Apple] ([D54](10-decisions.md#d54-on-a-12-month-commitment-whether-it-will-renew-and-whether-it-will-end-are-two-facts))
-- [ ] **A purchase asked for on the App Store waits for the app**, in `requestedPurchases`: nothing is bought until the app buys it. [Apple]
+- [ ] **A purchase asked for on the App Store waits for the app**, in `requestedPurchases`: nothing is bought until the app buys it, and a promotional or win-back offer the person chose goes with it. [Apple]
+- [ ] **Apple's messages wait while the app defers them, and are shown in order when it stops**; one that cannot be shown waits for the next chance. [review]
 
 ### Your app's responsibility
 

@@ -309,7 +309,7 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     }
 
     /// Bought again, StoreKit can hand back a purchase already made and buy nothing: a
-    /// subscription's transaction already over (spike/README.md, row 10; D51), or a
+    /// subscription's transaction already over (spike/README.md, q10; D51), or a
     /// non-renewing purchase already counted (n03; D52). Neither is a purchase, and trying
     /// again is fair.
     ///

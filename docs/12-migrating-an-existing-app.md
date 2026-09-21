@@ -74,7 +74,7 @@ Do them in this order. After step 2 the app builds and runs on the new store; th
        guard beyondFreeLimit else { return true }
        let standing = await purchases.knownStanding()
        switch standing.access(to: Shop.pro, at: now) {
-       case .owned, .onTrial: return true
+       case .owned, .onTrial, .subscribed, .nonRenewing: return true
        case .none, .unknown: return false
        }
    }

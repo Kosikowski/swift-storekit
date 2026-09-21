@@ -22,7 +22,7 @@ monthly?.winBackOffers        // [OfferTerms]
 |---|---|
 | `kind` | `.introductory`, `.promotional`, `.winBack` — or `.unrecognised`, for a kind StoreKit adds later |
 | `id` | The offer's identifier; nil for the introductory offer, of which there is one |
-| `paymentMode` | `.freeTrial`, `.payAsYouGo`, `.payUpFront` |
+| `paymentMode` | `.freeTrial`, `.payAsYouGo`, `.payUpFront`; `.oneTime` for an offer code on a one-time purchase, and `.unrecognised` for a mode StoreKit adds later |
 | `period`, `periodCount` | "A month, for two": the discounted periods of pay as you go; for a free trial or a price paid up front, one period that is the whole of it |
 | `displayPrice` | **Show this.** Per period, or for the whole, as the store spells it |
 
@@ -48,7 +48,7 @@ case .unknown, .noOffer, .ineligible: EmptyView()     // the regular price, on t
 
 There are four states, not two, because the others' two were wrong both ways. One library assumed "eligible" when the product could not be fetched. Another took "the product has a trial" to mean "this person may have it". A third said "eligible" for a product with no offer at all ([plan](14-subscriptions-plan.md#how-others-do-it)).
 
-**StoreKit's own answer keeps its first value for the life of the process.** `isEligibleForIntroOffer(for:)` said "eligible" before a purchase with the offer, and still said it afterwards `[ran]`. So the package does not take it alone. The App Store's answer is overruled by any verified transaction in the group that was bought with the offer. The store also remembers every purchase it saw bought with the offer, and every status that says so. ([D46](10-decisions.md#d46-introductory-eligibility-has-four-states-and-a-used-offer-is-known-from-what-was-seen))
+**StoreKit's own answer keeps its first value for the life of the process.** `isEligibleForIntroOffer(for:)` said "eligible" before a purchase with the offer, and still said it afterwards `[ran]`. So the package does not take it alone. The App Store's answer is overruled by any verified transaction in the group that was bought with the offer. The store also remembers every purchase it saw bought with the offer, and every status that says so, so an upgrade that replaces that status leaves the offer used. Only the Apple Account's own count: a family member's purchase with the offer uses up nothing of this account's `[Apple]`. ([D46](10-decisions.md#d46-introductory-eligibility-has-four-states-and-a-used-offer-is-known-from-what-was-seen))
 
 ## Win-back offers
 
@@ -89,7 +89,7 @@ On the server, Apple's [App Store Server Library](https://github.com/apple/app-s
 What the store does, in order:
 
 1. **Someone who has never subscribed in the group is refused before the signer is asked**: `PurchaseError.offerRefused(.notEligible)`. Apple would refuse them anyway, and the server should not be asked for a signature it has no business making.
-2. The signer is asked. **If it throws, or the store has no signer, nothing is bought**: `PurchaseError.offerNotSigned`. Another library carried on with the purchase when signing failed ([plan](14-subscriptions-plan.md#how-others-do-it)).
+2. The signer is asked. **If it throws, or the store has no signer, nothing is bought**: `PurchaseError.offerNotSigned`, and the store logs `offerSignerFailed` with the type of what the signer threw. Another library carried on with the purchase when signing failed ([plan](14-subscriptions-plan.md#how-others-do-it)).
 3. The store buys with the signature. If StoreKit refuses the offer, the error keeps its reason: `.offerRefused(.invalidSignature)` means the server's signature, while `.notEligible`, `.unknownOffer`, `.invalidPrice` and `.missingParameters` are the store's reasons. Nothing is bought.
 
 For a current subscriber, a promotional offer takes effect at the next billing event `[Apple]`. The purchase completes as `.subscribed`, and `held.renewal?.offer` names the offer waiting. The renewal's period then carries it.
@@ -104,7 +104,7 @@ A server can also allow the introductory offer whatever Apple would say, with th
 try await store.purchase(Shop.monthly, options: PurchaseOptions(offer: .introductoryOverride))
 ```
 
-The request's `kind` is `.introductoryOverride`. The server signs it with `IntroductoryOfferEligibilitySignatureCreator`, whose `createSignature(productId:allowIntroductoryOffer:transactionId:)` requires a transaction of the customer's `[Apple]`, so it uses the request's `transactionID`.
+The request's `kind` is `.introductoryOverride`. The server signs it with `IntroductoryOfferEligibilitySignatureCreator`, whose `createSignature(productId:allowIntroductoryOffer:transactionId:)` requires a transaction of the customer's `[Apple]`, so it uses the request's `transactionID`: the account's own latest in the group that has one, read before the signer is asked if the store has read nothing yet.
 
 ## When an offer is not applied
 
@@ -150,7 +150,7 @@ The simulated store keeps offers as the real store does. It applies the introduc
 
 ```swift
 let front = SimulatedStoreFront(catalogue: Shop.catalogue, products: products, clock: clock)   // products with offers
-// or: SimulatedStoreFront(catalogue: Shop.catalogue, configuration: StoreKitConfiguration(contentsOf: storekitFile))
+// or: SimulatedStoreFront(catalogue: Shop.catalogue, configuration: try StoreKitConfiguration(contentsOf: storekitFile))
 let store = PurchaseStore(catalogue: Shop.catalogue, front: front, offerSigner: TestSigner(), clock: clock)
 ```
 

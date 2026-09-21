@@ -18,14 +18,19 @@ The gateway fetches, forwards and copies a transaction's fields into a `Transact
 |---|---|---|
 | Prices | `Product.products(for:)` | Products are cached so Buy does not go back to the network. |
 | What is owned | `Transaction.currentEntitlements` | Current, not deprecated; only the singular `currentEntitlement(for:)` is. At most one transaction per non-consumable; refunded ones are already excluded; family-shared ones are included. **[Apple]** |
-| Buying | `PurchaseAction`, `purchase(confirmIn:)`, or `purchase(options:)` | By anchor; see below. |
+| Buying | `PurchaseAction`, `purchase(confirmIn:)`, or `purchase(options:)` | By anchor; see below. The options — an account token, a billing plan, an offer and its signature — are worked out first by `PurchaseRequest`, which says what to send or why nothing can be sent, and which a test reaches; the gateway only turns it into `Product.PurchaseOption`s. A win-back offer is looked for on the product and on the billing plan asked for. |
+| A purchase made in Apple's views | none: the view's result is handed over | `takePurchase(_:of:)` and `takeRedemption(_:)` take `Product.PurchaseResult` and the 27 SDK's offer-code sheet's `VerificationResult<Transaction>`, and judge them as a purchase made here ([D45](10-decisions.md#d45-a-purchase-made-in-apples-own-views-is-handed-to-the-store)) |
 | Restoring | `AppStore.sync()` | Prompts for a password. Only behind a button. |
 | Subscription statuses | `Product.SubscriptionInfo.status(for:)`, per group | Static: no product loaded first. Read beside the listing, and deciding over it ([D35](10-decisions.md#d35-subscriptions-are-decided-by-the-status-by-apples-rule)). A group StoreKit could not be asked about is left out and logged as `subscriptionStatusUnavailable`, never answered empty |
 | Status changes | `Product.SubscriptionInfo.Status.updates` | Merged into the updates stream: an expiry, a cancellation and a grace period send no transaction at all **[ran]** |
+| Introductory eligibility | `Product.SubscriptionInfo.isEligibleForIntroOffer(for:)`, and `Transaction.all` for the group | StoreKit's answer keeps its first value, so a verified transaction of the account's own bought with the offer overrules it ([D46](10-decisions.md#d46-introductory-eligibility-has-four-states-and-a-used-offer-is-known-from-what-was-seen)) |
+| Purchases asked for outside the app | `PurchaseIntent.intents` | Merged into the updates stream as `.purchaseRequested`, with the win-back or promotional offer the person chose; the intent's product is cached, so buying it needs no second trip ([D53](10-decisions.md#d53-a-purchase-asked-for-outside-the-app-is-a-request-and-the-app-decides)) |
+| Billing plans and commitments | `pricingTerms`, `billingPlanType`, `commitmentInfo` | From 26.4, behind `#available`; a plan asked for on an older system fails as `unsupported` ([D54](10-decisions.md#d54-on-a-12-month-commitment-whether-it-will-renew-and-whether-it-will-end-are-two-facts)) |
+| Bundles | `bundleProductID`, `willUnbundle`, `bundledSubscriptions` | Named in the 27 SDK only, behind `#if canImport(StoreKit, _version: 816)` ([D56](10-decisions.md#d56-a-subscription-bundle-is-facts-behind-the-27-sdk)) |
 | Managing subscriptions | `manageSubscriptionsSheet` (iOS), a link (macOS) | In `PurchaseUI`, not here ([D43](10-decisions.md#d43-managing-a-subscription-is-apples-page-on-the-mac-a-link)) |
 | Arrivals | `Transaction.updates`, and `Transaction.unfinished` once | From the first command, for the store's life. The backlog is read once, after subscribing: Apple hands unfinished transactions to a listener at *launch*, and this one may start later ([D29](10-decisions.md#d29-what-was-left-unfinished-is-asked-for-not-waited-for)). |
 
-Nothing from StoreKit 1 is used, and no SDK-27-only symbol, so the package builds with Xcode 26 and 27.
+Nothing from StoreKit 1 is used, and no SDK-27-only symbol outside a compiler check, so the package builds with Xcode 26 and 27.
 
 ## Every read is made in a task nobody cancels
 
@@ -58,7 +63,7 @@ Whether an adopted transaction *counts* for this account — a family-shared tri
 
 ## Updates carry facts
 
-`transactionUpdates()` yields `.granted(OwnedProduct)`, `.withdrawn(ProductID)`, or `.subscriptionChanged(HeldSubscription)` with the new status. A grant arrives **before** `currentEntitlements` has it, so a listener told only "something changed" reads the listing, finds nothing, and never looks again. A refund does not lag. **[ran]** See [decisions, D4](10-decisions.md#d4-the-updates-stream-carries-facts-not-a-signal).
+`transactionUpdates()` yields `.granted(OwnedProduct)`, `.withdrawn(ProductID)`, `.subscriptionChanged(HeldSubscription)` with the new status, or `.purchaseRequested(RequestedPurchase)` for a purchase asked for outside the app. It merges three sources — transactions, statuses and intents — and ends only when all three have. A grant arrives **before** `currentEntitlements` has it, so a listener told only "something changed" reads the listing, finds nothing, and never looks again. A refund does not lag. **[ran]** See [decisions, D4](10-decisions.md#d4-the-updates-stream-carries-facts-not-a-signal).
 
 ## Errors
 

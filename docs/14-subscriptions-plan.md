@@ -97,7 +97,7 @@ enum Shop {
 
 **Why restate them.** The group's identifier is what `status(for:)` takes, and it is static: asking needs no product loaded, so what a person may use still waits for no network ([D8](10-decisions.md#d8-not-answered-yet-is-a-state-and-ownership-does-not-wait-for-prices)). The level is needed to choose between statuses — the person's own and a family member's — without prices either. Both are restated for the reason Family Sharing is: a transaction does not carry them reliably and prices must not be waited for. The [`.storekit` check](#checking-the-storekit-file) keeps the restatement honest. Level 1 is the highest: moving from level 2 to level 1 was an upgrade `[ran]`.
 
-`Catalogue.problems(in:)` gains: a subscription with no group; two groups sharing a product; a level below 1; a trial that names a subscription (a trial stands in for an unlock, and a subscription has its own introductory offer). Family Sharing is declared as it is for an unlock, honoured by default.
+`Catalogue.problems(in:)` gains: a subscription with no group; a level below 1; a trial that names a subscription (a trial stands in for an unlock, and a subscription has its own introductory offer). Family Sharing is declared as it is for an unlock, honoured by default.
 
 ### What the store reports: the standing
 
@@ -128,7 +128,7 @@ public struct HeldSubscription: Hashable, Sendable {
 public struct Renewal: Hashable, Sendable {
     public let willRenew: Bool
     public let nextProduct: ProductID?    // differs from `product` while a downgrade or crossgrade waits for the renewal
-    public let price: RenewalPrice?       // with any offer applied; show `displayPrice`
+    public let price: Decimal?            // with any offer applied, in `currencyCode`
     public let priceIncrease: PriceIncrease   // .none, .awaitingConsent, .agreed
     public let winBackOffers: [OfferID]   // Apple's, best first; empty in grace or billing retry
 }
@@ -207,7 +207,7 @@ On the Mac a purchase made here is also announced on `updates`, half a second la
 
 `TransactionTriage` gains a verdict for the upgraded-away-from. `TransactionUpdate.granted` carries the subscription's dates, so a renewal arriving on its own is believed at once, as an approved Ask to Buy is ([D4](10-decisions.md#d4-the-updates-stream-carries-facts-not-a-signal)); **one whose period has already ended is never held**. Renewals missed while nothing ran arrive at the next launch newest first, the oldest last `[ran]`, so what is held is chosen by date and never by arrival.
 
-**A withdrawal names a transaction.** Refunding the first period of a subscription that has renewed revokes that transaction and leaves the subscription subscribed `[ran]`. `.withdrawn(ProductID)` would drop the hold on the renewal; for a subscription it carries the transaction's identifier, and only a hold on that transaction is dropped. The listing and the status, read again at once, say the rest.
+**A refund of a period already over is not a withdrawal.** Refunding the first period of a subscription that has renewed revokes that transaction and leaves the subscription subscribed `[ran]`. So the adapter tells the two apart by date: a transaction revoked at or after its period ended is finished and not announced, and `.withdrawn(ProductID)` only ever means that what is in force was taken back. The listing and the status, read again at once, say the rest ([D38](10-decisions.md#d38-what-is-held-is-chosen-by-date-a-past-period-refunded-takes-nothing-away)).
 
 The adapter also listens to `Status.updates`, which reported every change measured on the Mac but a refund of a past period, and on iOS nothing for auto-renew switched off until the next renewal `[ran]`. A status change carries its facts too, and is a reason to read again, not a replacement for reading.
 
@@ -247,12 +247,12 @@ In `PurchaseStoreKit`, `LiveStoreKitGateway` still only fetches, forwards and co
 
 The simulated store is the reason the package's rules are tested in milliseconds, and subscriptions need it more than purchases do: a year of renewals is a clock advanced, not a year.
 
-- **Subscriptions by the store's clock.** A subscription renews, goes into grace or billing retry, or lapses when the store's clock passes its `periodEnds`, according to `behaviour.renewal` (`.renews`, `.lapses`, `.billingRetry(grace:)`). A renewal is a new transaction with the same first date, announced and listed late, as measured.
-- **Arranging and happenings**: `subscribe`, `cancelAutoRenew`, `resumeAutoRenew`, `renewNow`, `lapse`, `failRenewal(grace:)`, `recoverBilling`, `changePlan(to:)` (an upgrade at once, a downgrade at the renewal), `share(fromFamily:)`, `raisePrice(needsConsent:)`, and the existing `revoke`.
+- **Subscriptions by the store's clock.** A subscription renews, goes into grace or billing retry, or lapses when the store's clock passes its `periodEnds`, according to `behaviour.renewal` (`.renews`, or `.fails` into `behaviour.gracePeriod` if one is set, then billing retry); auto-renew switched off lapses it. A renewal is a new transaction with the same first date, announced and listed late, as measured.
+- **Arranging and happenings**: `seedSubscription`, `deliverSubscription(_:ownership:)` (from another device, or a family member), `changeSubscription`, `cancelAutoRenew`, `resumeAutoRenew`, `renewNow`, `lapse`, `recoverBilling`, `raisePrice(_:needsConsent:)`, and the existing `revoke`. A change of plan is a purchase: an upgrade at once, a downgrade at the renewal.
 - **Offers**: introductory eligibility kept per group from the store's own history; win-back offers made eligible by a lapse, as configured; a promotional purchase that calls the app's signer and can be told to reject it.
 - **Its habits** are the ones phase 0 measures, per OS, and each is held to the real thing by a test in `Demo/Tests`, as now ([D28](10-decisions.md#d28-the-simulated-stores-habits-are-per-os-and-each-is-held-to-the-real-thing)).
-- **Scenarios** grow holdings with a state: `subscribed=monthly@10d`, `subscribed=monthly/grace`, `subscribed=monthly/retry`, `subscribed=monthly/cancelled`, `lapsed=monthly@40d`, `winback=offer-id`, `intro=used`.
-- **The debug panel** grows a section per group: renew now, lapse, billing retry with or without grace, cancel and resume, change plan, refund, shared by a family member, price increase.
+- **Scenarios** grow holdings with a state: `subscribed=monthly@10d`, `grace=monthly@2d`, `retry=monthly`, `cancelled=monthly`, `lapsed=monthly@40d`, `winback=offer-id`, `intro=used` ([simulated store](06-simulated-store.md)).
+- **The debug panel** grows a section per subscription: deliver, shared by a family member, renew now, auto-renew off and on, price increase, recover billing, lapse, refund, the introductory offer used, and a purchase asked for on the App Store. A change of plan is bought with the paywall's own buttons.
 
 ### Checking the `.storekit` file
 
@@ -310,7 +310,7 @@ Every row of the research marked `[check]` that the design leans on, measured in
 ### Phase 2: offers
 
 - Terms on `StoreProduct`; four-state introductory eligibility; win-back offers from the own status; `OfferSigning`; the purchase options; the new errors; the offer in force on `HeldSubscription`.
-- Offer codes: nothing new to receive; with the 27 SDK, the sheet's transaction taken as a purchase's, behind a compiler check.
+- Offer codes: nothing new to receive; with the 27 SDK, the sheet's transaction taken as a purchase's. `takeRedemption(_:)` takes the sheet's result, a type every SDK has, so it needs no compiler check.
 - The simulated store's offers; scenarios; the panel.
 - Documentation: the offers guide, with the returning-subscriber example worked through end to end, App Store Connect setup, and a server-side signing example that points at Apple's library and holds no key.
 
@@ -333,6 +333,8 @@ Each is small once phase 1 exists. The plan said none would be started without a
 | **Retention offers** | Nothing: `OfferKind.unrecognised` | — |
 | **`PurchaseIntent`** | `requestedPurchases`, `dismissRequestedPurchase(_:)`, the simulated store's `requestPurchase` | No: no intent arrived. Sandbox, on a device |
 | **The `Message` API** | `.storeMessages(deferredWhile:showing:)`, iOS | No: no purchase could be made to ask consent of. Sandbox |
+
+A review of the whole branch then found bugs the tests had not, and tests that could not fail. Each bug is fixed with a test watched to fail against its mutant ([D14](10-decisions.md#d14-every-regression-test-is-proven-to-bite)); what it changed is in [D46](10-decisions.md#d46-introductory-eligibility-has-four-states-and-a-used-offer-is-known-from-what-was-seen), [D51](10-decisions.md#d51-a-subscription-handed-back-already-over-was-not-bought)–[D53](10-decisions.md#d53-a-purchase-asked-for-outside-the-app-is-a-request-and-the-app-decides), [D55](10-decisions.md#d55-apples-own-messages-wait-while-the-app-says-so), [D58](10-decisions.md#d58-the-simulated-store-changes-a-status-it-never-rebuilds-one) and [D59](10-decisions.md#d59-a-known-issue-is-decided-by-storekit-never-by-the-package).
 
 What the table below said before any of it was built:
 
@@ -373,7 +375,7 @@ Proposed; each becomes a numbered decision in [the log](10-decisions.md) when ph
 | P9 | Where macOS has no sheet, a URL | `[Apple]` |
 | P10 | No public name StoreKit has at the top level | Others' failures; row 15 `[ran]` |
 | P11 | A plan change is read by comparing the product asked for with the product returned | Row 7 `[ran]` |
-| P12 | What is held is chosen by date, never by arrival; a withdrawal names a transaction | Rows 4, 5 `[ran]` |
+| P12 | What is held is chosen by date, never by arrival; a refund of a period already over is not a withdrawal | Rows 4, 5 `[ran]` |
 | P13 | Introductory eligibility is also read from the group's own transactions, and an offer that was not applied is said | Rows 9, 11 `[ran]` — built: D46, D47 |
 
 ## Questions for you

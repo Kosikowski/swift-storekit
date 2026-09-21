@@ -89,18 +89,17 @@ func trialRunsOut() async {
     await store.start()
     #expect(store.standing.access(to: Shop.pro) != .none)
 
-    await waitUntil { clock.sleeperCount == 1 }   // the store has scheduled its look
-    clock.advance(by: .seconds(300))              // five minutes, at once
-    await waitUntil { store.standing.access(to: Shop.pro) == .none }
-    #expect(store.standing.access(to: Shop.pro) == .none)
+    #expect(await waitUntil { clock.sleeperCount == 1 })   // the store has scheduled its look
+    clock.advance(by: .seconds(300))                       // five minutes, at once
+    #expect(await waitUntil { store.standing.access(to: Shop.pro) == .none })
 }
 ```
 
 Three rules keep such tests from flaking:
 
 - **Give the store and the simulated front the same clock**, so purchase dates and expiry agree.
-- **Wait on a condition, never on a duration.** `waitUntil` returns the moment its condition holds — or after its `timeout`, five seconds unless you say otherwise — and the `#expect` after it is what fails, so a failure says what was expected rather than "timed out".
-- **Before moving time, wait for the sleeper** (`clock.sleeperCount`), so the store has got as far as scheduling its look.
+- **Wait on a condition, never on a duration, and expect it.** `waitUntil` returns whether its condition held — at once, or false after its `timeout`, five seconds unless you say otherwise. Put it inside `#expect`: a wait whose answer nobody checks passes after five silent seconds, and whatever it was waiting for may never have happened.
+- **Before moving time, wait for the sleeper** (`clock.sleeperCount`), so the store has got as far as scheduling its look. `clock.deadlines` says when each sleeper wakes, for a test of *when* the store looks again.
 
 `ManualClock` does not race: deadlines are absolute, so advancing before a sleeper arrives and after it come to the same thing, and whether to park is decided under the lock that `advance` takes.
 

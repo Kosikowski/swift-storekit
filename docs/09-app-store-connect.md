@@ -175,6 +175,8 @@ com.example.app.pro is in the StoreKit configuration file and not in the catalog
 | `.trialNotFree(ProductID, displayPrice:)` | A trial is priced at exactly zero. A price that cannot be read is not free |
 | `.trialFamilyShareable(ProductID)` | A trial is not family-shareable |
 | `.familySharingMismatch(ProductID, catalogueHonours:, fileShares:)` | An unlock or a subscription is family-shareable exactly when its entry honours Family Sharing |
+| `.notNonRenewing(ProductID, type:)` | Every non-renewing subscription is a `NonRenewingSubscription` |
+| `.offerMissing(OfferID, product:)` | An offer the app names — to `expectNoProblems(against:offers:)` — is on that product in the file |
 
 Finding the file from a test:
 

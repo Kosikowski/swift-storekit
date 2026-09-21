@@ -52,10 +52,12 @@ A `HeldSubscription` keeps four facts apart:
 |---|---|
 | `state` | `.subscribed`, `.inGracePeriod(until:)`, `.inBillingRetry`, `.expired(Lapse)`, `.revoked`, or `.unrecognised` for a state StoreKit adds later |
 | `periodStarted`, `periodEnds`, `firstSubscribed` | `periodEnds` is when this period ends — **already past in a grace period** |
-| `accessEnds` | When access by this status ends: the grace period's end, or `periodEnds` |
-| `renewal` | `willRenew`, `nextProduct` (a different plan while a downgrade waits), `price`, `priceIncrease`, and the win-back offers Apple allows. **Nil when no status could be read** |
+| `isEntitled`, `accessEnds` | Whether this status gives access — subscribed, or in a grace period — and until when: the grace period's end, or `periodEnds` |
+| `renewal` | `willRenew`, `nextProduct` (a different plan while a downgrade waits; kept when auto-renew is switched off, as StoreKit keeps it), `price` in `currencyCode`, `priceIncrease`, the win-back offers Apple allows, and `commitment`. **Nil when no status could be read** |
+| `willRenewAtPeriodEnd` | Whether it goes on past this period: `renewal.willRenew`, except in the last month of a commitment that will not be renewed |
 | `offer` | The offer this period was bought with, read from the transaction |
 | `ownership` | `.purchased`, `.familyShared`, `.assigned` |
+| `commitment`, `bundle`, `transactionID` | On the monthly plan, where it stands in the commitment; the bundle it is held through; the transaction's identifier |
 
 `access(to:)` answers `.subscribed(HeldSubscription)` for the plan held, and `.none` for the other plans in the group, which the person does not have. An app that sells two plans of the same thing asks for the group, not the product.
 
@@ -149,7 +151,7 @@ App Review expects an easy route to Apple's own page for the subscription, and i
 ManageSubscriptionsButton("Manage Membership", group: Shop.membership)
 ```
 
-On iOS it presents Apple's sheet. **macOS has none**, because `manageSubscriptionsSheet` and `AppStore.showManageSubscriptions` are unavailable there `[Apple]`. So on the Mac it opens `https://apps.apple.com/account/subscriptions` in the App Store, and so does an iPhone or iPad app running on a Mac, where Apple says not to show the sheet. Either way the store reads again when the person comes back: when the sheet closes, or when the app becomes active again after the link. A cancellation made there sends the app nothing.
+On iOS it presents Apple's sheet. **macOS has none**, because `manageSubscriptionsSheet` and `AppStore.showManageSubscriptions` are unavailable there `[Apple]`. So on the Mac it opens `ManageSubscriptionsButton.manageSubscriptionsURL`, `https://apps.apple.com/account/subscriptions`, in the App Store, and so does an iPhone or iPad app running on a Mac, where Apple says not to show the sheet. Either way the store reads again when the person comes back: when the sheet closes, or when the app becomes active again after the link. A cancellation made there sends the app nothing.
 
 ## Monthly, with a 12-month commitment
 
@@ -160,13 +162,13 @@ let plans = store.products.first { $0.id == Shop.yearly }?.subscription?.billing
 try await store.purchase(Shop.yearly, options: PurchaseOptions(billingPlan: .monthly))
 ```
 
-Each `BillingPlanTerms` has the price per billing period, and what the whole commitment comes to and how long it lasts. Show both, as App Review asks `[Apple]`. A plan asked for where the system is older than 26.4 fails as `unsupported`, and nothing is billed some other way. Held, `HeldSubscription.commitment` says which month of how many it is, and when the commitment ends.
+Each `BillingPlanTerms` has the price per billing period (`billingDisplayPrice`, `billingPrice`, `billingPeriod`), what the whole commitment comes to and how long it lasts (`commitmentDisplayPrice`, `commitmentPrice`, `commitmentPeriod`), and the plan's own `offers`. Show both prices, as App Review asks `[Apple]`. A plan asked for where the system is older than 26.4, or that the product does not have, fails as `unsupported`, and nothing is billed some other way. Held, `HeldSubscription.commitment` (`SubscriptionCommitment`) says which month it is (`billingPeriod`) of how many (`billingPeriods`), when the commitment ends (`endsAt`) and what it costs (`price`).
 
-**Cancelled during a commitment, the months are still billed.** `renewal.willRenew` stays true, correctly, and only `renewal.commitment?.willRenew` says the commitment ends `[Apple]`. Word "member until the commitment ends" from `willRenewAtPeriodEnd`, which is false in the last month of a commitment that will not be renewed, or from `renewal.commitment`. The store's own doubt at a period's end reads it too ([D54](10-decisions.md#d54-on-a-12-month-commitment-whether-it-will-renew-and-whether-it-will-end-are-two-facts)). Xcode's environment could not be made to sell a plan, so it is tried in the sandbox, by hand.
+**Cancelled during a commitment, the months are still billed.** `renewal.willRenew` stays true, correctly, and only `renewal.commitment?.willRenew` says the commitment ends `[Apple]`. `renewal.commitment` (`CommitmentRenewal`) also says the product and plan it renews as, when (`renewsAt`), and at what price. Word "member until the commitment ends" from `willRenewAtPeriodEnd`, which is false in the last month of a commitment that will not be renewed, or from `renewal.commitment`. The store's own doubt at a period's end reads it too ([D54](10-decisions.md#d54-on-a-12-month-commitment-whether-it-will-renew-and-whether-it-will-end-are-two-facts)). Xcode's environment could not be made to sell a plan, so it is tried in the sandbox, by hand.
 
 ## Held through a bundle
 
-From 27 a subscription can be held through a subscription bundle, perhaps sold by another app `[Apple]`. Its status decides access, as any status does. `HeldSubscription.bundle` names the bundle and says whether the subscription leaves it at its next renewal, and a lapse for leaving it is `.expired(.unbundled)`. A bundle's own terms list what it includes (`bundledSubscriptions`). Built with the 27 SDK only ([D56](10-decisions.md#d56-a-subscription-bundle-is-facts-behind-the-27-sdk)).
+From 27 a subscription can be held through a subscription bundle, perhaps sold by another app `[Apple]`. Its status decides access, as any status does. `HeldSubscription.bundle` (`BundleMembership`) names the bundle's product and group, and `willLeave` says whether the subscription leaves it at its next renewal; a lapse for leaving it is `.expired(.unbundled)`. A bundle's own terms list what it includes (`bundledSubscriptions`). Built with the 27 SDK only ([D56](10-decisions.md#d56-a-subscription-bundle-is-facts-behind-the-27-sdk)).
 
 ## Seats
 
@@ -178,12 +180,15 @@ A promoted in-app purchase tapped on the App Store, or a win-back offer taken th
 
 ```swift
 if let request = store.requestedPurchases.first, !isOnboarding {
-    try await store.purchase(request.product, options: request.options)   // with its win-back offer, if it came with one
+    if ownsItAlready(request.product) {
+        store.dismissRequestedPurchase(request)
+    } else {
+        try await store.purchase(request.product, options: request.options)   // with the offer it came with
+    }
 }
-store.dismissRequestedPurchase(request)   // or let it go
 ```
 
-A purchase of the product, however it ends, deals with the request. Xcode's environment delivered no request on either platform, so this is tried in the sandbox, on a device ([D53](10-decisions.md#d53-a-purchase-asked-for-outside-the-app-is-a-request-and-the-app-decides)).
+A purchase of the product, however it ends, deals with the request. A win-back or promotional offer the person chose goes with it, so buying it never charges the regular price in its place; a promotional one is signed by the app's `OfferSigning`, as any is. An offer of a kind StoreKit adds later is left off, and logged as `requestedOfferUnrecognised`. Xcode's environment delivered no request on either platform, so this is tried in the sandbox, on a device ([D53](10-decisions.md#d53-a-purchase-asked-for-outside-the-app-is-a-request-and-the-app-decides)).
 
 ## Apple's own messages
 
@@ -198,7 +203,7 @@ ContentView()
     .storeMessages(deferredWhile: model.isOnboarding, showing: { $0 != .winBackOffer })
 ```
 
-Held messages are shown in order when the condition turns false. A reason `showing` declines is never shown. The Mac has no such messages `[Apple]`, and there the modifier does nothing ([D55](10-decisions.md#d55-apples-own-messages-wait-while-the-app-says-so)).
+Held messages are shown in order when the condition turns false, read as the app says it now. One that cannot be shown — no scene to show it in — waits for the next chance: the condition turning false again, or the scene becoming active. A reason `showing` declines (`StoreMessageReason`: `.priceIncreaseConsent`, `.billingIssue`, `.winBackOffer`, `.generic`, or `.unrecognised` for one StoreKit adds later) is never shown. The Mac has no such messages `[Apple]`, and there the modifier does nothing ([D55](10-decisions.md#d55-apples-own-messages-wait-while-the-app-says-so)).
 
 ## Non-renewing subscriptions
 
@@ -218,7 +223,7 @@ case let .ended(period): "Season pass ended \(period.endsAt)"
 }
 ```
 
-`access(to:)` is `.nonRenewing(period)` while one runs, and it ends by itself at `endsAt`, as a trial does. Every purchase counts, since the listing keeps every one `[ran]`. A refund takes back that purchase's time and leaves the rest `[ran]`. A purchase completes as `.nonRenewing(period)`. One that hands back a purchase already counted bought nothing, and throws `.system`: the iOS simulator did this in two runs of three `[ran]` ([D52](10-decisions.md#d52-a-non-renewing-subscriptions-end-is-the-catalogues-and-every-purchase-counts)). Family Sharing does not apply to them.
+`access(to:)` is `.nonRenewing(period)` while one runs, and it ends by itself at `endsAt`, as a trial does. Every purchase counts, since the listing keeps every one `[ran]`. A refund takes back that purchase's time and leaves the rest `[ran]`. A purchase completes as `.nonRenewing(period)`: the period it is part of, at its own date if that is still to come by this device's clock, which may be behind the App Store's. One that hands back a purchase already counted bought nothing, and throws `.system`, from `purchase()` or from one of Apple's views: the iOS simulator did this in two runs of three `[ran]`. An Ask to Buy for one bought before stays pending until a new purchase arrives, since the earlier one is owned already ([D52](10-decisions.md#d52-a-non-renewing-subscriptions-end-is-the-catalogues-and-every-purchase-counts)). Family Sharing does not apply to them.
 
 ## Testing
 
