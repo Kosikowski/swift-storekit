@@ -10,10 +10,11 @@
 //
 //  **iOS has a sheet and macOS does not.** `manageSubscriptionsSheet` and
 //  `AppStore.showManageSubscriptions` are unavailable on the Mac, and Apple says not to
-//  show the sheet in an iPad app running there either `[Apple]`. There, and on macOS, this
-//  opens Apple's subscriptions page in the App Store instead, and "back" is the app becoming
-//  active again. Not the scene phase: a Mac window left visible behind the App Store stays
-//  `.active` throughout, so a change of phase never comes.
+//  show the sheet in a Mac Catalyst app, or in an iPhone or iPad app running there, either
+//  `[Apple]`. There, and on macOS, this opens Apple's subscriptions page in the App Store
+//  instead, and "back" is the app becoming active again. Not the scene phase: a Mac window
+//  left visible behind the App Store stays `.active` throughout, so a change of phase never
+//  comes.
 //
 
 public import PurchaseCore
@@ -51,10 +52,12 @@ public struct ManageSubscriptionsButton<Label: View>: View {
     /// Apple's page for managing subscriptions, where the platform has no sheet.
     public static var manageSubscriptionsURL: URL { URL(string: "https://apps.apple.com/account/subscriptions")! }
 
-    /// Whether this runs where Apple's sheet may not be shown — on macOS, or as an iPhone or
-    /// iPad app on a Mac — and so opens `manageSubscriptionsURL` instead.
+    /// Whether this runs where Apple's sheet may not be shown — on macOS, in a Mac Catalyst
+    /// app, or as an iPhone or iPad app on a Mac — and so opens `manageSubscriptionsURL`
+    /// instead. Catalyst is known when it is built, as Apple asks; an iPhone or iPad app on a
+    /// Mac is the same binary as on iOS, so it is known only when it runs.
     static var opensThePage: Bool {
-        #if os(macOS)
+        #if os(macOS) || targetEnvironment(macCatalyst)
         true
         #else
         ProcessInfo.processInfo.isiOSAppOnMac
