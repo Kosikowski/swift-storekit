@@ -21,9 +21,11 @@ package struct MessageQueue<Message> {
     /// it in — waits for the next release, with every one after it: once iterated, StoreKit
     /// will not show it itself.
     package mutating func release(display: (Message) throws -> Void) {
-        while let message = waiting.first {
-            do { try display(message) } catch { return }
-            waiting.removeFirst()
+        var shown = 0
+        for message in waiting {
+            do { try display(message) } catch { break }
+            shown += 1
         }
+        waiting.removeFirst(shown)
     }
 }
