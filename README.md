@@ -55,10 +55,10 @@ An app's code imports nothing that is missing from a release build, and needs no
 ## Using it
 
 ```swift
-.package(url: "https://github.com/Kosikowski/swift-storekit.git", .upToNextMinor(from: "0.2.0"))
+.package(url: "https://github.com/Kosikowski/swift-storekit.git", .upToNextMinor(from: "0.3.0"))
 ```
 
-Up to the next *minor*, until 1.0: `from: "0.2.0"` accepts everything below 1.0, and before 1.0 a minor release is where the API moves.
+Up to the next *minor*, until 1.0: `from: "0.3.0"` accepts everything below 1.0, and before 1.0 a minor release is where the API moves.
 
 ```swift
 import PurchaseCore
@@ -140,7 +140,7 @@ Test your own app against `SimulatedStoreFront` and a `ManualClock`, both from `
 | [The StoreKit adapter](docs/08-storekit-adapter.md) | Calls made, finish policy, error mapping |
 | [App Store Connect](docs/09-app-store-connect.md) | The setup that is not code |
 | [Decisions](docs/10-decisions.md) | Why, with the evidence for each |
-| [Not implemented, deliberately](docs/11-roadmap.md) | Subscriptions, consumables, and the rest |
+| [Not implemented, deliberately](docs/11-roadmap.md) | Consumables, an offer-code button, and the rest |
 | [Subscriptions and offers in StoreKit](docs/13-subscriptions-and-offers.md) | Research: how the App Store runs subscriptions and offers, and what an app can see |
 | [Plan: subscriptions and offers](docs/14-subscriptions-plan.md) | What was built, in what order, what was measured first, and what is next |
 | [Migrating an existing app](docs/12-migrating-an-existing-app.md) | From hand-written StoreKit 2 |
