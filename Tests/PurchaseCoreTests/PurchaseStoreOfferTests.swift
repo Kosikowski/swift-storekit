@@ -69,6 +69,15 @@ private final class Signer: OfferSigning {
     }
 }
 
+/// A status reader that says what it is given.
+private struct Statuses: SubscriptionStatusReading {
+    let said: [SubscriptionGroupID: [HeldSubscription]]
+
+    func subscriptionStatuses(in groups: Set<SubscriptionGroupID>) async -> [SubscriptionGroupID: [HeldSubscription]] {
+        said
+    }
+}
+
 @MainActor
 @Suite("Purchase store: offers", .timeLimit(.minutes(1)))
 struct PurchaseStoreOfferTests {
@@ -180,6 +189,37 @@ struct PurchaseStoreOfferTests {
         await other.loadProducts()
         #expect(await fresh.introductoryEligibility(in: [Offers.group]) == [Offers.group: true])
         #expect(other.introductoryOffer(for: Offers.monthly) == .ineligible)
+    }
+
+    @Test("an introductory offer seen only on a status stays used once that status is replaced by an upgrade")
+    func introductorySeenOnStatusThenUpgraded() async throws {
+        front.seedSubscription(
+            HeldSubscription(
+                product: Offers.monthly, group: Offers.group, state: .subscribed, firstSubscribed: clock.now,
+                periodStarted: clock.now, periodEnds: clock.now.addingTimeInterval(30 * 86_400),
+                offer: AppliedOffer(kind: .introductory, paymentMode: .payAsYouGo)))
+        await store.start()
+        await store.loadProducts()
+        #expect(store.introductoryOffer(for: Offers.yearly) == .ineligible)
+        try await store.purchase(Offers.premium)
+        front.listUnlisted()
+        await store.refresh()
+        #expect(group.all.allSatisfy { $0.offer == nil })
+        #expect(store.introductoryOffer(for: Offers.yearly) == .ineligible)
+    }
+
+    /// Apple's eligibility is the Apple Account's own [Apple].
+    @Test("an introductory offer a FAMILY MEMBER bought with does not use up this account's")
+    func introductorySharedNotUsed() async throws {
+        await store.start()
+        await store.loadProducts()
+        front.deliver(
+            OwnedProduct(
+                id: Offers.monthly, originalPurchaseDate: clock.now, ownership: .familyShared,
+                expirationDate: clock.now.addingTimeInterval(30 * 86_400),
+                offer: AppliedOffer(kind: .introductory, paymentMode: .payAsYouGo)))
+        #expect(await waitUntil { group.isActive == true })
+        #expect(store.introductoryOffer(for: Offers.yearly) == .eligible(Offers.yearlyIntroductory))
     }
 
     @Test("with nothing to say who may have it, the introductory offer is unknown: show the regular price")
@@ -307,6 +347,39 @@ struct PurchaseStoreOfferTests {
         await store.start()
         try await store.purchase(Offers.monthly, options: PurchaseOptions(offer: .introductoryOverride))
         #expect(signer.requests.map(\.transactionID) == ["4242"])
+    }
+
+    @Test("the signer is given the transaction even when nothing has been read yet")
+    func signerGivenTransactionBeforeStart() async throws {
+        front.seedSubscription(lapsedMonthly(winBack: [], transactionID: 4_242))
+        try await store.purchase(Offers.monthly, options: PurchaseOptions(offer: .introductoryOverride))
+        #expect(signer.requests.map(\.transactionID) == ["4242"])
+    }
+
+    @Test("the signer is given a transaction the account has, not a status that names none")
+    func signerGivenTransactionThatIsThere() async throws {
+        let current = HeldSubscription(
+            product: Offers.premium, group: Offers.group, state: .subscribed, firstSubscribed: clock.now,
+            periodStarted: clock.now, periodEnds: clock.now.addingTimeInterval(30 * 86_400))
+        let statuses = Statuses(said: [Offers.group: [current, lapsedMonthly(winBack: [], transactionID: 4_242)]])
+        let store = PurchaseStore(
+            catalogue: Offers.catalogue, catalogueLoader: front, ownership: front, purchaser: front, restorer: front,
+            observer: front, subscriptionStatuses: statuses, offerSigner: signer, clock: clock)
+        await store.start()
+        try await store.purchase(Offers.monthly, options: PurchaseOptions(offer: .introductoryOverride))
+        #expect(signer.requests.map(\.transactionID) == ["4242"])
+    }
+
+    @Test("a signer that fails is logged with the type of what it threw, and nothing more")
+    func signerFailureLogged() async throws {
+        front.seedSubscription(lapsedMonthly(winBack: []))
+        let logger = RecordingPurchaseLogger()
+        let store = PurchaseStore(catalogue: Offers.catalogue, front: front, offerSigner: Signer(fails: true), clock: clock, logger: logger)
+        await store.start()
+        await #expect(throws: PurchaseError.offerNotSigned) {
+            try await store.purchase(Offers.monthly, options: PurchaseOptions(offer: .promotional("promo.returning")))
+        }
+        #expect(logger.events.contains(.offerSignerFailed(Offers.monthly, typeName: String(reflecting: Signer.Unreachable.self))))
     }
 
     @Test("a signer that fails, or none at all, is offerNotSigned — and the store is NEVER ASKED")

@@ -140,30 +140,28 @@ public struct Standing: Hashable, Sendable {
     public func trial(_ id: ProductID) -> TrialStatus { trial(id, at: asOf) }
 
     /// The next moment after `asOf` at which an answer from this standing changes of
-    /// its own accord: the end of the running trial that ends soonest.
+    /// its own accord. See `nextExpiry(after:)`.
+    public var nextExpiry: Date? { nextExpiry(after: asOf) }
+
+    /// The next moment after `date` at which an answer from this standing changes of its
+    /// own accord: a running trial ends, a non-renewing subscription's period begins or
+    /// ends, or a subscription's access by the store's last word ends.
     ///
-    /// Nothing observable happens when a trial runs out — no transaction arrives —
-    /// so whoever holds a standing has to look again then, or nothing locks until
-    /// something unrelated redraws or the app is relaunched.
-    ///
-    /// For a subscription, the moment its access by the store's last word ends: the end of
-    /// its period, or of its grace period. Nothing may change then — it may have renewed —
-    /// but only the store can say, so that is when to ask it.
-    public var nextExpiry: Date? {
+    /// Nothing observable happens then — no transaction arrives — so whoever holds a
+    /// standing has to look again, or nothing changes until something unrelated redraws or
+    /// the app is relaunched. A subscription may have renewed by its end, but only the
+    /// store can say, so that is when to ask it.
+    public func nextExpiry(after date: Date) -> Date? {
         guard isKnown else { return nil }
-        let trials = catalogue.entries
-            .compactMap { period(of: $0) }
-            .filter { $0.isRunning(at: asOf) }
-            .map(\.endsAt)
+        let trials = catalogue.entries.compactMap { period(of: $0)?.endsAt }
         let subscribed = subscriptions.values.compactMap { standing -> Date? in
-            guard case let .active(held, _) = standing, held.accessEnds > asOf else { return nil }
+            guard case let .active(held, _) = standing else { return nil }
             return held.accessEnds
         }
-        let nonRenewing = nonRenewingPurchases.keys.compactMap { id -> Date? in
-            if case let .active(period) = self.nonRenewing(id) { return period.endsAt }
-            return nil
+        let nonRenewing = nonRenewingPurchases.flatMap { id, dates in
+            (catalogue.entry(for: id)?.nonRenewingTerms?.periods(of: dates) ?? []).flatMap { [$0.startedAt, $0.endsAt] }
         }
-        return (trials + subscribed + nonRenewing).min()
+        return (trials + subscribed + nonRenewing).filter { $0 > date }.min()
     }
 
     /// Whether `other` answers every question this does, each asked of its own moment.

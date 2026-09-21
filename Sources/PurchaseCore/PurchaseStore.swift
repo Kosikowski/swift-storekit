@@ -37,6 +37,11 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     /// The groups whose statuses the last read could say. Where one could not, "never
     /// subscribed" is only the listing's word, and refuses nobody a promotional offer.
     @ObservationIgnored private var statusesRead: Set<SubscriptionGroupID> = []
+    /// How many purchases each non-renewing subscription waiting for approval had when it
+    /// began waiting. It is owned from its first purchase, so only a later one settles it.
+    @ObservationIgnored private var purchasesWhenPending: [ProductID: Int] = [:]
+    /// Non-renewing purchases the updates stream announced: new, whatever was counted since.
+    @ObservationIgnored private var announcedNonRenewing: Set<OwnedProduct> = []
 
     @ObservationIgnored private let catalogueLoader: any ProductCatalogueLoading
     @ObservationIgnored private let ownership: any OwnershipReading
@@ -249,7 +254,7 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         // One per group per account. Used, as far as this store has seen — bought here, or
         // on a status in the group — it is used, whatever Apple's first answer was.
         if usedIntroductoryOffer.contains(group)
-            || standing.subscription(in: group).all.contains(where: { $0.offer?.kind == .introductory })
+            || standing.subscription(in: group).all.contains(where: { $0.offer?.kind == .introductory && $0.ownership == .purchased })
         {
             return .ineligible
         }
@@ -286,6 +291,8 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
 
         // Asked for outside the app and now bought here, however it ends: the request is dealt with.
         requestedPurchases.removeAll { $0.product == id }
+        if !standing.isKnown { await resolve() }
+        let before = standing
         let outcome: PurchaseOutcome
         do throws(PurchaseError) {
             let signed = try await signed(options, for: id)
@@ -297,28 +304,33 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             logger.log(.purchaseFailed(id, error))
             throw error
         }
-        // Bought again right after a lapse, StoreKit can hand back the old transaction,
-        // already over, and buy nothing: measured in the iOS simulator, and on the Mac too
-        // (spike/README.md, q10; D51). Taken at its word it is "subscribed", with a period
-        // that has ended. It is a purchase that did not happen, and trying again is fair.
-        if case let .purchased(owned) = outcome, catalogue.entry(for: owned.id)?.subscriptionTerms != nil,
-            let ends = owned.expirationDate, ends <= clock.now
-        {
-            logger.log(.purchaseFailed(id, .system))
-            await resolve()
-            throw .system
-        }
-        // So can a non-renewing subscription bought again: the iOS simulator handed back the
-        // purchase before, and bought nothing, in two runs of three (spike/README.md, n03).
-        // A purchase already counted is not time bought.
-        if case let .purchased(owned) = outcome, catalogue.entry(for: owned.id)?.nonRenewingTerms != nil,
-            standing.purchases(ofNonRenewing: owned.id).contains(owned.purchaseDate)
-        {
-            logger.log(.purchaseFailed(id, .system))
-            await resolve()
-            throw .system
-        }
+        try await refuseIfHandedBack(outcome, asked: id, before: before)
         return await settle(outcome, asked: id, offer: options.offer)
+    }
+
+    /// Bought again, StoreKit can hand back a purchase already made and buy nothing: a
+    /// subscription's transaction already over (spike/README.md, row 10; D51), or a
+    /// non-renewing purchase already counted (n03; D52). Neither is a purchase, and trying
+    /// again is fair.
+    ///
+    /// - Parameter before: the standing from before the purchase. One read since may
+    ///   already count the purchase just made.
+    private func refuseIfHandedBack(
+        _ outcome: PurchaseOutcome, asked id: ProductID, before: Standing, announced: Set<OwnedProduct> = []
+    ) async throws(PurchaseError) {
+        guard case let .purchased(owned) = outcome, let entry = catalogue.entry(for: owned.id) else { return }
+        let handedBack =
+            if entry.subscriptionTerms != nil {
+                owned.expirationDate.map { $0 <= clock.now } ?? false
+            } else if entry.nonRenewingTerms != nil {
+                before.purchases(ofNonRenewing: owned.id).contains(owned.purchaseDate) && !announced.contains(owned)
+            } else {
+                false
+            }
+        guard handedBack else { return }
+        logger.log(.purchaseFailed(id, .system))
+        await resolve()
+        throw .system
     }
 
     /// `options` with the signature its offer needs, from the app's signer. **Nothing is
@@ -334,7 +346,6 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             return signed
         case let .promotional(offer)?:
             guard let group = catalogue.entry(for: id)?.subscriptionTerms?.group else { throw .offerRefused(.unknownOffer) }
-            if !standing.isKnown { await resolve() }
             if statusesRead.contains(group), standing.subscription(in: group) == .none { throw .offerRefused(.notEligible) }
             kind = .promotional(offer)
         case .introductoryOverride?:
@@ -344,13 +355,15 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         guard let offerSigner else { throw .offerNotSigned }
         // The account's own latest transaction in the group, which Apple's signature creators
         // take — and which the override's requires [Apple].
-        let statuses = catalogue.entry(for: id)?.subscriptionTerms.map { standing.subscription(in: $0.group).all } ?? []
+        let statuses = (catalogue.entry(for: id)?.subscriptionTerms.map { standing.subscription(in: $0.group).all } ?? [])
+            .filter { $0.transactionID != nil }
         let transaction = (statuses.first { $0.ownership == .purchased } ?? statuses.first)?.transactionID
         do {
             let request = OfferSignatureRequest(
                 product: id, kind: kind, appAccountToken: options.appAccountToken, transactionID: transaction.map(String.init))
             signed.signature = try await offerSigner.signature(for: request)
         } catch {
+            logger.log(.offerSignerFailed(id, typeName: String(reflecting: type(of: error))))
             throw .offerNotSigned
         }
         return signed
@@ -370,11 +383,17 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     /// This one is for a store front of an app's own, and for tests. Nothing waits on
     /// `activity`: the purchase is over.
     ///
+    /// A purchase handed back that was not made fails with `system`, as it does from
+    /// `purchase(_:options:confirmation:)`.
+    ///
     /// - Parameter id: the product the person chose. A subscription that comes back as
     ///   another plan of the same group is a change waiting for the renewal.
     @discardableResult
-    public func takePurchase(_ outcome: PurchaseOutcome, of id: ProductID) async -> PurchaseCompletion {
+    public func takePurchase(_ outcome: PurchaseOutcome, of id: ProductID) async throws(PurchaseError) -> PurchaseCompletion {
         listen()
+        // Made before this was called, so perhaps counted already: on the Mac, Apple's views
+        // announce what they sell (spike/README.md, q12).
+        try await refuseIfHandedBack(outcome, asked: id, before: standing, announced: announcedNonRenewing)
         return await settle(outcome, asked: id)
     }
 
@@ -388,6 +407,9 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             logger.log(.purchaseCancelled(id))
             return .cancelled
         case .pending:
+            if catalogue.entry(for: id)?.nonRenewingTerms != nil {
+                purchasesWhenPending[id] = standing.purchases(ofNonRenewing: id).count
+            }
             pendingApprovals.insert(id)
             logger.log(.purchasePending(id))
             return .pending
@@ -426,7 +448,7 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
     /// A transaction bought with the introductory offer uses up the group's: Apple's own
     /// answer was measured to go on saying "eligible" for the rest of the process.
     private func noteIntroductoryOffer(on owned: OwnedProduct) {
-        guard owned.offer?.kind == .introductory, let group = catalogue.entry(for: owned.id)?.subscriptionTerms?.group
+        guard owned.offer?.kind == .introductory, owned.ownership == .purchased, let group = catalogue.entry(for: owned.id)?.subscriptionTerms?.group
         else { return }
         usedIntroductoryOffer.insert(group)
     }
@@ -495,6 +517,9 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             statuses = await subscriptionStatuses.subscriptionStatuses(in: Set(groups))
         }
         statusesRead = Set(statuses.keys)
+        let introductoryUsed = Set(
+            statuses.values.joined().filter { $0.offer?.kind == .introductory && $0.ownership == .purchased }.map(\.group))
+        if !introductoryUsed.isSubset(of: usedIntroductoryOffer) { usedIntroductoryOffer.formUnion(introductoryUsed) }
         // The only place the clock is read for a decision.
         let now = clock.now
         // Settled against what the listing has *and counts*. A listing that has the
@@ -553,7 +578,10 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             guard case let .active(current, _) = standing.subscription(in: group) else { return nil }
             return current.renewal?.nextProduct
         }
-        let settled = pendingApprovals.intersection(standing.ownedProducts.map(\.id) + subscribed + scheduled)
+        let bought = standing.ownedProducts.map(\.id).filter { id in
+            purchasesWhenPending[id].map { standing.purchases(ofNonRenewing: id).count > $0 } ?? true
+        }
+        let settled = pendingApprovals.intersection(bought + subscribed + scheduled)
         if !settled.isEmpty { pendingApprovals.subtract(settled) }
         logger.log(.standingResolved(owned: Set(standing.ownedProducts.map(\.id) + subscribed)))
         scheduleNextLook()
@@ -573,7 +601,7 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
         // so its `nextExpiry` can be one that has passed — a lapse still being doubted —
         // and a look scheduled for it would wake at once, and again, for ever.
         let now = clock.now
-        guard let deadline = [standing.nextExpiry, unlisted.nextLapse, recheck].compactMap(\.self).filter({ $0 > now }).min()
+        guard let deadline = [standing.nextExpiry(after: now), unlisted.nextLapse, recheck].compactMap(\.self).filter({ $0 > now }).min()
         else { return }
         expiry = Task { [weak self, clock] in
             do throws(CancellationError) {
@@ -609,6 +637,7 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             // exactly as a purchase made here is — and by the same rule, so a grant
             // that gives this account nothing is never held.
             if resolver.counts(owned, in: catalogue) { hold(owned) }
+            if catalogue.entry(for: owned.id)?.nonRenewingTerms != nil { announcedNonRenewing.insert(owned) }
             noteIntroductoryOffer(on: owned)
             pendingApprovals.remove(owned.id)
         case let .withdrawn(id):
@@ -679,8 +708,9 @@ public final class PurchaseStore: PurchaseStateProviding, PurchaseCommanding {
             }
             return subscription(from: owned, in: terms.group).map(PurchaseCompletion.subscribed) ?? .owned(owned)
         }
+        // At its own date, if that is still to come by this device's clock: the store's is not this one.
         if catalogue.entry(for: owned.id)?.nonRenewingTerms != nil,
-            case let .active(period) = standing.nonRenewing(owned.id, at: clock.now)
+            case let .active(period) = standing.nonRenewing(owned.id, at: max(clock.now, owned.purchaseDate))
         {
             return .nonRenewing(period)
         }

@@ -23,13 +23,18 @@ extension PurchaseStore {
     ///
     ///     SubscriptionStoreView(groupID: Shop.membership.rawValue)
     ///         .onInAppPurchaseCompletion { product, result in
-    ///             _ = try? await store.takePurchase(result, of: product)
+    ///             do {
+    ///                 show(try await store.takePurchase(result, of: product))
+    ///             } catch {
+    ///                 show(error)
+    ///             }
     ///         }
     ///
     /// Judged as a purchase made here is: verified and in the catalogue, it is finished,
     /// believed at once, and held until the listing and the status have it; a downgrade
-    /// is a change of plan waiting for the renewal. Unverified, it is thrown and left
-    /// unfinished — the person may have been charged. Something the catalogue does not
+    /// is a change of plan waiting for the renewal; one handed back that was not made fails
+    /// with `system`. Unverified, it is thrown and left unfinished — the person may have
+    /// been charged, so the error is not one to swallow. Something the catalogue does not
     /// sell is not this store's, and is left alone.
     @discardableResult
     public func takePurchase(
@@ -38,11 +43,13 @@ extension PurchaseStore {
         try await takePurchase(result, productID: ProductID(product.id))
     }
 
-    /// An offer code redeemed in Apple's sheet, taken as a purchase is. With the 27 SDK the
-    /// sheet hands the redeemed transaction back:
+    /// An offer code redeemed in Apple's sheet, taken as a purchase is. From iOS and macOS
+    /// 27 the sheet hands the redeemed transaction back:
     ///
-    ///     .offerCodeRedemption(isPresented: $redeeming) { result in
-    ///         Task { _ = try? await store.takeRedemption(result) }
+    ///     .offerCodeRedemption(options: [], isPresented: $redeeming) { result in
+    ///         Task {
+    ///             do { show(try await store.takeRedemption(result)) } catch { show(error) }
+    ///         }
     ///     }
     ///
     /// Before it, and for a code redeemed in the App Store, the transaction arrives on the
@@ -77,6 +84,6 @@ extension PurchaseStore {
             case let .failure(failure): throw failure
             }
         }
-        return await takePurchase(outcome, of: id)
+        return try await takePurchase(outcome, of: id)
     }
 }

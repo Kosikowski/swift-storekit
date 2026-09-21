@@ -239,6 +239,7 @@ struct YearOfRenewalsTests {
         let logger = RecordingPurchaseLogger()
         let store = PurchaseStore(catalogue: catalogue, front: front, clock: clock, logger: logger)
         try await store.purchase(monthly)
+        let bought = logger.events.count
         var ends = try #require(store.standing.subscription(in: group).current?.periodEnds)
         var lockedOut: [Int] = []
         for month in 1 ... 12 {
@@ -255,7 +256,7 @@ struct YearOfRenewalsTests {
         #expect(lockedOut.isEmpty)
         // Every read the store made, not only the ones a poll happened to see: a store that
         // published "not subscribed" and corrected it a read later is caught here.
-        let reads = logger.events.compactMap { event -> Set<ProductID>? in
+        let reads = logger.events.dropFirst(bought).compactMap { event -> Set<ProductID>? in
             if case let .standingResolved(owned) = event { owned } else { nil }
         }
         #expect(reads.count > 12)

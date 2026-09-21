@@ -128,9 +128,82 @@ struct PurchaseStoreNonRenewingTests {
         clock.advance(by: .seconds(10 * day))
         try await store.purchase(Seasons.season)
         front.listUnlisted()
+        #expect(await waitUntil { running()?.endsAt == Shop.epoch.addingTimeInterval(60 * day) })
         front.revoke(Seasons.season)
-        await waitUntil { running()?.endsAt == Shop.epoch.addingTimeInterval(30 * day) }
-        #expect(store.standing.access(to: Seasons.season).isGranted == true)
+        #expect(await waitUntil { running() == NonRenewingPeriod(startedAt: Shop.epoch, endsAt: Shop.epoch.addingTimeInterval(30 * day)) })
+    }
+
+    @Test("bought again and waiting for APPROVAL, it stays pending, though an earlier purchase is owned, until approved")
+    func pendingAgain() async throws {
+        await store.start()
+        try await store.purchase(Seasons.season)
+        front.listUnlisted()
+        clock.advance(by: .seconds(10 * day))
+        front.behaviour.purchase = .pending
+        #expect(try await store.purchase(Seasons.season) == .pending)
+        await store.refresh()
+        #expect(store.pendingApprovals == [Seasons.season])
+        front.approvePending(Seasons.season)
+        #expect(await waitUntil { store.pendingApprovals.isEmpty })
+        #expect(running()?.endsAt == Shop.epoch.addingTimeInterval(60 * day))
+    }
+
+    @Test("bought, and read again with it counted before purchase() returns, it is time bought and no failure")
+    func countedBeforeReturn() async throws {
+        let bought = OwnedProduct(id: Seasons.season, originalPurchaseDate: Shop.epoch)
+        let later = Later()
+        let purchaser = Meanwhile(product: bought) { @MainActor in
+            front.seed(bought)
+            await later.store?.refresh()
+        }
+        let store = PurchaseStore(
+            catalogue: Seasons.catalogue, catalogueLoader: front, ownership: front, purchaser: purchaser, restorer: front,
+            observer: front, clock: clock)
+        later.store = store
+        await store.start()
+        #expect(try await store.purchase(Seasons.season)
+            == .nonRenewing(NonRenewingPeriod(startedAt: Shop.epoch, endsAt: Shop.epoch.addingTimeInterval(30 * day))))
+    }
+
+    @Test("a purchase HANDED BACK in Apple's view that was already counted bought nothing: a failure")
+    func handedBackInAppleView() async throws {
+        let bought = OwnedProduct(id: Seasons.season, originalPurchaseDate: Shop.epoch)
+        front.seed(bought)
+        await store.start()
+        await #expect(throws: PurchaseError.system) { try await store.takePurchase(.purchased(bought), of: Seasons.season) }
+    }
+
+    /// On the Mac, Apple's views announce what they sell (spike/README.md, q12), so the store
+    /// can count a purchase before the view hands it over.
+    @Test("bought in Apple's view and ANNOUNCED before it is handed over, it is time bought and no failure")
+    func announcedInAppleView() async throws {
+        await store.start()
+        try await store.purchase(Seasons.season)
+        front.listUnlisted()
+        clock.advance(by: .seconds(10 * day))
+        let again = OwnedProduct(id: Seasons.season, originalPurchaseDate: clock.now)
+        front.deliver(again)
+        let doubled = NonRenewingPeriod(startedAt: Shop.epoch, endsAt: Shop.epoch.addingTimeInterval(60 * day))
+        #expect(await waitUntil { running() == doubled })
+        #expect(try await store.takePurchase(.purchased(again), of: Seasons.season) == .nonRenewing(doubled))
+    }
+
+    /// The purchase date is the App Store's, and this device's clock can be behind it.
+    @Test("a purchase dated AHEAD of this device's clock is its own period, and runs when the clock reaches it")
+    func aheadOfTheClock() async throws {
+        let ahead = OwnedProduct(id: Seasons.season, originalPurchaseDate: Shop.epoch.addingTimeInterval(60))
+        let purchaser = Meanwhile(product: ahead) { @MainActor in front.seed(ahead) }
+        let store = PurchaseStore(
+            catalogue: Seasons.catalogue, catalogueLoader: front, ownership: front, purchaser: purchaser, restorer: front,
+            observer: front, clock: clock, listingGrace: .seconds(1))
+        await store.start()
+        let period = NonRenewingPeriod(startedAt: ahead.purchaseDate, endsAt: ahead.purchaseDate.addingTimeInterval(30 * day))
+        #expect(try await store.purchase(Seasons.season) == .nonRenewing(period))
+        clock.advance(by: .seconds(1))
+        await store.refresh()
+        #expect(store.standing.access(to: Seasons.season, at: clock.now) == .none)
+        clock.advance(to: ahead.purchaseDate)
+        #expect(await waitUntil { store.standing.access(to: Seasons.season) == .nonRenewing(period) })
     }
 
     @Test("from each purchase, a second adds only what reaches past the first")
@@ -165,6 +238,24 @@ struct PurchaseStoreNonRenewingTests {
         #expect(store.standing.nonRenewing(Seasons.season, at: clock.now)
             == .active(NonRenewingPeriod(startedAt: Shop.epoch, endsAt: Shop.epoch.addingTimeInterval(30 * day))))
     }
+}
+
+/// A store that does something else while it sells, and then sells `product`.
+private struct Meanwhile: ProductPurchasing {
+    let product: OwnedProduct
+    let meanwhile: @Sendable () async -> Void
+
+    func purchase(
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
+    ) async throws(PurchaseError) -> PurchaseOutcome {
+        await meanwhile()
+        return .purchased(product)
+    }
+}
+
+@MainActor
+private final class Later {
+    var store: PurchaseStore?
 }
 
 /// A store that hands back what the account already has, as the iOS simulator did.

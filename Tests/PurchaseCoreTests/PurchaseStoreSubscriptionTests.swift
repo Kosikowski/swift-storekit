@@ -168,7 +168,7 @@ struct PurchaseStoreSubscriptionTests {
         await store.start()
         let outcome = try await front.purchase(Plans.monthly, confirmation: .automatic)
         #expect(group.isActive == false)
-        let completion = await store.takePurchase(outcome, of: Plans.monthly)
+        let completion = try await store.takePurchase(outcome, of: Plans.monthly)
         guard case let .subscribed(held) = completion else {
             Issue.record("expected subscribed, got \(completion)")
             return
@@ -184,17 +184,27 @@ struct PurchaseStoreSubscriptionTests {
         front.seedSubscription(premium)
         await store.start()
         let outcome = try await front.purchase(Plans.monthly, confirmation: .automatic)
-        #expect(await store.takePurchase(outcome, of: Plans.monthly) == .planChangeScheduled(to: Plans.monthly, at: premium.periodEnds))
+        #expect(try await store.takePurchase(outcome, of: Plans.monthly) == .planChangeScheduled(to: Plans.monthly, at: premium.periodEnds))
         #expect(group.current?.product == Plans.premium)
     }
 
     @Test("an Ask to Buy in Apple's view, handed over, is pending until approved")
     func askToBuyInAppleView() async throws {
         await store.start()
-        #expect(await store.takePurchase(.pending, of: Plans.monthly) == .pending)
+        #expect(try await store.takePurchase(.pending, of: Plans.monthly) == .pending)
         #expect(store.pendingApprovals == [Plans.monthly])
-        #expect(await store.takePurchase(.cancelled, of: Plans.yearly) == .cancelled)
+        #expect(try await store.takePurchase(.cancelled, of: Plans.yearly) == .cancelled)
         #expect(store.pendingApprovals == [Plans.monthly])
+    }
+
+    @Test("a subscription handed back ALREADY OVER in Apple's view bought nothing: a failure, as from purchase()")
+    func handedBackInAppleView() async throws {
+        await store.start()
+        let over = OwnedProduct(
+            id: Plans.monthly, originalPurchaseDate: clock.now.addingTimeInterval(-60 * 86_400),
+            expirationDate: clock.now.addingTimeInterval(-30 * 86_400))
+        await #expect(throws: PurchaseError.system) { try await store.takePurchase(.purchased(over), of: Plans.monthly) }
+        #expect(group.isActive == false)
     }
 
     @Test("an Ask to Buy for a subscription stops being pending when the subscription is active")

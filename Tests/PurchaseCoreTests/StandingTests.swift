@@ -96,6 +96,34 @@ struct StandingTests {
         #expect(standing.access(to: Shop.pro) == .owned(pro))
     }
 
+    @Test("the next expiry after a moment is the next still to come, however long ago the standing was read")
+    func nextExpiryAfter() {
+        let catalogue: Catalogue = [
+            .unlock("a"), .unlock("b"),
+            .trial("short", of: ["a"], lasting: .seconds(10 * 86_400)),
+            .trial("long", of: ["b"], lasting: .seconds(30 * 86_400)),
+        ]
+        let read = now.addingTimeInterval(-20 * 86_400)
+        let standing = resolver.standing(
+            owned: [
+                OwnedProduct(id: "short", originalPurchaseDate: read), OwnedProduct(id: "long", originalPurchaseDate: read),
+            ], catalogue: catalogue, asOf: read)
+        #expect(standing.nextExpiry == read.addingTimeInterval(10 * 86_400))
+        #expect(standing.nextExpiry(after: now) == read.addingTimeInterval(30 * 86_400))
+        #expect(standing.nextExpiry(after: read.addingTimeInterval(30 * 86_400)) == nil)
+    }
+
+    @Test("a non-renewing subscription dated ahead of the clock is looked at when it begins, and when it ends")
+    func nextExpiryNonRenewing() {
+        let catalogue: Catalogue = [.nonRenewing("season", lasting: .seconds(30 * 86_400))]
+        let starts = now.addingTimeInterval(60)
+        let standing = resolver.standing(
+            owned: [OwnedProduct(id: "season", originalPurchaseDate: starts)], catalogue: catalogue, asOf: now)
+        #expect(standing.access(to: "season") == .none)
+        #expect(standing.nextExpiry == starts)
+        #expect(standing.nextExpiry(after: starts) == starts.addingTimeInterval(30 * 86_400))
+    }
+
     @Test("a sub-second trial keeps its fraction")
     func subSecond() {
         let period = TrialTerms(duration: .milliseconds(300), targets: [Shop.pro]).period(startingAt: now)

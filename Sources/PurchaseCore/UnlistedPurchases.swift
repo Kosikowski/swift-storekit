@@ -41,11 +41,20 @@ struct UnlistedPurchases: Sendable {
     /// When the hold that lapses soonest does so.
     var nextLapse: Date? { holds.map(\.until).min() }
 
+    /// A hold of a later purchase of the product is kept in place of this one: renewals
+    /// missed while nothing ran arrive newest first (measured).
+    ///
     /// - Parameter alongside: keep every other hold of the product. Each purchase of a
     ///   non-renewing subscription is time bought, and the listing keeps them all
     ///   (measured); a second one held in place of the first would lose the first.
     mutating func hold(_ product: OwnedProduct, until deadline: Date, alongside: Bool = false) {
-        holds.removeAll { $0.product.id == product.id && (!alongside || $0.product.purchaseDate == product.purchaseDate) }
+        if alongside {
+            holds.removeAll { $0.product.id == product.id && $0.product.purchaseDate == product.purchaseDate }
+        } else {
+            guard !holds.contains(where: { $0.product.id == product.id && $0.product.purchaseDate > product.purchaseDate })
+            else { return }
+            holds.removeAll { $0.product.id == product.id }
+        }
         holds.append(Hold(product: product, until: deadline, alongside: alongside))
     }
 
