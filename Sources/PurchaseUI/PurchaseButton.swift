@@ -44,7 +44,8 @@ public struct PurchaseButton<Label: View>: View {
     private let onCompletion: @MainActor (Result<PurchaseCompletion, PurchaseError>) -> Void
     private let label: Label
 
-    /// - Parameter options: how it is bought: an account token of the app's own.
+    /// - Parameter options: how it is bought: an offer, a billing plan, an account token of
+    ///   the app's own. The default is a plain purchase.
     public init(
         _ id: ProductID,
         options: PurchaseOptions = PurchaseOptions(),

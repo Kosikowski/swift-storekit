@@ -36,7 +36,8 @@ public protocol PurchaseCommanding: AnyObject, Sendable {
     /// is under way throws `alreadyInProgress` rather than queueing behind it.
     ///
     /// - Parameters:
-    ///   - options: how it is bought: an account token of the app's own.
+    ///   - options: how it is bought: an offer, a billing plan, an account token of the
+    ///     app's own. `PurchaseOptions()` is a plain purchase.
     ///   - confirmation: where the payment sheet goes. With more than one window open,
     ///     say; `PurchaseButton` does.
     @discardableResult

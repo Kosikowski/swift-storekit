@@ -185,8 +185,9 @@ public final class SimulatedStoreFront: StoreFront, StoreDiagnosing, Subscriptio
         state.withLock { _ = $0.usedIntroductoryOffer.insert(group) }
     }
 
-    /// What the last purchase asked for beyond its product — an account token — as it
-    /// reached the store. Nil until something is bought.
+    /// What the last purchase asked for beyond its product — the offer and its signature,
+    /// the billing plan, an account token — as it reached the store. Nil until something is
+    /// bought.
     public var lastPurchaseOptions: PurchaseOptions? { state.withLock { $0.lastPurchaseOptions } }
 
     /// How many are listening to the updates stream. A store that has only been

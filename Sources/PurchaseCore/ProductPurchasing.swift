@@ -12,7 +12,8 @@
 /// unfinished — nothing has been delivered for it, and the store offers an
 /// unfinished transaction again — and surfaces as `PurchaseError.unverified`.
 ///
-/// `options` are handed to the store as they are: an account token untouched.
+/// `options` are handed to the store as they are: the offer, with the signature the store
+/// has already set for it, the billing plan, and an account token untouched.
 public protocol ProductPurchasing: Sendable {
     func purchase(
         _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
