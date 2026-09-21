@@ -123,12 +123,19 @@ extension RealStoreKit.RealSubscriptionTests {
         }
         #expect(held.offer?.kind == .introductory)
         #expect(store.introductoryOffer(for: Shop.monthly) == .ineligible)
-        // HABIT: StoreKit keeps its first answer. Held on the Mac; in the iOS simulator phase 0
-        // saw it kept twice, and the hosted suite once saw "false" straight after the purchase.
-        // The store is right either way; this is here to notice StoreKit changing.
+        // HABIT: StoreKit keeps its first answer. Held on the Mac with Xcode 27; in the iOS
+        // simulator phase 0 saw it kept twice, and the hosted suite once saw "false" straight
+        // after the purchase; so did the Mac with Xcode 26.6, in one run of two. The store is
+        // right either way; this is here to notice StoreKit changing.
         let stillSaysEligible = await Product.SubscriptionInfo.isEligibleForIntroOffer(for: Shop.membership.rawValue)
         #if os(macOS)
-        #expect(stillSaysEligible, "HABIT: StoreKit's first answer is kept — if this fails, it no longer is (D46)")
+        if RealStoreKit.builtWithXcode27 {
+            #expect(stillSaysEligible, "HABIT: StoreKit's first answer is kept — if this fails, it no longer is (D46)")
+        } else {
+            withKnownIssue("with Xcode 26.6 the Mac does not always keep its first answer", isIntermittent: true) {
+                #expect(stillSaysEligible)
+            }
+        }
         #else
         withKnownIssue("the iOS simulator does not always keep its first answer", isIntermittent: true) {
             #expect(stillSaysEligible)

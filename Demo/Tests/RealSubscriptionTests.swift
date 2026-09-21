@@ -28,16 +28,19 @@ extension RealStoreKit {
         /// What phase 0 measured, per OS (spike/README.md). A test below measures each again.
         enum Measured {
             #if os(macOS)
-            /// macOS 26.6: listed about 0.6 s after `purchase()` returns.
-            static let listsASubscriptionLate = true
-            /// macOS 26.6: announced on `Transaction.updates` half a second later, though made
-            /// here — unlike a non-consumable.
-            static let announcesASubscriptionBoughtHere = true
+            /// macOS 26.6 with Xcode 27.0: listed about 0.6 s after `purchase()` returns. With
+            /// Xcode 26.6, on a hosted runner, seen both ways: a race, measured and not insisted
+            /// on (nil).
+            static let listsASubscriptionLate: Bool? = RealStoreKit.builtWithXcode27 ? true : nil
+            /// macOS 26.6 with Xcode 27.0: announced on `Transaction.updates` half a second
+            /// later, though made here — unlike a non-consumable. With Xcode 26.6: not
+            /// announced within five seconds, in both runs.
+            static let announcesASubscriptionBoughtHere = RealStoreKit.builtWithXcode27
             /// macOS 26.6: not listed while in billing retry, as Apple documents.
             static let listsBillingRetry = false
             #else
             /// iOS 27.0 simulator.
-            static let listsASubscriptionLate = false
+            static let listsASubscriptionLate: Bool? = false
             static let announcesASubscriptionBoughtHere = false
             /// iOS 27.0 simulator: a renewal transaction arrives for a failed charge, and is
             /// listed while the status says billing retry.
@@ -90,6 +93,30 @@ extension RealStoreKit {
                 return status.state == .subscribed && status.renewalInfo.unsafePayloadValue.gracePeriodExpirationDate == nil
                     && transaction.purchaseDate > transaction.originalPurchaseDate
             }
+        }
+
+        /// Whether StoreKit itself says the membership is being retried with no grace period:
+        /// in billing retry, or expired while still retrying, with no grace date.
+        private func storeKitRetriedWithoutGrace() async throws -> Bool {
+            try await Product.SubscriptionInfo.status(for: Shop.membership.rawValue).contains { status in
+                let renewal = status.renewalInfo.unsafePayloadValue
+                let retrying = status.state == .inBillingRetryPeriod || (status.state == .expired && renewal.isInBillingRetry)
+                return retrying && renewal.gracePeriodExpirationDate == nil
+            }
+        }
+
+        /// StoreKit's own statuses for the membership, in words, for a failure message: so a
+        /// failure says what StoreKit said, and not only what the store made of it.
+        private func storeKitSays() async -> String {
+            guard let statuses = try? await Product.SubscriptionInfo.status(for: Shop.membership.rawValue) else {
+                return "no status could be read"
+            }
+            return statuses.map { status in
+                let transaction = status.transaction.unsafePayloadValue
+                let renewal = status.renewalInfo.unsafePayloadValue
+                return "\(status.state.localizedDescription): \(transaction.productID), renewed \(transaction.purchaseDate > transaction.originalPurchaseDate), "
+                    + "retrying \(renewal.isInBillingRetry), grace until \(renewal.gracePeriodExpirationDate.map { "\($0)" } ?? "nil")"
+            }.joined(separator: "; ")
         }
 
         private func latest(_ id: ProductID, in session: SKTestSession) -> UInt? {
@@ -165,11 +192,23 @@ extension RealStoreKit {
             let store = store()
             await store.start()
             try await store.purchase(Shop.monthly)
-            #expect(await waitUntil(timeout: .seconds(30)) {
+            let retried = await waitUntil(timeout: .seconds(30)) {
                 await store.refresh()
                 return membership(store).current?.state == .inBillingRetry
-            })
-            #expect(membership(store).isActive == false)
+            }
+            // With Xcode 26.6 the test environment renewed instead, in every run on the hosted
+            // runner: `shouldEnterBillingRetryOnRenewal` alone was not honoured. Decided by
+            // StoreKit's own status, and only with those tools.
+            if !retried, !RealStoreKit.builtWithXcode27, try await storeKitRenewedInstead() {
+                withKnownIssue("Xcode 26.6's test environment renewed instead of failing the charge", isIntermittent: true) {
+                    Issue.record("renewed; the store saw \(membership(store))")
+                }
+                #expect(membership(store).isActive == true, "StoreKit renewed it, so it is access")
+            } else {
+                let says = await storeKitSays()
+                #expect(retried, "never in billing retry; last seen \(membership(store)); StoreKit says \(says)")
+                #expect(membership(store).isActive == false)
+            }
             withExtendedLifetime(session) {}
         }
 
@@ -194,10 +233,21 @@ extension RealStoreKit {
                 withKnownIssue("StoreKit's test environment renewed instead of failing the charge", isIntermittent: true) {
                     Issue.record("renewed; the store saw \(membership(store))")
                 }
+                #expect(membership(store).isActive == true)
+            } else if !graced, !RealStoreKit.builtWithXcode27, try await storeKitRetriedWithoutGrace() {
+                // With Xcode 26.6, in every run on the hosted runner, the test environment went
+                // into billing retry and gave no grace period, though told to. The store is held
+                // to what StoreKit said: billing retry is not access.
+                withKnownIssue("Xcode 26.6's test environment gave no grace period, and went into billing retry", isIntermittent: true) {
+                    Issue.record("no grace period; the store saw \(membership(store))")
+                }
+                #expect(membership(store).current?.state == .inBillingRetry)
+                #expect(membership(store).isActive == false)
             } else {
-                #expect(graced, "never in a grace period; last seen \(membership(store))")
+                let says = await storeKitSays()
+                #expect(graced, "never in a grace period; last seen \(membership(store)); StoreKit says \(says)")
+                #expect(membership(store).isActive == true)
             }
-            #expect(membership(store).isActive == true)
             withExtendedLifetime(session) {}
         }
 
@@ -235,7 +285,9 @@ extension RealStoreKit {
             }
             let listedAtOnce = await isListed(Shop.monthly)
             print("MEASURED subscriptionListedAtOnce:", listedAtOnce)
-            #expect(listedAtOnce == !Measured.listsASubscriptionLate)
+            if let late = Measured.listsASubscriptionLate {
+                #expect(listedAtOnce == !late)
+            }
             #expect(await waitUntil(timeout: .seconds(10)) { await isListed(Shop.monthly) })
             withExtendedLifetime(session) {}
         }
@@ -263,10 +315,21 @@ extension RealStoreKit {
             let session = try session(rate: .oneRenewalEveryTenSeconds)
             session.shouldEnterBillingRetryOnRenewal = true
             _ = try await front.purchase(Shop.monthly, confirmation: .automatic)
-            #expect(await waitUntil(timeout: .seconds(25)) {
+            let retried = await waitUntil(timeout: .seconds(25)) {
                 let statuses = (try? await Product.SubscriptionInfo.status(for: Shop.membership.rawValue)) ?? []
                 return statuses.contains { $0.state == .inBillingRetryPeriod }
-            })
+            }
+            // As in `billingRetry`: with Xcode 26.6 the environment renewed instead, so there is
+            // no billing retry to measure.
+            if !retried, !RealStoreKit.builtWithXcode27, try await storeKitRenewedInstead() {
+                withKnownIssue("Xcode 26.6's test environment renewed instead of failing the charge", isIntermittent: true) {
+                    Issue.record("renewed, so billing retry could not be measured")
+                }
+                withExtendedLifetime(session) {}
+                return
+            }
+            let says = await storeKitSays()
+            #expect(retried, "never in billing retry; StoreKit says \(says)")
             try await Task.sleep(for: .seconds(1))
             let listed = await isListed(Shop.monthly)
             print("MEASURED billingRetryListed:", listed)
