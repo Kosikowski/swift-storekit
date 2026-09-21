@@ -73,7 +73,10 @@ extension RealStoreKit {
             let completion: PurchaseCompletion
             do throws(PurchaseError) {
                 completion = try await store.purchase(Shop.season)
-            } catch .system {
+            } catch {
+                // Caught whole and thrown on: Swift 6.3.3 (Xcode 26.6) crashes compiling
+                // `catch .system` here, where the error it does not match is thrown on.
+                guard error == .system else { throw error }
                 #if os(iOS)
                 // Excused only where StoreKit itself says nothing was bought.
                 #expect(session.allTransactions().filter { $0.productIdentifier == Shop.season.rawValue }.count == 1)
