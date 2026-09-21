@@ -148,3 +148,25 @@ comparing what `purchase()` returned with what was asked for; missed renewals ar
 date, never by arrival; a withdrawal names a transaction, not a product; status reads go in
 a task nobody cancels; introductory eligibility is also read from the group's own
 transactions; and win-back purchases can only be tested on the Mac.
+
+### Phase 3: what else StoreKit does, and what Xcode's environment could not be made to do
+
+Before phase 3 of [the plan](../docs/14-subscriptions-plan.md#phase-3-on-demand) was built,
+on 21 September 2026, same machines and tools. Non-renewing subscriptions are
+`NonRenewingProbes.swift`, purchase intents `PurchaseIntentProbes.swift` and
+`UITests/IntentProbe.swift`, the 12-month commitment `CommitmentProbes.swift`, and messages
+`UITests/MessageProbe.swift`. Three runs each for the non-renewing questions.
+
+| # | Question | macOS 26.6, Xcode 27.0 | iOS 27.0 simulator |
+|---|---|---|---|
+| n01 | A non-renewing subscription bought | **No end**: `expirationDate` nil, and the product has no subscription info. Listed 0.4 s after `purchase()`; not announced | The same, listed at once |
+| n02 | Bought again | **A new transaction, and the listing keeps both**, in all three runs | The same |
+| n03 | One of two refunded | That one leaves the listing and the other stays; the refund is announced, seconds late, and the listing once showed the refunded one again for a moment | The same, when there were two: **in two runs of three the second purchase handed back the first**, and bought nothing |
+| i01–i05 | A purchase intent, promoted or with a win-back offer, from an `itms-services://?action=purchaseIntent` URL | **Nothing arrived**, opened from the app | **Nothing arrived**, opened from the app or by the system (`XCUIDevice.shared.system.open`). Apple's own route is the sandbox, on a device |
+| c00 | A `.storekit` file with a monthly billing plan | **No shape loaded**: eighteen variants of `billingPlans`, at schema versions 4 to 7, in two storefronts, while the same file without the plan did. Without one, a yearly product reports one pricing term, `BILLED_UPFRONT` | The same |
+| m01 | A price-increase consent as a `Message` | Not asked: the Mac has no messages | **Not reached**: no purchase could be made from the UI-test runner to ask consent of |
+
+Consequences: a non-renewing subscription's end is the catalogue's, every purchase counts,
+and a "purchase" that hands back one already counted bought nothing (D52). Purchase intents,
+the 12-month commitment, messages and bundles are built on Apple's documented API and tested
+against fakes and the simulated store, and go on the sandbox list (D53–D56).

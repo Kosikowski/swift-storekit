@@ -15,12 +15,81 @@ struct HostApp: App {
         return nil
     }()
 
+    /// Phase 3: launched with `-probe-intents`, the host listens for purchase intents from
+    /// launch and shows every one it receives.
+    private let intents: IntentProbe? =
+        ProcessInfo.processInfo.arguments.contains("-probe-intents") ? IntentProbe() : nil
+
+    #if os(iOS)
+    /// Phase 3: launched with `-probe-messages`, the host keeps every StoreKit message it is
+    /// sent, displaying none, and shows their reasons.
+    private let messages: MessageProbe? =
+        ProcessInfo.processInfo.arguments.contains("-probe-messages") ? MessageProbe() : nil
+    #endif
+
     var body: some Scene {
         WindowGroup {
             if let probe {
                 StoreViewProbeView(probe: probe)
+            } else if let intents {
+                Text("intents: " + intents.heard.joined(separator: " ")).accessibilityIdentifier("intents")
+            } else if let messages = messageProbe {
+                Text("messages: " + messages).accessibilityIdentifier("messages")
             } else {
                 Text("StoreKit subscriptions spike host")
+            }
+        }
+    }
+}
+
+extension HostApp {
+    private var messageProbe: String? {
+        #if os(iOS)
+        messages.map { $0.heard.joined(separator: " ") }
+        #else
+        nil
+        #endif
+    }
+}
+
+#if os(iOS)
+@MainActor
+@Observable
+final class MessageProbe {
+    private let start = Date()
+    var heard: [String] = []
+
+    init() {
+        Task {
+            // Something to ask a price rise of: the monthly plan, bought at launch.
+            if let product = try? await Product.products(for: ["probe.monthly"]).first,
+                case let .success(.verified(transaction))? = try? await product.purchase()
+            {
+                await transaction.finish()
+                heard.append("bought")
+            }
+        }
+        Task {
+            for await message in Message.messages {
+                heard.append("reason \(message.reason.rawValue)@\(String(format: "%.2f", Date().timeIntervalSince(start)))")
+            }
+        }
+    }
+}
+#endif
+
+@MainActor
+@Observable
+final class IntentProbe {
+    private let start = Date()
+    var heard: [String] = []
+
+    init() {
+        Task {
+            for await intent in PurchaseIntent.intents {
+                var text = "\(intent.product.id)@\(String(format: "%.2f", Date().timeIntervalSince(start)))"
+                if let offer = intent.offer { text += "+offer:\(offer.type.rawValue)/\(offer.id ?? "-")" }
+                heard.append(text)
             }
         }
     }

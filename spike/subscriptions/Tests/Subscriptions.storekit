@@ -1,6 +1,22 @@
 {
   "identifier" : "5B0C0DE1",
-  "nonRenewingSubscriptions" : [],
+  "nonRenewingSubscriptions" : [
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "5B000B00",
+      "localizations" : [
+        {
+          "description" : "A season, bought once and not renewed",
+          "displayName" : "Season",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "probe.season",
+      "referenceName" : "Season",
+      "type" : "NonRenewingSubscription"
+    }
+  ],
   "products" : [
     {
       "displayPrice" : "9.99",
