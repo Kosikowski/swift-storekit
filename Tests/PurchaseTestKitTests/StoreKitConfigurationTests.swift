@@ -222,6 +222,22 @@ struct StoreKitConfigurationTests {
             promotionalOffers: monthly.promotionalOffers, winBackOffers: monthly.winBackOffers))
     }
 
+    @Test("a free trial, which the file gives no price, is read as costing nothing")
+    func freeTrial() throws {
+        let url = try #require(Bundle.module.url(forResource: "subscriptions", withExtension: "storekit", subdirectory: "Fixtures"))
+        var json = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var groups = try #require(json["subscriptionGroups"] as? [[String: Any]])
+        var subscriptions = try #require(groups[0]["subscriptions"] as? [[String: Any]])
+        let yearly = try #require(subscriptions.firstIndex { $0["productID"] as? String == "probe.yearly" })
+        subscriptions[yearly]["introductoryOffer"] = ["internalID": "5B000299", "paymentMode": "free", "subscriptionPeriod": "P1W"]
+        groups[0]["subscriptions"] = subscriptions
+        json["subscriptionGroups"] = groups
+        let file = try StoreKitConfiguration(data: JSONSerialization.data(withJSONObject: json))
+        let offer = try #require(file.products.first { $0.id == "probe.yearly" }?.introductoryOffer)
+        #expect(offer == OfferTerms(
+            kind: .introductory, paymentMode: .freeTrial, period: .weeks(1), periodCount: 1, displayPrice: "0.00", price: 0))
+    }
+
     @Test("a period is ISO 8601 with one unit, as Xcode writes it, or nothing", arguments: [
         ("P1W", BillingPeriod.weeks(1)), ("P3D", .days(3)), ("P6M", .months(6)), ("P1Y", .years(1)),
         ("P1M2D", nil), ("1M", nil), ("P0M", nil), ("P", nil),

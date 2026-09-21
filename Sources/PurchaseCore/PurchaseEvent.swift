@@ -48,6 +48,9 @@ public enum PurchaseEvent: Hashable, Sendable {
     /// The app's `OfferSigning` threw, so the purchase was not attempted. `typeName` is the
     /// error's type, and nothing else.
     case offerSignerFailed(ProductID, typeName: String)
+    /// A purchase asked for outside the app named an offer this package cannot ask for. The
+    /// request is kept, without it.
+    case requestedOfferUnrecognised(ProductID)
     /// A subscription group's statuses could not be read. The listing stands in for it,
     /// and nothing is known of its renewals until the next read.
     case subscriptionStatusUnavailable(SubscriptionGroupID)

@@ -279,13 +279,36 @@ struct SubscriptionAdapterTests {
         #expect(await updates.next() == .purchaseRequested(RequestedPurchase(product: pro)))
     }
 
-    @Test("an intent's offer of a kind an intent was not said to carry is left off: the request is the product's")
-    func purchaseRequestedOtherOffer() {
-        let intent = IntentSnapshot(productID: monthly, offerType: .promotional, offerID: "promo")
-        #expect(AppStoreFront.request(from: intent) == RequestedPurchase(product: monthly))
+    @Test("a promotional offer chosen outside the app goes with the request; an introductory one needs no asking")
+    func purchaseRequestedOffers() {
+        let promotional = IntentSnapshot(productID: monthly, offerType: .promotional, offerID: "promo")
+        #expect(AppStoreFront.request(from: promotional, logger: log) == RequestedPurchase(product: monthly, offer: .promotional("promo")))
+        let introductory = IntentSnapshot(productID: monthly, offerType: .introductory, offerID: nil)
+        #expect(AppStoreFront.request(from: introductory, logger: log) == RequestedPurchase(product: monthly))
+        #expect(log.events.withLock { $0 }.isEmpty)
+    }
+
+    @Test("an offer that cannot be asked for — a kind StoreKit added later, or one with no identifier — is left off, and said")
+    func purchaseRequestedUnrecognisedOffer() {
+        let later = IntentSnapshot(productID: monthly, offerType: .init(rawValue: "LATER"), offerID: "later")
+        #expect(AppStoreFront.request(from: later, logger: log) == RequestedPurchase(product: monthly))
+        let unnamed = IntentSnapshot(productID: monthly, offerType: .winBack, offerID: nil)
+        #expect(AppStoreFront.request(from: unnamed, logger: log) == RequestedPurchase(product: monthly))
+        #expect(log.events.withLock { $0 } == [.requestedOfferUnrecognised(monthly), .requestedOfferUnrecognised(monthly)])
     }
 
     // MARK: - Introductory eligibility
+
+    /// Apple's eligibility is the Apple Account's own [Apple].
+    @Test("a FAMILY MEMBER's transaction bought with the introductory offer uses up nothing of this account's")
+    func introductoryEligibilityShared() async {
+        gateway.state.withLock {
+            $0.history[group] = [
+                gateway.subscription(monthly, from: start, to: end, ownership: .familyShared, offer: (.introductory, nil, .freeTrial)),
+            ]
+        }
+        #expect(await front.introductoryEligibility(in: [group]) == [group: true])
+    }
 
     /// Measured: StoreKit's answer keeps its first value for the life of the process, and
     /// said "eligible" after the purchase that used the offer.

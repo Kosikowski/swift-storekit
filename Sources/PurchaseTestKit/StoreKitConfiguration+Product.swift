@@ -91,10 +91,9 @@ extension StoreKitConfiguration {
         }
 
         /// An offer's terms, if they can be read. Its price is the file's bare number, as
-        /// the product's is.
+        /// the product's is; a free trial, which has none in the file, costs nothing.
         private static func offer(_ json: [String: Any], kind: OfferKind) -> OfferTerms? {
             guard let period = (json["subscriptionPeriod"] as? String).flatMap(period) else { return nil }
-            let displayPrice = json["displayPrice"] as? String ?? (json["displayPrice"] as? NSNumber)?.stringValue ?? ""
             let mode: OfferPaymentMode =
                 switch json["paymentMode"] as? String {
                 case "free"?, "freeTrial"?: .freeTrial
@@ -102,6 +101,8 @@ extension StoreKitConfiguration {
                 case "payUpFront"?: .payUpFront
                 default: .unrecognised
                 }
+            let written = json["displayPrice"] as? String ?? (json["displayPrice"] as? NSNumber)?.stringValue
+            let displayPrice = written ?? (mode == .freeTrial ? "0.00" : "")
             return OfferTerms(
                 kind: kind, id: (json["offerID"] as? String).map(OfferID.init(rawValue:)), paymentMode: mode,
                 period: period, periodCount: json["numberOfPeriods"] as? Int ?? 1, displayPrice: displayPrice,

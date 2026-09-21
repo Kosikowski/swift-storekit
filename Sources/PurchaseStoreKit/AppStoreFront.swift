@@ -206,11 +206,11 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusRead
             }
         }
         // A purchase asked for outside the app: a request, for the app to act on. Only a
-        // catalogue product's, and a win-back offer is the only one an intent was said to carry.
+        // catalogue product's.
         let intents = gateway.purchaseIntents()
-        let intentTask = Task { [catalogue] in
+        let intentTask = Task { [catalogue, logger] in
             for await intent in intents where catalogue.contains(intent.productID) {
-                continuation.yield(.purchaseRequested(Self.request(from: intent)))
+                continuation.yield(.purchaseRequested(Self.request(from: intent, logger: logger)))
             }
         }
         continuation.onTermination = { _ in
@@ -221,11 +221,22 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusRead
         return stream
     }
 
-    static func request(from intent: IntentSnapshot) -> RequestedPurchase {
-        guard let id = intent.offerID, let type = intent.offerType,
-            LiveStoreKitGateway.kind(type) == .winBack
-        else { return RequestedPurchase(product: intent.productID) }
-        return RequestedPurchase(product: intent.productID, offer: .winBack(OfferID(id)))
+    /// The offer the person chose goes with the request, so that buying it never charges the
+    /// regular price in its place. An introductory offer needs no asking.
+    static func request(from intent: IntentSnapshot, logger: any PurchaseLogging) -> RequestedPurchase {
+        guard let type = intent.offerType else { return RequestedPurchase(product: intent.productID) }
+        let kind = LiveStoreKitGateway.kind(type)
+        switch (kind, intent.offerID.map { OfferID(rawValue: $0) }) {
+        case (.introductory, _):
+            return RequestedPurchase(product: intent.productID)
+        case let (.winBack, id?):
+            return RequestedPurchase(product: intent.productID, offer: .winBack(id))
+        case let (.promotional, id?):
+            return RequestedPurchase(product: intent.productID, offer: .promotional(id))
+        default:
+            logger.log(.requestedOfferUnrecognised(intent.productID))
+            return RequestedPurchase(product: intent.productID)
+        }
     }
 
     // MARK: - SubscriptionStatusReading
@@ -269,8 +280,10 @@ public struct AppStoreFront: StoreFront, StoreDiagnosing, SubscriptionStatusRead
         await Task { [gateway] () -> [SubscriptionGroupID: Bool] in
             var answer: [SubscriptionGroupID: Bool] = [:]
             for group in groups.sorted() {
+                // The Apple Account's own: a family member's purchase uses up nothing of this one's [Apple].
                 let used = await gateway.transactions(in: group).contains { snapshot in
-                    snapshot.verification == .verified && SubscriptionTriage.offer(of: snapshot)?.kind == .introductory
+                    snapshot.verification == .verified && snapshot.ownership == .purchased
+                        && SubscriptionTriage.offer(of: snapshot)?.kind == .introductory
                 }
                 answer[group] = used ? false : await gateway.isEligibleForIntroductoryOffer(in: group)
             }

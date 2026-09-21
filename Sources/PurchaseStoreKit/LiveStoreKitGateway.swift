@@ -60,34 +60,40 @@ final class LiveStoreKitGateway: StoreKitGateway {
         _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
     ) async throws -> GatewayPurchaseResult? {
         guard let product = try await product(id) else { return nil }
+        let request = try PurchaseRequest(
+            options, winBackOffers: Self.winBackOffers(of: product, on: options.billingPlan),
+            billingPlans: Self.buysOnBillingPlans)
         var storeOptions: Set<Product.PurchaseOption> = []
-        if let token = options.appAccountToken { storeOptions.insert(.appAccountToken(token)) }
-        if let plan = options.billingPlan {
-            // Asked for and not to be had is a failure, never a purchase billed some other way.
-            guard #available(macOS 26.4, iOS 26.4, *) else { throw PurchaseCore.PurchaseError.unsupported }
-            switch plan {
-            case .monthly: storeOptions.insert(.billingPlanType(.monthly))
-            case .upFront: storeOptions.insert(.billingPlanType(.upFront))
-            case .unrecognised: throw PurchaseCore.PurchaseError.unsupported
-            }
+        if let token = request.appAccountToken { storeOptions.insert(.appAccountToken(token)) }
+        if let plan = request.billingPlan, #available(macOS 26.4, iOS 26.4, *) {
+            storeOptions.insert(.billingPlanType(plan == .monthly ? .monthly : .upFront))
         }
-        switch options.offer {
+        switch request.offer {
         case nil:
             break
         case let .winBack(offer)?:
-            // Bought with the offer itself, which only the product has.
-            guard let found = product.subscription?.winBackOffers.first(where: { $0.id == offer.rawValue }) else {
-                throw Product.PurchaseError.invalidOfferIdentifier
-            }
-            storeOptions.insert(.winBackOffer(found))
-        case let .promotional(offer)?:
-            guard let signature = options.signature else { throw Product.PurchaseError.missingOfferParameters }
+            storeOptions.insert(.winBackOffer(offer))
+        case let .promotional(offer, signature)?:
             storeOptions.formUnion(Product.PurchaseOption.promotionalOffer(offer.rawValue, compactJWS: signature))
-        case .introductoryOverride?:
-            guard let signature = options.signature else { throw Product.PurchaseError.missingOfferParameters }
+        case let .introductoryOverride(signature)?:
             storeOptions.insert(.introductoryOfferEligibility(compactJWS: signature))
         }
         return Self.result(of: try await purchase(product, options: storeOptions, anchoredTo: confirmation.anchor))
+    }
+
+    private static var buysOnBillingPlans: Bool {
+        if #available(macOS 26.4, iOS 26.4, *) { true } else { false }
+    }
+
+    /// The product's win-back offers, and those of the billing plan asked for.
+    private static func winBackOffers(of product: Product, on plan: BillingPlan?) -> [OfferID: Product.SubscriptionOffer] {
+        var offers = product.subscription?.winBackOffers ?? []
+        if plan == .monthly, #available(macOS 26.4, iOS 26.4, *) {
+            offers += (product.subscription?.pricingTerms ?? [])
+                .filter { $0.billingPlanType == .monthly }
+                .flatMap { $0.subscriptionOffers.filter { $0.type == .winBack } }
+        }
+        return Dictionary(offers.compactMap { offer in offer.id.map { (OfferID($0), offer) } }) { first, _ in first }
     }
 
     /// StoreKit's result as plain values: from `purchase()` here, or handed to an app by

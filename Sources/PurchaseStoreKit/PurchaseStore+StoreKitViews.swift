@@ -70,7 +70,7 @@ extension PurchaseStore {
         }
     }
 
-    private func takePurchase(
+    func takePurchase(
         _ result: Result<Product.PurchaseResult, any Error>, productID id: ProductID
     ) async throws(PurchaseError) -> PurchaseCompletion {
         let outcome: PurchaseOutcome
