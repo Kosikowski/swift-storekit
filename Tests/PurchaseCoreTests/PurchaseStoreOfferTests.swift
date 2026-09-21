@@ -373,6 +373,60 @@ struct PurchaseStoreOfferTests {
         #expect(signer.requests.map(\.transactionID) == ["4242"])
     }
 
+    @Test("a promotional offer or the override on something that is not a subscription is refused, and nobody is asked")
+    func signedNotASubscription() async {
+        let catalogue = Catalogue(Offers.catalogue.entries + [.unlock(Shop.pro)])
+        let front = SimulatedStoreFront(catalogue: catalogue, products: Offers.products, clock: clock)
+        let store = PurchaseStore(catalogue: catalogue, front: front, offerSigner: signer, clock: clock)
+        await store.start()
+        for offer in [PurchaseOptions.Offer.promotional("promo.returning"), .introductoryOverride] {
+            await #expect(throws: PurchaseError.offerRefused(.unknownOffer)) {
+                try await store.purchase(Shop.pro, options: PurchaseOptions(offer: offer))
+            }
+        }
+        #expect(signer.requests.isEmpty)
+    }
+
+    @Test("where the group's statuses could not be read, 'never subscribed' is only the listing's word: nobody is refused")
+    func signedStatusesUnread() async throws {
+        let store = PurchaseStore(
+            catalogue: Offers.catalogue, catalogueLoader: front, ownership: front, purchaser: front, restorer: front,
+            observer: front, subscriptionStatuses: Statuses(said: [:]), offerSigner: signer, clock: clock)
+        await store.start()
+        _ = try? await store.purchase(Offers.monthly, options: PurchaseOptions(offer: .promotional("promo.returning")))
+        #expect(signer.requests.map(\.product) == [Offers.monthly])
+    }
+
+    @Test("the signer is given the account's own transaction before a family member's")
+    func signerGivenOwnTransaction() async throws {
+        let shared = HeldSubscription(
+            product: Offers.premium, group: Offers.group, ownership: .familyShared, state: .subscribed,
+            firstSubscribed: clock.now, periodStarted: clock.now, periodEnds: clock.now.addingTimeInterval(30 * 86_400),
+            transactionID: 1)
+        let own = lapsedMonthly(winBack: [], transactionID: 2)
+        let store = PurchaseStore(
+            catalogue: Offers.catalogue, catalogueLoader: front, ownership: front, purchaser: front, restorer: front,
+            observer: front, subscriptionStatuses: Statuses(said: [Offers.group: [shared, own]]), offerSigner: signer,
+            clock: clock)
+        await store.start()
+        _ = try? await store.purchase(Offers.monthly, options: PurchaseOptions(offer: .introductoryOverride))
+        #expect(signer.requests.map(\.transactionID) == ["2"])
+    }
+
+    @Test("an introductory offer seen on an ANNOUNCED purchase stays used once nothing shows it any more")
+    func introductoryAnnounced() async throws {
+        await store.start()
+        await store.loadProducts()
+        front.announceWithoutListing(
+            OwnedProduct(
+                id: Offers.monthly, originalPurchaseDate: clock.now, expirationDate: clock.now.addingTimeInterval(30 * 86_400),
+                offer: AppliedOffer(kind: .introductory, paymentMode: .payAsYouGo)))
+        #expect(await waitUntil { group.isActive == true })
+        clock.advance(by: .seconds(31))
+        #expect(await waitUntil { group.isActive == false })
+        #expect(store.introductoryOffer(for: Offers.yearly) == .ineligible)
+    }
+
     @Test("a signer that fails is logged with the type of what it threw, and nothing more")
     func signerFailureLogged() async throws {
         front.seedSubscription(lapsedMonthly(winBack: []))
@@ -444,6 +498,39 @@ struct PurchaseStoreOfferTests {
         #expect(held.product == Offers.premium)
         #expect(held.offer == nil)
         #expect(signer.requests.map(\.kind) == [.introductoryOverride])
+    }
+
+    @Test("bought with ANOTHER offer than the one asked for, the one asked for was not applied")
+    func otherOfferNotApplied() async throws {
+        let cases: [(PurchaseOptions.Offer, AppliedOffer)] = [
+            (.winBack("winback.three"), AppliedOffer(kind: .winBack, id: "winback.two", paymentMode: .payAsYouGo)),
+            (.promotional("promo.returning"), AppliedOffer(kind: .promotional, id: "promo.other", paymentMode: .payAsYouGo)),
+        ]
+        for (asked, got) in cases {
+            let bought = OwnedProduct(
+                id: Offers.monthly, originalPurchaseDate: clock.now, expirationDate: clock.now.addingTimeInterval(30 * 86_400),
+                offer: got)
+            let store = PurchaseStore(
+                catalogue: Offers.catalogue, catalogueLoader: front, ownership: front, purchaser: Sells(product: bought),
+                restorer: front, observer: front, offerSigner: signer, clock: clock)
+            await store.start()
+            let completion = try await store.purchase(Offers.monthly, options: PurchaseOptions(offer: asked))
+            guard case .offerNotApplied = completion else {
+                Issue.record("expected offerNotApplied for \(asked), got \(completion)")
+                continue
+            }
+        }
+    }
+}
+
+/// A store that sells `product`, whatever was asked for.
+private struct Sells: ProductPurchasing {
+    let product: OwnedProduct
+
+    func purchase(
+        _ id: ProductID, options: PurchaseOptions, confirmation: PurchaseConfirmation
+    ) async throws(PurchaseError) -> PurchaseOutcome {
+        .purchased(product)
     }
 }
 

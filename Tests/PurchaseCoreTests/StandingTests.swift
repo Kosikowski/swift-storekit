@@ -178,11 +178,32 @@ struct OwnershipRuleTests {
         #expect(resolver.counts(owned, in: catalogue) == counts)
     }
 
+    @Test("a non-renewing subscription counts when bought, or assigned as a seat, and not when shared", arguments: [
+        (Ownership.purchased, true), (.assigned, true), (.familyShared, false), (.unrecognised, false),
+    ])
+    func nonRenewing(ownership: Ownership, counts: Bool) {
+        let catalogue: Catalogue = [.nonRenewing("season", lasting: .seconds(60))]
+        let owned = OwnedProduct(id: "season", originalPurchaseDate: now, ownership: ownership)
+        #expect(resolver.counts(owned, in: catalogue) == counts)
+    }
+
     @Test("listed twice, this account's own purchase wins, then the earlier")
     func duplicates() {
         let shared = OwnedProduct(id: Shop.pro, originalPurchaseDate: now.addingTimeInterval(-100), ownership: .familyShared)
         let own = OwnedProduct(id: Shop.pro, originalPurchaseDate: now)
         let standing = resolver.standing(owned: [shared, own], catalogue: Shop.catalogue, asOf: now)
         #expect(standing.ownership(of: Shop.pro) == own)
+        let later = OwnedProduct(id: Shop.pro, originalPurchaseDate: now.addingTimeInterval(100), ownership: .familyShared)
+        #expect(resolver.standing(owned: [later, shared], catalogue: Shop.catalogue, asOf: now).ownership(of: Shop.pro) == shared)
+    }
+
+    @Test("a non-renewing subscription bought twice is held as its latest purchase, and both count")
+    func nonRenewingTwice() {
+        let catalogue: Catalogue = [.nonRenewing("season", lasting: .seconds(60))]
+        let first = OwnedProduct(id: "season", originalPurchaseDate: now)
+        let second = OwnedProduct(id: "season", originalPurchaseDate: now.addingTimeInterval(30))
+        let standing = resolver.standing(owned: [second, first], catalogue: catalogue, asOf: now)
+        #expect(standing.ownership(of: "season") == second)
+        #expect(standing.nonRenewing("season", at: now) == .active(NonRenewingPeriod(startedAt: now, endsAt: now.addingTimeInterval(120))))
     }
 }
