@@ -1,5 +1,8 @@
 # swift-storekit
 
+[![Swift Version Compatibility for swift-storekit](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FKosikowski%2Fswift-storekit%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/Kosikowski/swift-storekit)
+[![Platform Compatibility for swift-storekit](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FKosikowski%2Fswift-storekit%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/Kosikowski/swift-storekit)
+
 One-time purchases, trials and subscriptions over StoreKit 2, for macOS 26 and iOS 26, with a simulated store for testing them.
 
 > ⚠️ **Early.** Non-consumables, trials, auto-renewable subscriptions with their offers, and non-renewing subscriptions. No consumables. The API may still move.
